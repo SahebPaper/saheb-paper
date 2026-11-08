@@ -1,0 +1,44 @@
+# Saheb Paper ERP – Overview
+
+## What the App Does
+Saheb Paper ERP is a comprehensive digital solution designed to streamline and automate every aspect of paper manufacturing operations. From raw material procurement to final dispatch, the app provides real‑time visibility, data accuracy, and operational efficiency across the entire production lifecycle.
+
+## Core Workflows
+- **Raw Material Management** – Track inbound shipments, manage inventory levels, and automate stock deductions during production.
+- **Production Planning & Execution** – Create pulp formulas, schedule machine runs, and monitor roll production (weight, GSM, dimensions).
+- **Quality Control** – Record test results (GSM, brightness, softness), assign grades (A/B/Fail), and automatically update inventory status.
+- **Dispatch & Logistics** – Generate packing slips, challans, assign vehicles and drivers, and track order fulfillment status.
+- **Utilities Monitoring** – Log boiler, ETP, and electricity usage for cost control and compliance.
+- **Full Traceability** – Assign QR codes to every reel; scan to view complete production history, QC results, and dispatch status.
+
+## How It Works
+1. **Modular Architecture** – Separate modules for each business function (inventory, production, QC, logistics) that communicate in real time.
+2. **Role‑Based Access** – Users see only the tools relevant to their role, ensuring security and ease of use.
+3. **Real‑Time Data** – All transactions are instantly reflected across dashboards, enabling instant decision‑making.
+4. **QR Code Integration** – Every finished reel receives a unique QR code. Scanning the code instantly displays its complete history, QC grades, and dispatch status.
+4. **Scalable Cloud‑Ready** – Built on a flexible platform that can expand as your business grows, with optional on‑premise deployment.
+
+## Benefits of Using Saheb Paper ERP
+- **Increased Efficiency** – Reduce manual paperwork and processing time by up to 40%.
+- **Cost Reduction** – Optimize inventory levels and resource usage, lowering operational expenses.
+- **Improved Quality** – Real‑time QC monitoring ensures consistent product standards.
+- **Enhanced Visibility** – Instant dashboards give instant insight into production, inventory, and logistics.
+- **Scalable Growth** – Modular design allows adding new features or locations without major re‑engineering.
+- **User‑Friendly** – Intuitive UI with role‑specific dashboards requires minimal training.
+
+## Development Cost
+The total development cost for Saheb Paper ERP is **₹45,000** (or equivalent currency). This investment covers system design, development, testing, and deployment, delivering a fully functional, production‑ready solution.
+
+## QR Code System
+- **Generation** – Each reel is automatically assigned a unique QR code at the time of creation.
+- **Scanning** – Users can scan the QR code with any standard QR reader (mobile app or handheld scanner) to instantly retrieve:
+  - Reel specifications (size, ply, weight, GSM)
+  - Production batch details (pulp formula, machine, shift)
+  - Quality Control results and grade assignment
+  - Dispatch and delivery status
+- **Benefits** – Eliminates manual record‑keeping, reduces errors, speeds up traceability, and provides instant access to critical information for operators, managers, and customers.
+
+---
+
+*Saheb Paper ERP – Transforming Paper Manufacturing with Smart Technology*
+*Date: 2026‑11‑08*

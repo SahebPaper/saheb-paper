@@ -5,12 +5,12 @@ const config: CapacitorConfig = {
   appName: 'Saheb Paper',
   webDir: 'dist',
   server: {
-    url: 'https://thakordhruv097-spec.github.io/saheb-paper/',
+    url: 'https://sahebpaper.github.io/saheb-paper/',
     cleartext: true,
     androidScheme: 'https',
     allowNavigation: [
-      'thakordhruv097-spec.github.io',
       'sahebpaper.github.io',
+      'thakordhruv097-spec.github.io',
       '*.supabase.co'
     ]
   }

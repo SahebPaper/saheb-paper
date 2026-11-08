@@ -133,11 +133,12 @@ export function dismissVersion(versionCode: number): void {
 export async function checkServerVersion(): Promise<AppVersionInfo | null> {
   const timestamp = Date.now();
   const candidateUrls = [
+    `https://sahebpaper.github.io/saheb-paper/version.json?_t=${timestamp}`,
     `https://thakordhruv097-spec.github.io/saheb-paper/version.json?_t=${timestamp}`,
     `/saheb-paper/version.json?_t=${timestamp}`,
     `/version.json?_t=${timestamp}`,
     `${import.meta.env.BASE_URL}version.json?_t=${timestamp}`,
-    `https://raw.githubusercontent.com/thakordhruv097-spec/saheb-paper/main/public/version.json?_t=${timestamp}`,
+    `https://raw.githubusercontent.com/SahebPaper/saheb-paper/main/public/version.json?_t=${timestamp}`,
   ];
 
   for (const url of candidateUrls) {

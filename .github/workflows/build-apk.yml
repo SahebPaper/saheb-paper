@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'Version name (e.g. Beta 1.10.30)'
+        description: 'Version name (e.g. Beta 1.10.31)'
         required: false
-        default: 'Beta 1.10.30'
+        default: 'Beta 1.10.31'
   push:
     branches: [main]
     paths:
@@ -59,7 +59,7 @@ jobs:
 
       - name: Prepare APKs for release
         run: |
-          VERSION="${{ github.event.inputs.version_name || 'Beta 1.10.30' }}"
+          VERSION="${{ github.event.inputs.version_name || 'Beta 1.10.31' }}"
           SAFE_VERSION=$(echo "$VERSION" | tr ' ' '-')
           cp android/app/build/outputs/apk/debug/app-debug.apk "Saheb-Paper-ERP-${SAFE_VERSION}.apk"
           cp android/app/build/outputs/apk/debug/app-debug.apk "SahebPaper-Latest.apk"
@@ -76,17 +76,17 @@ jobs:
       - name: Create or Update GitHub Release with APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.10.30
-          name: "Saheb Paper ERP — Beta 1.10.30 APK (OTA Bridge)"
+          tag_name: v1.10.31
+          name: "Saheb Paper ERP — Beta 1.10.31 APK (SahebPaper Official Hub)"
           body: |
-            ## 📱 Saheb Paper ERP — Beta 1.10.30
+            ## 📱 Saheb Paper ERP — Beta 1.10.31 (SahebPaper Official)
 
             ### Download & Install
             1. Download `SahebPaper-Latest.apk` or `${{ env.APK_NAME }}` below
             2. Install the APK on your Android device (OnePlus / all Android phones)
 
             ### Key Highlights
-            - ✅ **Native OTA Live Bridge**: Directly loads live cloud deployment (`https://thakordhruv097-spec.github.io/saheb-paper/`)
+            - ✅ **SahebPaper Official Hub**: Directly loads live cloud deployment (`https://sahebpaper.github.io/saheb-paper/`)
             - ✅ **Customer / Party Name Direct Typing**: Directly type any customer/party name on draft packing slips
             - ✅ **Permanent OTA Updates**: After this single install, all future web deployments update seamlessly in-app without needing to reinstall the APK!
           files: |

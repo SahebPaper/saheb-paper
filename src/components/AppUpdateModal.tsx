@@ -217,7 +217,7 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({
               window.location.protocol === 'file:'
             );
             const cleanUrl = window.location.href.split('?')[0].split('#')[0];
-            const targetBase = isLocalhost ? 'https://thakordhruv097-spec.github.io/saheb-paper/' : cleanUrl;
+            const targetBase = isLocalhost ? 'https://sahebpaper.github.io/saheb-paper/' : cleanUrl;
             const hash = window.location.hash || '#/dispatch-receipt/draft-packing-slip';
             window.location.replace(`${targetBase}?_v=${Date.now()}${hash}`);
             setTimeout(() => {

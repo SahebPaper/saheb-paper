@@ -1,15 +1,15 @@
 {
-  "version": "Beta 1.10.30",
-  "versionCode": 50,
-  "releaseDate": "2026-11-06",
-  "title": "Saheb Paper ERP (Beta 1.10.30) Update",
+  "version": "Beta 1.10.31",
+  "versionCode": 51,
+  "releaseDate": "2026-11-08",
+  "title": "Saheb Paper ERP (Beta 1.10.31) — SahebPaper Official Release",
   "highlights": [
-    "Native OTA Live Bridge: Direct mobile APK connection to live cloud web app",
-    "Customer Party Direct Typing: Pure typable input box on both mobile APK and desktop",
-    "Streamlined Party Actions: Clean '+ Add [Name]' button and quick dropdown toggle",
-    "Permanent OTA Updates: Install once; all future updates load seamlessly in-app"
+    "SahebPaper Official Hub: Migrated native live OTA bridge to official https://sahebpaper.github.io/saheb-paper/",
+    "Seamless Connectivity: Instant launch and direct cloud sync under new organization",
+    "Customer Party Direct Typing: High-speed party input box with quick dropdown toggle",
+    "Permanent OTA Updates: Direct live connection without needing manual APK updates"
   ],
   "packageSizeMb": 4.2,
-  "apkUrl": "https://github.com/thakordhruv097-spec/saheb-paper/releases/download/v1.10.30/SahebPaper-Latest.apk",
+  "apkUrl": "https://github.com/SahebPaper/saheb-paper/releases/download/v1.10.31/SahebPaper-Latest.apk",
   "mandatory": true
 }

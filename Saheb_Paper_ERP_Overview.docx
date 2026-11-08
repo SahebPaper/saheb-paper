@@ -1,0 +1,60 @@
+# Saheb Paper Pvt. Ltd. — ERP System Project Overview
+
+## Executive Summary
+The Saheb Paper ERP system is a comprehensive solution for managing paper manufacturing operations from raw material procurement to final dispatch. The system provides real-time visibility, data accuracy, and operational efficiency across the entire production lifecycle.
+
+## Key Modules
+
+### 1. Authentication & Security
+- Role‑based access control
+- Session‑based secure login
+- Adaptive dashboard based on user role
+
+### 2. Admin Master Data Management
+- **Products** – Define paper specifications (GSM, weight, size)
+- **Parties** – Manage customers and business partners
+- **Vendors** – Track raw‑material suppliers
+- **Vehicles** – Manage the logistics fleet
+- **Raw Materials** – Inventory tracking and management
+- **User Management** – Control staff access and permissions
+
+### 3. Raw Material Workflow
+- Inward material entry from vendors
+- Real‑time stock level monitoring
+- Minimum‑stock threshold alerts
+- Automatic stock deduction during production
+
+### 4. Production Pipeline
+- **Pulp Mill** – Track waste mix and chemical dosage
+- **Paper Machine** – Monitor parent roll production (weight, GSM)
+- **Rewinder** – Split parent rolls into finished reels (size, ply, weight, diameter)
+
+### 5. Quality Control
+- Physical testing (GSM, brightness, softness)
+- Product grading (Grade A, Grade B, Fail)
+- Automatic status updates based on inspection results
+
+### 6. Dispatch & Challan
+- Order fulfillment from finished stock
+- Professional packing slip and challan generation
+- Vehicle and driver assignment
+- Delivery status tracking (Dispatched, Delivered, Returned)
+
+### 7. Utilities Monitoring
+- **Boiler** – Log wood consumption, pressure, temperature
+- **ETP** – Track liquid usage
+- **Electricity** – Monitor power consumption in kWh
+
+### 8. Digital Traceability
+- QR code integration for each artwork
+- Instant history lookup showing the complete production journey
+- Full supply‑chain visibility from raw material to delivery
+
+## User Roles
+- **Admin** – Full system access and reporting
+- **Production Staff** – Mill, machine, and rewinder operations
+- **QC Inspectors** – Testing and grading workflow
+- **Warehouse/Dispatch** – Order fulfillment and logistics
+- **Utility Operators** – Resource usage logging
+
+This document provides a professional overview that can be shared with clients to demonstrate the system’s capabilities and business value.

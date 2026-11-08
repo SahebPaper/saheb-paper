@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Current Version](https://img.shields.io/badge/Current-Beta%201.10.30-success?style=for-the-badge)
-![Release Date](https://img.shields.io/badge/Released-Nov%206%2C%202026-blue?style=for-the-badge)
+![Current Version](https://img.shields.io/badge/Current-Beta%201.10.31-success?style=for-the-badge)
+![Release Date](https://img.shields.io/badge/Released-Nov%208%2C%202026-blue?style=for-the-badge)
 
 **Complete Version History & Changelog**
 
@@ -12,6 +12,19 @@
 ---
 
 ## 🎯 Current Release
+
+### Beta 1.10.31 (Build 51) - November 8, 2026
+
+**Status**: ✅ Production Ready
+
+#### What's New
+
+- **SahebPaper Official Hub**: Migrated native live OTA bridge to official `https://sahebpaper.github.io/saheb-paper/` following repository ownership transfer.
+- **Seamless Cloud Connectivity**: Instant launch directly connected to SahebPaper official cloud deployment.
+- **Customer Party Direct Typing**: Direct typing box and quick dropdown menu on draft packing slip.
+- **Permanent OTA Updates**: Install once; all future web deployments load in-app seamlessly.
+
+---
 
 ### Beta 1.10.30 (Build 50) - November 6, 2026
 

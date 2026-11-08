@@ -22,9 +22,9 @@ export interface AppUpdateInfo {
   changelogs: VersionChangelog[];
 }
 
-export const APP_BASE_VERSION = 'Beta 1.10.30';
-export const APP_BASE_CODE = 50;
-export const APP_BUILD_DATE = '2026-11-06';
+export const APP_BASE_VERSION = 'Beta 1.10.31';
+export const APP_BASE_CODE = 51;
+export const APP_BUILD_DATE = '2026-11-08';
 
 const isStandaloneClient =
   typeof window !== 'undefined' &&
@@ -40,6 +40,18 @@ export const APP_VERSION =
   APP_BASE_VERSION;
 
 export const APP_CHANGELOGS: VersionChangelog[] = [
+  {
+    version: 'Beta 1.10.31',
+    releaseDate: '2026-11-08',
+    title: 'SahebPaper Official Hub & Live OTA Bridge (Beta 1.10.31)',
+    mandatory: true,
+    highlights: [
+      'SahebPaper Official Hub: Migrated native live OTA bridge to official https://sahebpaper.github.io/saheb-paper/',
+      'Seamless Connectivity: Direct cloud sync under new SahebPaper organization',
+      'Customer Party Direct Typing: Pure typable input box on both mobile APK and desktop',
+      'Permanent OTA Updates: Direct live connection without needing manual APK updates',
+    ],
+  },
   {
     version: 'Beta 1.10.30',
     releaseDate: '2026-11-06',
@@ -437,7 +449,7 @@ export async function checkAppUpdate(): Promise<AppUpdateInfo> {
         ? ['Performance enhancements and stability improvements', 'Bug fixes for production shift reporting']
         : APP_CHANGELOGS[0].highlights,
       mandatory: false,
-      downloadUrl: 'https://github.com/thakordhruv097-spec/saheb-paper/releases/latest/download/SahebPaper-Beta-1.0.apk',
+      downloadUrl: 'https://github.com/SahebPaper/saheb-paper/releases/latest/download/SahebPaper-Latest.apk',
       changelogs: APP_CHANGELOGS,
     };
   } catch (err) {

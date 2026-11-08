@@ -10,6 +10,7 @@ const config: CapacitorConfig = {
     androidScheme: 'https',
     allowNavigation: [
       'thakordhruv097-spec.github.io',
+      'sahebpaper.github.io',
       '*.supabase.co'
     ]
   }

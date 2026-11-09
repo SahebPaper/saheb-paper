@@ -51,7 +51,7 @@ When the user explicitly asks for an update (e.g. *"Ab update bhej do"* / *"Give
 ---
 
 ## 4. In-App Update Behavior on Mobile Devices
-- The installed app checks `https://thakordhruv097-spec.github.io/saheb-paper/version.json`.
+- The installed app checks `https://sahebpaper.github.io/saheb-paper/version.json`.
 - When an update is detected:
   1. The app displays an in-app banner/modal: `Version <VERSION> Available`.
   2. When the user taps **Install (v <VERSION>)**:

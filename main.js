@@ -32,6 +32,8 @@ function createWindow() {
           "font-src 'self' data: https://fonts.gstatic.com; " +
           "connect-src 'self' https://znyvmlwggwckjxxsxiwq.supabase.co wss://znyvmlwggwckjxxsxiwq.supabase.co https://scyiwfqkknuphzhvklok.supabase.co wss://scyiwfqkknuphzhvklok.supabase.co https://sahebpaper.github.io https://*.supabase.co wss://*.supabase.co; " +
           "img-src 'self' data: blob: https:; " +
+          "worker-src 'self' blob:; " +
+          "media-src 'self' blob: data: mediastream:; " +
           "object-src 'none'; " +
           "base-uri 'self'; " +
           "frame-src 'none';"

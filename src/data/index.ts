@@ -102,6 +102,53 @@ export const KEYS = {
   DELETED_ROLES: 'saheb_deleted_roles',
 };
 
+/**
+ * Verifies whether a user has a valid, non-default security recovery answer configured.
+ * Answers that are missing, blank, or the legacy default 'blue' (case-insensitive) are treated as unconfigured.
+ */
+export function isSecurityAnswerConfigured(user?: User | null): user is User & { securityAnswer: string } {
+  if (!user || !user.securityAnswer) return false;
+  const trimmed = user.securityAnswer.trim().toLowerCase();
+  return trimmed !== '' && trimmed !== 'blue';
+}
+
+/**
+ * Scans localStorage for legacy-shaped sessions and active user records.
+ * Strips 'pin', 'securityAnswer', and nested 'user' objects, rewriting them in the lean shape.
+ */
+export function scrubLegacyStorageSessions(): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  try {
+    const rawSession = localStorage.getItem('saheb_session');
+    if (rawSession) {
+      const parsed = JSON.parse(rawSession);
+      if (parsed.user || parsed.pin !== undefined || parsed.securityAnswer !== undefined) {
+        const username = parsed.username || parsed.user?.username || '';
+        const roles = parsed.roles || parsed.user?.roles || (parsed.user?.role ? [parsed.user.role] : []);
+        const leanSession: Record<string, any> = {
+          token: parsed.token || `token_${Date.now()}`,
+          expiresAt: parsed.expiresAt || Date.now() + 8 * 60 * 60 * 1000,
+          username,
+          roles,
+        };
+        if (parsed.simulatedBy) leanSession.simulatedBy = parsed.simulatedBy;
+        localStorage.setItem('saheb_session', JSON.stringify(leanSession));
+      }
+    }
+
+    const rawActiveUser = localStorage.getItem('saheb_active_user');
+    if (rawActiveUser) {
+      const parsedUser = JSON.parse(rawActiveUser);
+      if (parsedUser && (parsedUser.pin !== undefined || parsedUser.securityAnswer !== undefined)) {
+        const { pin: _p, securityAnswer: _sa, ...safeUser } = parsedUser;
+        localStorage.setItem('saheb_active_user', JSON.stringify(safeUser));
+      }
+    }
+  } catch (err) {
+    console.warn('[Security] Failed to scrub legacy storage session:', err);
+  }
+}
+
 // 1. Initial Seeds with Plain 4-Digit PINs
 const DEFAULT_USERS: User[] = [
   {
@@ -366,6 +413,9 @@ export function initializeStorage() {
 
   // Ensure Admin user has valid structure and permissions & all PINs are plain 4-digits
   try {
+    // 1. Scrub any legacy sessions or stored credential fields on boot
+    scrubLegacyStorageSessions();
+
     const rawUsers = getJSON<User[]>(KEYS.USERS, [DEFAULT_USERS[0]]);
     const validKeys = [
       'dashboard', 'raw_material_stock', 'pulp_mill_operations', 'machine_production', 'rewinding_reel_conversion', 'lab',
@@ -375,6 +425,11 @@ export function initializeStorage() {
     const fixedUsers = rawUsers.map(u => {
       if (u.pin && isPinHashed(u.pin)) {
         u.pin = revealPin(u.pin);
+        updated = true;
+      }
+      // Scrub legacy default securityAnswer 'blue'
+      if (u.securityAnswer && u.securityAnswer.trim().toLowerCase() === 'blue') {
+        u.securityAnswer = '';
         updated = true;
       }
       if (u.username === 'admin') {
@@ -911,7 +966,7 @@ export function getAccountLockInfo(username: string): {
       isLocked: true,
       remainingMinutes,
       failedAttempts: record.attempts || MAX_FAILED_LOGIN_ATTEMPTS,
-      securityQuestion: (user?.securityAnswer && user.securityAnswer.trim()) ? (user.securityQuestion || 'What is your favorite color?') : undefined,
+      securityQuestion: isSecurityAnswerConfigured(user) ? (user?.securityQuestion || 'What is your favorite color?') : undefined,
       lockedReason: record.lockedReason || '3 consecutive failed attempts',
     };
   }
@@ -932,7 +987,7 @@ export function getAccountLockInfo(username: string): {
     isLocked: false,
     remainingMinutes: 0,
     failedAttempts: record.attempts || 0,
-    securityQuestion: (user?.securityAnswer && user.securityAnswer.trim()) ? (user.securityQuestion || 'What is your favorite color?') : undefined,
+    securityQuestion: isSecurityAnswerConfigured(user) ? (user?.securityQuestion || 'What is your favorite color?') : undefined,
   };
 }
 
@@ -1067,14 +1122,14 @@ export function unlockAccountWithSecurityQuestion(
     return { success: false, message: 'User account not found.' };
   }
 
-  if (!user.securityAnswer || !user.securityAnswer.trim()) {
+  if (!isSecurityAnswerConfigured(user)) {
     return {
       success: false,
       message: 'No security question configured for this account. Please contact an Admin to unlock your account.',
     };
   }
 
-  const registeredAnswer = user.securityAnswer.trim().toLowerCase();
+  const registeredAnswer = (user.securityAnswer || '').trim().toLowerCase();
   const providedAnswer = answer.trim().toLowerCase();
 
   if (registeredAnswer !== providedAnswer) {

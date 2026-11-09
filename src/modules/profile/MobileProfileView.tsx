@@ -123,8 +123,8 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
       return;
     }
 
-    if (!securityAnswer.trim()) {
-      showToast('Security recovery answer is required', 'error');
+    if (!securityAnswer.trim() || securityAnswer.trim().toLowerCase() === 'blue') {
+      showToast('A valid security answer is required (cannot be "blue")', 'error');
       return;
     }
 

@@ -10,6 +10,7 @@ import {
   resetFailedLogin,
   unlockUserAccount,
   unlockAccountWithSecurityQuestion,
+  scrubLegacyStorageSessions,
 } from '../../data/index';
 import { hashPin, isPinHashed, generateSecureToken, revealPin, verifyPin } from '../../lib/security';
 import { getDeviceInfo } from '../../utils/deviceHelper';
@@ -133,6 +134,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    // Scrub any legacy session format or credential fields from storage before auth restore
+    scrubLegacyStorageSessions();
+
     const rawSession = localStorage.getItem('saheb_session');
     if (rawSession) {
       try {

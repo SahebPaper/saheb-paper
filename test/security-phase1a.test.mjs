@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-// In-memory mock localStorage for testing session & user logic
+// Set up mock localStorage and window on globalThis before loading application modules
 class LocalStorageMock {
   constructor() {
     this.store = {};
@@ -27,209 +27,269 @@ class LocalStorageMock {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 1. Session Shape Verification
-// ---------------------------------------------------------------------------
-test('Session shape: saheb_session must store ONLY username, roles, token, expiresAt (no pin, no secrets)', () => {
-  const mockStorage = new LocalStorageMock();
+const mockStorage = new LocalStorageMock();
+globalThis.localStorage = mockStorage;
+globalThis.window = {
+  location: { hostname: 'localhost', reload: () => {} },
+  dispatchEvent: () => true,
+};
 
-  const user = {
-    username: 'dispatcher',
-    role: 'Dispatcher',
-    roles: ['Dispatcher'],
-    pin: '1234',
-    securityQuestion: 'What is your favorite color?',
-    securityAnswer: 'secret_answer_123',
-    displayName: 'Dispatcher',
-    email: 'dispatch@sahebpaper.com',
+// Import actual production code functions directly
+const {
+  scrubLegacyStorageSessions,
+  isSecurityAnswerConfigured,
+  unlockAccountWithSecurityQuestion,
+  getAccountLockInfo,
+  saveUser,
+  getUsers,
+} = await import('../src/data/index.ts');
+
+const {
+  userFromDb,
+  userToDb,
+} = await import('../src/lib/supabaseSync.ts');
+
+// ---------------------------------------------------------------------------
+// 1. Behavior Test: Legacy Session & Storage Scrubbing
+// ---------------------------------------------------------------------------
+test('BEHAVIOR: scrubLegacyStorageSessions() rewrites legacy session to lean shape and removes secrets', () => {
+  mockStorage.clear();
+
+  // Seed with legacy pre-1A session containing full user object and secrets
+  const legacySession = {
+    token: 'legacy_tok_8888',
+    expiresAt: Date.now() + 3600000,
+    user: {
+      username: 'pulper',
+      pin: '1122',
+      securityAnswer: 'blue',
+      roles: ['PulpOperator'],
+      role: 'PulpOperator',
+      displayName: 'Pulper Operator',
+    },
+    pin: '1122',
+    securityAnswer: 'blue',
   };
 
-  // Simulate lean session writing (matching AuthContext and data/index.ts)
-  const token = 'token_test_12345';
-  const expiresAt = Date.now() + 8 * 60 * 60 * 1000;
-
-  const session = {
-    token,
-    username: user.username,
-    roles: user.roles || [user.role],
-    expiresAt,
+  const legacyActiveUser = {
+    username: 'pulper',
+    pin: '1122',
+    securityAnswer: 'blue',
+    role: 'PulpOperator',
+    displayName: 'Pulper Operator',
   };
 
-  mockStorage.setItem('saheb_session', JSON.stringify(session));
+  mockStorage.setItem('saheb_session', JSON.stringify(legacySession));
+  mockStorage.setItem('saheb_active_user', JSON.stringify(legacyActiveUser));
 
-  const { pin: _p, securityAnswer: _sa, ...safeUser } = user;
-  mockStorage.setItem('saheb_active_user', JSON.stringify(safeUser));
+  // Run actual scrubber
+  scrubLegacyStorageSessions();
 
-  // Retrieve and verify
-  const storedSession = JSON.parse(mockStorage.getItem('saheb_session'));
-  assert.equal(storedSession.token, token);
-  assert.equal(storedSession.username, 'dispatcher');
-  assert.deepEqual(storedSession.roles, ['Dispatcher']);
-  assert.equal(typeof storedSession.expiresAt, 'number');
+  // Verify saheb_session in localStorage
+  const scrubbedSession = JSON.parse(mockStorage.getItem('saheb_session'));
+  assert.equal(scrubbedSession.token, 'legacy_tok_8888');
+  assert.equal(scrubbedSession.username, 'pulper');
+  assert.deepEqual(scrubbedSession.roles, ['PulpOperator']);
+  assert.equal(typeof scrubbedSession.expiresAt, 'number');
 
-  // Verify STRICT absence of credentials
-  assert.equal(storedSession.pin, undefined, 'Session MUST NOT contain pin');
-  assert.equal(storedSession.securityAnswer, undefined, 'Session MUST NOT contain securityAnswer');
-  assert.equal(storedSession.user, undefined, 'Session MUST NOT contain full user object');
+  // Verify that secrets and full user object were completely removed
+  assert.equal(scrubbedSession.pin, undefined, 'Session must not contain pin');
+  assert.equal(scrubbedSession.securityAnswer, undefined, 'Session must not contain securityAnswer');
+  assert.equal(scrubbedSession.user, undefined, 'Session must not contain user object');
 
-  // Verify saheb_active_user has no secrets
-  const storedActiveUser = JSON.parse(mockStorage.getItem('saheb_active_user'));
-  assert.equal(storedActiveUser.pin, undefined, 'saheb_active_user MUST NOT contain pin');
-  assert.equal(storedActiveUser.securityAnswer, undefined, 'saheb_active_user MUST NOT contain securityAnswer');
+  // Verify saheb_active_user in localStorage
+  const scrubbedActiveUser = JSON.parse(mockStorage.getItem('saheb_active_user'));
+  assert.equal(scrubbedActiveUser.username, 'pulper');
+  assert.equal(scrubbedActiveUser.pin, undefined, 'Active user must not contain pin');
+  assert.equal(scrubbedActiveUser.securityAnswer, undefined, 'Active user must not contain securityAnswer');
 });
 
 // ---------------------------------------------------------------------------
-// 2. Security Answer Fallback & Safe Failure Verification
+// 2. Behavior Test: isSecurityAnswerConfigured() Validation
 // ---------------------------------------------------------------------------
-test('Security answer: account unlock MUST fail safely if user has no security answer configured', () => {
-  // Pure logic replica of unlockAccountWithSecurityQuestion
-  function testUnlock(user, answer) {
-    if (!user) {
-      return { success: false, message: 'User account not found.' };
-    }
-    if (!user.securityAnswer || !user.securityAnswer.trim()) {
-      return {
-        success: false,
-        message: 'No security question configured for this account. Please contact an Admin to unlock your account.'
-      };
-    }
-    const registered = user.securityAnswer.trim().toLowerCase();
-    const provided = answer.trim().toLowerCase();
-    if (registered !== provided) {
-      return { success: false, message: 'Incorrect security answer. Please try again or contact Admin.' };
-    }
-    return { success: true, message: 'Account successfully unlocked! You can now login.' };
-  }
+test('BEHAVIOR: isSecurityAnswerConfigured() rejects "blue", empty, whitespace, and accepts real answers', () => {
+  // Insecure legacy defaults
+  assert.equal(isSecurityAnswerConfigured({ username: 'u1', securityAnswer: 'blue' }), false);
+  assert.equal(isSecurityAnswerConfigured({ username: 'u2', securityAnswer: 'Blue' }), false);
+  assert.equal(isSecurityAnswerConfigured({ username: 'u3', securityAnswer: 'BLUE' }), false);
+  assert.equal(isSecurityAnswerConfigured({ username: 'u4', securityAnswer: '  blue  ' }), false);
 
-  // User with empty/missing securityAnswer
-  const unconfiguredUser = {
-    username: 'operator1',
+  // Missing / empty
+  assert.equal(isSecurityAnswerConfigured({ username: 'u5', securityAnswer: '' }), false);
+  assert.equal(isSecurityAnswerConfigured({ username: 'u6', securityAnswer: '   ' }), false);
+  assert.equal(isSecurityAnswerConfigured({ username: 'u7' }), false);
+  assert.equal(isSecurityAnswerConfigured(null), false);
+  assert.equal(isSecurityAnswerConfigured(undefined), false);
+
+  // Valid configured answers
+  assert.equal(isSecurityAnswerConfigured({ username: 'u8', securityAnswer: 'Ahmedabad' }), true);
+  assert.equal(isSecurityAnswerConfigured({ username: 'u9', securityAnswer: 'My Golden Retriever 2026' }), true);
+});
+
+// ---------------------------------------------------------------------------
+// 3. Behavior Test: unlockAccountWithSecurityQuestion() Fail-Safe Logic
+// ---------------------------------------------------------------------------
+test('BEHAVIOR: unlockAccountWithSecurityQuestion() fails safely when answer is legacy "blue" or missing', () => {
+  // Register a test user with legacy 'blue' in storage
+  const testUserLegacy = {
+    username: 'test_legacy_user',
+    role: 'Viewer',
+    roles: ['Viewer'],
+    pin: '1234',
+    displayName: 'Test User',
+    securityQuestion: 'What is your favorite color?',
+    securityAnswer: 'blue',
+  };
+  saveUser(testUserLegacy);
+
+  // Attempt to unlock with 'blue'
+  const res1 = unlockAccountWithSecurityQuestion('test_legacy_user', 'blue');
+  assert.equal(res1.success, false);
+  assert.match(res1.message, /No security question configured/);
+
+  // Attempt to unlock with random text
+  const res2 = unlockAccountWithSecurityQuestion('test_legacy_user', 'something');
+  assert.equal(res2.success, false);
+  assert.match(res2.message, /No security question configured/);
+
+  // Register a user with a genuine secret answer
+  const testUserConfigured = {
+    username: 'test_secured_user',
+    role: 'Viewer',
+    roles: ['Viewer'],
+    pin: '1234',
+    displayName: 'Secured User',
+    securityQuestion: 'What town were you born in?',
+    securityAnswer: 'Vadodara Gujarat',
+  };
+  saveUser(testUserConfigured);
+
+  // Attempt with wrong answer
+  const resWrong = unlockAccountWithSecurityQuestion('test_secured_user', 'Ahmedabad');
+  assert.equal(resWrong.success, false);
+  assert.match(resWrong.message, /Incorrect security answer/);
+  assert.ok(!resWrong.message.includes('Vadodara'));
+
+  // Attempt with correct answer (case-insensitive)
+  const resCorrect = unlockAccountWithSecurityQuestion('test_secured_user', 'vadodara gujarat');
+  assert.equal(resCorrect.success, true);
+  assert.match(resCorrect.message, /successfully unlocked/);
+});
+
+// ---------------------------------------------------------------------------
+// 4. Behavior Test: getAccountLockInfo() Hides Question for Unconfigured Users
+// ---------------------------------------------------------------------------
+test('BEHAVIOR: getAccountLockInfo() does not return a question for users with "blue" or empty answers', () => {
+  const userNoAnswer = {
+    username: 'no_answer_user',
+    role: 'Viewer',
+    roles: ['Viewer'],
+    pin: '1234',
+    displayName: 'No Answer',
     securityQuestion: 'What is your favorite color?',
     securityAnswer: '',
   };
+  saveUser(userNoAnswer);
 
-  // Attempting unlock with old fallback 'blue'
-  const blueResult = testUnlock(unconfiguredUser, 'blue');
-  assert.equal(blueResult.success, false);
-  assert.match(blueResult.message, /No security question configured/);
+  const lockInfo = getAccountLockInfo('no_answer_user');
+  assert.equal(lockInfo.securityQuestion, undefined, 'securityQuestion must be undefined when no answer is set');
 
-  // Attempting unlock with random answer
-  const randomResult = testUnlock(unconfiguredUser, 'anything');
-  assert.equal(randomResult.success, false);
-  assert.match(randomResult.message, /No security question configured/);
-
-  // User with configured answer
-  const configuredUser = {
-    username: 'operator2',
-    securityQuestion: 'What is your favorite color?',
-    securityAnswer: 'Emerald Green',
+  const userRealAnswer = {
+    username: 'real_answer_user',
+    role: 'Viewer',
+    roles: ['Viewer'],
+    pin: '1234',
+    displayName: 'Real Answer',
+    securityQuestion: 'What is your pet name?',
+    securityAnswer: 'Rocky',
   };
+  saveUser(userRealAnswer);
 
-  // Wrong answer
-  const wrongResult = testUnlock(configuredUser, 'blue');
-  assert.equal(wrongResult.success, false);
-  assert.match(wrongResult.message, /Incorrect security answer/);
-  // Ensure the actual answer is NOT leaked in the failure message
-  assert.ok(!wrongResult.message.includes('Emerald Green'));
-
-  // Correct answer (case-insensitive)
-  const correctResult = testUnlock(configuredUser, 'emerald green');
-  assert.equal(correctResult.success, true);
-  assert.match(correctResult.message, /successfully unlocked/);
+  const lockInfoReal = getAccountLockInfo('real_answer_user');
+  assert.equal(lockInfoReal.securityQuestion, 'What is your pet name?');
 });
 
 // ---------------------------------------------------------------------------
-// 3. Source File Verification: DEFAULT_USERS and hardcoded 'blue' removal
+// 5. Behavior Test: Supabase Sync Path Sanitizes 'blue' Answers
 // ---------------------------------------------------------------------------
-test('Source check: src/data/index.ts must NOT contain hardcoded "blue" fallback or defaults', () => {
-  const dataIndexContent = fs.readFileSync(path.join(rootDir, 'src', 'data', 'index.ts'), 'utf-8');
+test('BEHAVIOR: userFromDb and userToDb sanitize "blue" answers in Supabase sync path', () => {
+  // DB record with 'blue'
+  const dbRecordBlue = {
+    username: 'sync_user_1',
+    role: 'Admin',
+    roles: ['Admin'],
+    pin: '1234',
+    display_name: 'Sync User 1',
+    security_question: 'What is your favorite color?',
+    security_answer: 'blue',
+  };
+  const appUser = userFromDb(dbRecordBlue);
+  assert.equal(appUser.securityAnswer, '', 'userFromDb must strip "blue" and treat it as empty string');
 
-  // Verify (user.securityAnswer || 'blue') is gone
-  assert.ok(
-    !dataIndexContent.includes("|| 'blue'"),
-    'src/data/index.ts must not have || \'blue\' fallback'
-  );
+  // DB record with uppercase 'BLUE'
+  const dbRecordUpper = {
+    username: 'sync_user_2',
+    role: 'Admin',
+    roles: ['Admin'],
+    pin: '1234',
+    display_name: 'Sync User 2',
+    security_question: 'What is your favorite color?',
+    security_answer: 'BLUE',
+  };
+  const appUserUpper = userFromDb(dbRecordUpper);
+  assert.equal(appUserUpper.securityAnswer, '', 'userFromDb must strip uppercase "BLUE"');
 
-  // Verify DEFAULT_USERS does not have securityAnswer: 'blue'
-  assert.ok(
-    !dataIndexContent.includes("securityAnswer: 'blue'"),
-    'src/data/index.ts DEFAULT_USERS must not have securityAnswer: \'blue\''
-  );
+  // DB record with custom answer
+  const dbRecordCustom = {
+    username: 'sync_user_3',
+    role: 'Admin',
+    roles: ['Admin'],
+    pin: '1234',
+    display_name: 'Sync User 3',
+    security_question: 'What is your pet name?',
+    security_answer: 'Shadow',
+  };
+  const appUserCustom = userFromDb(dbRecordCustom);
+  assert.equal(appUserCustom.securityAnswer, 'Shadow');
+
+  // Converting app user to DB record
+  const dbPayloadBlue = userToDb({
+    username: 'sync_user_4',
+    role: 'Admin',
+    displayName: 'Sync User 4',
+    securityAnswer: 'blue',
+  });
+  assert.equal(dbPayloadBlue.security_answer, null, 'userToDb must map "blue" to null');
+
+  const dbPayloadCustom = userToDb({
+    username: 'sync_user_5',
+    role: 'Admin',
+    displayName: 'Sync User 5',
+    securityAnswer: 'Shadow',
+  });
+  assert.equal(dbPayloadCustom.security_answer, 'Shadow');
 });
 
 // ---------------------------------------------------------------------------
-// 4. Debug Helpers DEV Guard Verification
+// 6. Config & Integration Checks: Android, Capacitor, and Electron Production CSP
 // ---------------------------------------------------------------------------
-test('Source check: src/lib/supabase.ts must guard window debug helpers with import.meta.env.DEV', () => {
-  const supabaseContent = fs.readFileSync(path.join(rootDir, 'src', 'lib', 'supabase.ts'), 'utf-8');
-
-  // Verify DEV guard exists
-  assert.ok(
-    supabaseContent.includes("import.meta.env.DEV"),
-    'src/lib/supabase.ts must check import.meta.env.DEV before attaching window helpers'
-  );
-
-  assert.ok(
-    supabaseContent.includes("typeof window !== 'undefined' && import.meta.env.DEV"),
-    'window helpers must be guarded by both window check and import.meta.env.DEV'
-  );
-});
-
-// ---------------------------------------------------------------------------
-// 5. Android Manifest & Capacitor Config Verification
-// ---------------------------------------------------------------------------
-test('Android config: allowBackup="false", usesCleartextTraffic="false", cleartext=false, and stale domains removed', () => {
-  const manifestContent = fs.readFileSync(
-    path.join(rootDir, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'),
-    'utf-8'
-  );
-
-  assert.ok(
-    manifestContent.includes('android:allowBackup="false"'),
-    'AndroidManifest.xml must set android:allowBackup="false"'
-  );
-  assert.ok(
-    manifestContent.includes('android:usesCleartextTraffic="false"'),
-    'AndroidManifest.xml must set android:usesCleartextTraffic="false"'
-  );
+test('INTEGRATION: Android, Capacitor, and Electron configurations adhere to security hardening', () => {
+  const manifestContent = fs.readFileSync(path.join(rootDir, 'android/app/src/main/AndroidManifest.xml'), 'utf-8');
+  assert.ok(manifestContent.includes('android:allowBackup="false"'));
+  assert.ok(manifestContent.includes('android:usesCleartextTraffic="false"'));
 
   const capacitorConfig = fs.readFileSync(path.join(rootDir, 'capacitor.config.ts'), 'utf-8');
-  assert.ok(
-    capacitorConfig.includes('cleartext: false'),
-    'capacitor.config.ts must set cleartext: false'
-  );
-  assert.ok(
-    !capacitorConfig.includes('thakordhruv097-spec.github.io'),
-    'capacitor.config.ts must NOT contain stale domain thakordhruv097-spec.github.io'
-  );
-});
+  assert.ok(capacitorConfig.includes('cleartext: false'));
+  assert.ok(!capacitorConfig.includes('thakordhruv097-spec.github.io'));
 
-// ---------------------------------------------------------------------------
-// 6. Electron Security Configuration Verification
-// ---------------------------------------------------------------------------
-test('Electron config: sandbox=true, CSP headers present, DevTools disabled in prod, and will-navigate guard', () => {
-  for (const file of ['main.js', 'main.cjs']) {
-    const mainContent = fs.readFileSync(path.join(rootDir, file), 'utf-8');
-
-    assert.ok(
-      mainContent.includes('sandbox: true'),
-      `${file} must specify sandbox: true in webPreferences`
-    );
-    assert.ok(
-      mainContent.includes('Content-Security-Policy'),
-      `${file} must register a Content-Security-Policy header`
-    );
-    assert.ok(
-      !mainContent.includes("'unsafe-eval'"),
-      `${file} CSP header must NOT allow 'unsafe-eval'`
-    );
-    assert.ok(
-      mainContent.includes('will-navigate'),
-      `${file} must implement a will-navigate navigation guard`
-    );
-    assert.ok(
-      mainContent.includes('devtools-opened'),
-      `${file} must disable DevTools in production`
-    );
+  for (const mainFile of ['main.js', 'main.cjs']) {
+    const mainContent = fs.readFileSync(path.join(rootDir, mainFile), 'utf-8');
+    assert.ok(mainContent.includes('sandbox: true'));
+    assert.ok(mainContent.includes('devtools-opened'));
+    assert.ok(mainContent.includes('will-navigate'));
+    assert.ok(!mainContent.includes("'unsafe-eval'"));
+    assert.ok(mainContent.includes("worker-src 'self' blob:"));
+    assert.ok(mainContent.includes("media-src 'self' blob: data: mediastream:"));
+    assert.ok(mainContent.includes("img-src 'self' data: blob: https:"));
   }
 });

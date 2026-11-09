@@ -3,10 +3,38 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
+function electronCspPlugin() {
+  return {
+    name: 'electron-csp-meta',
+    transformIndexHtml(html: string, context: any) {
+      // Apply only for production builds (preserves Vite dev server HMR)
+      if (context.server) {
+        return html;
+      }
+      const csp = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' data: https://fonts.gstatic.com",
+        "connect-src 'self' https://znyvmlwggwckjxxsxiwq.supabase.co wss://znyvmlwggwckjxxsxiwq.supabase.co https://scyiwfqkknuphzhvklok.supabase.co wss://scyiwfqkknuphzhvklok.supabase.co https://sahebpaper.github.io https://*.supabase.co wss://*.supabase.co",
+        "img-src 'self' data: blob: https:",
+        "worker-src 'self' blob:",
+        "media-src 'self' blob: data: mediastream:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-src 'none'",
+      ].join('; ');
+
+      const metaTag = `\n    <meta http-equiv="Content-Security-Policy" content="${csp}" />`;
+      return html.replace('</head>', `${metaTag}\n  </head>`);
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), electronCspPlugin()],
   server: {
     host: true,
     port: 5176,

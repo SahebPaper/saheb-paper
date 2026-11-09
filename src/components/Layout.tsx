@@ -17,7 +17,7 @@ import { playNotificationSound } from '../utils/notificationSound';
 import { useBodyScrollLock, resetAllScrollLocks } from '../hooks/useBodyScrollLock';
 import { useMobileBackHandler } from '../hooks/useMobileBackHandler';
 import { useDataSync } from '../hooks/useDataSync';
-import { getReels, getPendingOrders, getParties, getUsers, getAccountLockInfo, getLogs } from '../data/index';
+import { getReels, getPendingOrders, getParties, getUsers, getAccountLockInfo, getLogs, isSecurityAnswerConfigured } from '../data/index';
 import { HardDrive, ShieldAlert } from 'lucide-react';
 import {
   LayoutDashboard,
@@ -250,8 +250,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     e.preventDefault();
     if (!profileDisplayName.trim()) return;
 
-    if (!profileSecurityAnswer.trim()) {
-      alert('Security answer is required for account recovery.');
+    if (!profileSecurityAnswer.trim() || profileSecurityAnswer.trim().toLowerCase() === 'blue') {
+      alert('A valid security recovery answer is required (cannot be "blue").');
       return;
     }
 
@@ -279,6 +279,38 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         setIsProfileModalOpen(false);
         setProfilePin('');
       }, 1000);
+    }
+  };
+
+  // Mandatory security recovery question setup for users with missing or legacy 'blue' answers
+  const [mandatoryQuestion, setMandatoryQuestion] = useState('What is your favorite color?');
+  const [mandatoryAnswer, setMandatoryAnswer] = useState('');
+  const [mandatoryError, setMandatoryError] = useState('');
+  const [isSubmittingMandatory, setIsSubmittingMandatory] = useState(false);
+
+  const handleMandatorySecuritySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMandatoryError('');
+    const cleanAns = mandatoryAnswer.trim();
+    if (!cleanAns) {
+      setMandatoryError('Security recovery answer cannot be empty.');
+      return;
+    }
+    if (cleanAns.toLowerCase() === 'blue') {
+      setMandatoryError('Security answer cannot be "blue" (insecure legacy default). Please choose a private answer.');
+      return;
+    }
+    setIsSubmittingMandatory(true);
+    try {
+      const ok = await updateUserProfile({
+        securityQuestion: mandatoryQuestion,
+        securityAnswer: cleanAns,
+      });
+      if (!ok) {
+        setMandatoryError('Failed to save security configuration. Please try again.');
+      }
+    } finally {
+      setIsSubmittingMandatory(false);
     }
   };
 
@@ -1702,6 +1734,66 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <span>Save Profile</span>
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Mandatory Security Setup Blocking Modal for accounts without configured recovery answer */}
+      {user && !isSecurityAnswerConfigured(user) && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700/80 rounded-3xl max-w-md w-full p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 rounded-2xl shrink-0">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">Security Setup Required</h3>
+                <p className="text-xs text-slate-500">Configure your account recovery question</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
+              Your account does not have a valid security recovery answer configured (or it was using the insecure legacy default). To protect factory data and allow account recovery if locked, you must set a private security answer to continue.
+            </p>
+            <form onSubmit={handleMandatorySecuritySubmit} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Security Question
+                </label>
+                <select
+                  value={mandatoryQuestion}
+                  onChange={(e) => setMandatoryQuestion(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="What is your favorite color?">What is your favorite color?</option>
+                  <option value="What is your pet's name?">What is your pet's name?</option>
+                  <option value="What town were you born in?">What town were you born in?</option>
+                  <option value="What is your favorite food?">What is your favorite food?</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Your Secret Answer
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={mandatoryAnswer}
+                  onChange={(e) => setMandatoryAnswer(e.target.value)}
+                  placeholder="Enter private recovery answer"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                {mandatoryError && (
+                  <p className="text-[11px] text-rose-500 font-bold mt-1.5">{mandatoryError}</p>
+                )}
+              </div>
+              <button
+                type="submit"
+                disabled={isSubmittingMandatory}
+                className="w-full py-3 bg-primary hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition shadow-md active:scale-98 cursor-pointer"
+              >
+                {isSubmittingMandatory ? 'Saving...' : 'Save & Continue to ERP'}
+              </button>
             </form>
           </div>
         </div>

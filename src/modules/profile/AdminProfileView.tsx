@@ -54,8 +54,8 @@ export const AdminProfileView: React.FC = () => {
       return;
     }
 
-    if (!securityAnswer.trim()) {
-      setErrorMsg('Security recovery answer is required.');
+    if (!securityAnswer.trim() || securityAnswer.trim().toLowerCase() === 'blue') {
+      setErrorMsg('A valid security recovery answer is required (cannot be "blue").');
       return;
     }
 

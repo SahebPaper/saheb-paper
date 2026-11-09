@@ -68,8 +68,8 @@ export const OperatorProfileView: React.FC<OperatorProfileViewProps> = () => {
       return;
     }
 
-    if (!securityAnswer.trim()) {
-      setSaveError('Security recovery answer is required');
+    if (!securityAnswer.trim() || securityAnswer.trim().toLowerCase() === 'blue') {
+      setSaveError('A valid security answer is required (cannot be "blue")');
       return;
     }
 

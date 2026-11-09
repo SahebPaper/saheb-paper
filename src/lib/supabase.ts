@@ -46,7 +46,7 @@ export function getActiveDatabaseConfig(): SupabaseDatabaseConfig {
   }
 
   if (!target) {
-    target = (import.meta.env.VITE_DATABASE_TARGET || '').trim().toLowerCase();
+    target = (import.meta.env?.VITE_DATABASE_TARGET || '').trim().toLowerCase();
   }
 
   if (target === 'prod' || target === 'production') {
@@ -59,7 +59,7 @@ export function getActiveDatabaseConfig(): SupabaseDatabaseConfig {
 
   // Auto-detect based on host / build environment:
   const isLocalDev = Boolean(
-    import.meta.env.DEV ||
+    import.meta.env?.DEV ||
       (typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' ||
           window.location.hostname === '127.0.0.1' ||
@@ -90,7 +90,7 @@ export function resetDatabaseTarget(): void {
 }
 
 // Global console helpers for immediate debugging / switching (DEV mode only):
-if (typeof window !== 'undefined' && import.meta.env.DEV) {
+if (typeof window !== 'undefined' && import.meta.env?.DEV) {
   (window as any).switchDatabase = (target: 'prod' | 'demo') => setDatabaseTarget(target);
   (window as any).resetDatabase = () => resetDatabaseTarget();
   (window as any).getDatabaseConfig = () => getActiveDatabaseConfig();
@@ -99,8 +99,8 @@ if (typeof window !== 'undefined' && import.meta.env.DEV) {
 const activeConfig = getActiveDatabaseConfig();
 
 // Respect explicit custom URL/Key if provided in environment, otherwise use resolved active config
-const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL && !import.meta.env.VITE_DATABASE_TARGET ? import.meta.env.VITE_SUPABASE_URL : activeConfig.url).trim();
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY && !import.meta.env.VITE_DATABASE_TARGET ? import.meta.env.VITE_SUPABASE_ANON_KEY : activeConfig.anonKey).trim();
+const supabaseUrl = (import.meta.env?.VITE_SUPABASE_URL && !import.meta.env?.VITE_DATABASE_TARGET ? import.meta.env.VITE_SUPABASE_URL : activeConfig.url).trim();
+const supabaseAnonKey = (import.meta.env?.VITE_SUPABASE_ANON_KEY && !import.meta.env?.VITE_DATABASE_TARGET ? import.meta.env.VITE_SUPABASE_ANON_KEY : activeConfig.anonKey).trim();
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&

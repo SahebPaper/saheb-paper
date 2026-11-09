@@ -113,7 +113,7 @@ const DEFAULT_USERS: User[] = [
     email: 'sahebpaper@gmail.com',
     phone: '9727328577',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: 'blue',
+    securityAnswer: '',
     empId: 'EMP-001',
     designation: 'Admin / Owner',
     customModules: [
@@ -130,7 +130,7 @@ const DEFAULT_USERS: User[] = [
     email: 'pulper@sahebpaper.com',
     phone: '9876543220',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: 'blue',
+    securityAnswer: '',
     empId: 'EMP-002',
     designation: 'Pulper (Pulp Mill Operator)',
     customModules: ['dashboard', 'raw_material_stock', 'pulp_mill_operations', 'boiler', 'etp']
@@ -144,7 +144,7 @@ const DEFAULT_USERS: User[] = [
     email: 'plantmanager@sahebpaper.com',
     phone: '9876543219',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: 'blue',
+    securityAnswer: '',
     empId: 'EMP-003',
     designation: 'Plant Manager (Operations)',
     customModules: ['dashboard', 'lab', 'raw_material_stock', 'pulp_mill_operations', 'machine_production', 'rewinding_reel_conversion', 'boiler', 'etp', 'electricity', 'dispatch', 'finished_stock_dispatch']
@@ -158,7 +158,7 @@ const DEFAULT_USERS: User[] = [
     email: 'dispatch@sahebpaper.com',
     phone: '9876543222',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: 'blue',
+    securityAnswer: '',
     empId: 'EMP-004',
     designation: 'Dispatcher',
     customModules: ['dashboard', 'orders', 'finished_stock_dispatch', 'dispatch']
@@ -172,7 +172,7 @@ const DEFAULT_USERS: User[] = [
     email: 'shop@sahebpaper.com',
     phone: '9876543221',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: 'blue',
+    securityAnswer: '',
     empId: 'EMP-005',
     designation: 'Shop & Procurement Incharge',
     customModules: ['dashboard', 'spareparts_management']
@@ -186,7 +186,7 @@ const DEFAULT_USERS: User[] = [
     email: 'viewer@sahebpaper.com',
     phone: '9876543223',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: 'blue',
+    securityAnswer: '',
     empId: 'EMP-006',
     designation: 'Read-Only Viewer',
     customModules: [
@@ -409,19 +409,29 @@ export function initializeStorage() {
       setJSON(KEYS.USERS, fixedUsers, false);
     }
 
-    // Fix active session if @admin or @pulper session was outdated
+    // Fix active session if @admin or @pulper session was outdated, ensuring lean format
     const rawSession = localStorage.getItem('saheb_session');
     if (rawSession) {
       const session = JSON.parse(rawSession);
-      if (session.user && session.user.username === 'admin') {
-        session.user.role = 'Admin';
-        session.user.roles = ['Admin'];
-        session.user.customModules = [...validKeys];
-        localStorage.setItem('saheb_session', JSON.stringify(session));
-      } else if (session.user && session.user.username === 'pulper') {
-        session.user.role = 'PulpOperator';
-        session.user.roles = ['PulpOperator'];
-        localStorage.setItem('saheb_session', JSON.stringify(session));
+      const activeUname = (session.username || session.user?.username || '').toLowerCase();
+      if (activeUname === 'admin') {
+        const leanSession = {
+          token: session.token,
+          expiresAt: session.expiresAt,
+          username: 'admin',
+          roles: ['Admin'],
+          simulatedBy: session.simulatedBy,
+        };
+        localStorage.setItem('saheb_session', JSON.stringify(leanSession));
+      } else if (activeUname === 'pulper') {
+        const leanSession = {
+          token: session.token,
+          expiresAt: session.expiresAt,
+          username: 'pulper',
+          roles: ['PulpOperator'],
+          simulatedBy: session.simulatedBy,
+        };
+        localStorage.setItem('saheb_session', JSON.stringify(leanSession));
       }
     }
   } catch (e) {
@@ -721,15 +731,23 @@ export function saveUser(user: User): User {
   setJSON(KEYS.USERS, sorted);
   pushUpsertToCloud('users', userToDb(user));
 
-  // Sync active session if this user is currently active
+  // Sync active session if this user is currently active (keep session lean, no pin/secret)
   const rawSession = localStorage.getItem('saheb_session');
   if (rawSession) {
     try {
       const session = JSON.parse(rawSession);
-      if (session.user && session.user.username.toLowerCase() === user.username.toLowerCase()) {
-        session.user = { ...session.user, ...user };
-        localStorage.setItem('saheb_session', JSON.stringify(session));
-        localStorage.setItem('saheb_active_user', JSON.stringify(session.user));
+      const activeUname = (session.username || session.user?.username || '').toLowerCase();
+      if (activeUname && activeUname === user.username.toLowerCase()) {
+        const leanSession = {
+          token: session.token,
+          expiresAt: session.expiresAt,
+          username: user.username,
+          roles: user.roles || [user.role],
+          simulatedBy: session.simulatedBy,
+        };
+        localStorage.setItem('saheb_session', JSON.stringify(leanSession));
+        const { pin: _p, securityAnswer: _sa, ...safeUser } = user as any;
+        localStorage.setItem('saheb_active_user', JSON.stringify(safeUser));
       }
     } catch (e) {
       console.error(e);
@@ -759,15 +777,23 @@ export function updateUserModules(username: string, customModules: string[], ope
     setJSON(KEYS.USERS, sorted);
     pushUpsertToCloud('users', userToDb(user));
 
-    // Sync active session if this user is currently active
+    // Sync active session if this user is currently active (keep session lean, no pin/secret)
     const rawSession = localStorage.getItem('saheb_session');
     if (rawSession) {
       try {
         const session = JSON.parse(rawSession);
-        if (session.user && session.user.username.toLowerCase() === username.toLowerCase()) {
-          session.user.customModules = finalModules;
-          localStorage.setItem('saheb_session', JSON.stringify(session));
-          localStorage.setItem('saheb_active_user', JSON.stringify(session.user));
+        const activeUname = (session.username || session.user?.username || '').toLowerCase();
+        if (activeUname && activeUname === username.toLowerCase()) {
+          const leanSession = {
+            token: session.token,
+            expiresAt: session.expiresAt,
+            username: user.username,
+            roles: user.roles || [user.role],
+            simulatedBy: session.simulatedBy,
+          };
+          localStorage.setItem('saheb_session', JSON.stringify(leanSession));
+          const { pin: _p, securityAnswer: _sa, ...safeUser } = user as any;
+          localStorage.setItem('saheb_active_user', JSON.stringify(safeUser));
         }
       } catch (e) {
         console.error(e);
@@ -885,7 +911,7 @@ export function getAccountLockInfo(username: string): {
       isLocked: true,
       remainingMinutes,
       failedAttempts: record.attempts || MAX_FAILED_LOGIN_ATTEMPTS,
-      securityQuestion: user?.securityQuestion || 'What is your favorite color?',
+      securityQuestion: (user?.securityAnswer && user.securityAnswer.trim()) ? (user.securityQuestion || 'What is your favorite color?') : undefined,
       lockedReason: record.lockedReason || '3 consecutive failed attempts',
     };
   }
@@ -906,7 +932,7 @@ export function getAccountLockInfo(username: string): {
     isLocked: false,
     remainingMinutes: 0,
     failedAttempts: record.attempts || 0,
-    securityQuestion: user?.securityQuestion || 'What is your favorite color?',
+    securityQuestion: (user?.securityAnswer && user.securityAnswer.trim()) ? (user.securityQuestion || 'What is your favorite color?') : undefined,
   };
 }
 
@@ -1041,7 +1067,14 @@ export function unlockAccountWithSecurityQuestion(
     return { success: false, message: 'User account not found.' };
   }
 
-  const registeredAnswer = (user.securityAnswer || 'blue').trim().toLowerCase();
+  if (!user.securityAnswer || !user.securityAnswer.trim()) {
+    return {
+      success: false,
+      message: 'No security question configured for this account. Please contact an Admin to unlock your account.',
+    };
+  }
+
+  const registeredAnswer = user.securityAnswer.trim().toLowerCase();
   const providedAnswer = answer.trim().toLowerCase();
 
   if (registeredAnswer !== providedAnswer) {
@@ -3135,7 +3168,7 @@ export async function performFactoryReset(): Promise<void> {
     email: 'sahebpaper@gmail.com',
     phone: '9727328577',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: 'blue',
+    securityAnswer: '',
     empId: 'EMP-001',
     designation: 'Admin / Owner',
     customModules: [
@@ -3164,14 +3197,16 @@ export async function performFactoryReset(): Promise<void> {
   setJSON(KEYS.RAW_MATERIAL_LOTS, [], false);
   setJSON(KEYS.LAB_REPORTS, [], false);
 
-  // 4. Keep active session as Admin and establish production baseline
+  // 4. Keep active session as Admin and establish production baseline (lean session, no secrets)
   const adminSession = {
     token: `token_${Date.now()}_admin`,
-    user: adminUser,
+    username: adminUser.username,
+    roles: ['Admin'],
     expiresAt: Date.now() + 8 * 60 * 60 * 1000,
   };
   localStorage.setItem('saheb_session', JSON.stringify(adminSession));
-  localStorage.setItem('saheb_active_user', JSON.stringify(adminUser));
+  const { pin: _p, securityAnswer: _sa, ...safeAdmin } = adminUser as any;
+  localStorage.setItem('saheb_active_user', JSON.stringify(safeAdmin));
   localStorage.setItem('saheb_production_ready', 'true');
   localStorage.setItem('saheb_clean_production_zero_v4', 'true');
   localStorage.setItem('saheb_installed_version_code', '16');

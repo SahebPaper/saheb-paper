@@ -250,6 +250,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     e.preventDefault();
     if (!profileDisplayName.trim()) return;
 
+    if (!profileSecurityAnswer.trim()) {
+      alert('Security answer is required for account recovery.');
+      return;
+    }
+
     const pinTrimmed = profilePin.trim();
     if (pinTrimmed && (pinTrimmed.length !== 4 || isNaN(Number(pinTrimmed)))) {
       alert('Security PIN must be exactly 4 numeric digits');
@@ -1362,6 +1367,27 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                     <X className="w-4 h-4" />
                   </button>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* User Security Setup Required Banner (forces setting security answer) */}
+          {user && (!user.securityAnswer || !user.securityAnswer.trim()) && (
+            <div className="mx-2.5 sm:mx-4 lg:mx-6 mt-3 p-3.5 bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-900/60 rounded-2xl flex items-center justify-between gap-3 text-amber-900 dark:text-amber-200 shadow-sm animate-in fade-in duration-150">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <div className="text-xs font-semibold leading-snug">
+                  <strong className="font-bold">Security Action Required:</strong> Your account does not have a security recovery answer configured. Please set your security question and answer so your account can be recovered if locked.
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={openProfileModal}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition cursor-pointer shadow-xs active:scale-95"
+                >
+                  Configure Now
+                </button>
               </div>
             </div>
           )}

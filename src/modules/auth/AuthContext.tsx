@@ -42,11 +42,20 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 hours session expiry window
 
+/**
+ * Slim session stored in localStorage — deliberately excludes pin and
+ * other sensitive credential fields. User profile is re-fetched from the
+ * local users store (saheb_users) on every session restore.
+ */
 interface SessionData {
   token: string;
   expiresAt: number;
-  user: User;
+  /** Lean identity record: only non-credential fields persisted. */
+  username: string;
+  roles: string[];
   simulatedBy?: string;
+  /** Legacy full-user field — kept for backward-compat read; never written. */
+  user?: { username: string; [key: string]: any };
 }
 
 export const getFirstAccessibleRoute = (targetUser?: User | null): string => {
@@ -80,7 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const session: SessionData = JSON.parse(rawSession);
         if (session.simulatedBy) return session.simulatedBy;
-      } catch (err) {}
+      } catch (_) {}
     }
     return null;
   });
@@ -135,17 +144,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.warn('[Security] Session token expired. Redirecting to login.');
           clearSession();
         } else {
-          // Verify user is still active in users master database
-          const currentUsers = getUsers();
-          const activeDbUser = currentUsers.find(u => u.username.toLowerCase() === session.user.username.toLowerCase());
-          if (!activeDbUser || activeDbUser.active === false) {
-            console.warn('[Security] Session invalidated: user is deactivated or deleted.');
+          // Resolve username from slim session (or legacy full-user field)
+          const storedUsername = session.username || session.user?.username;
+          if (!storedUsername) {
             clearSession();
           } else {
-            setUser(activeDbUser);
-            if (session.simulatedBy) {
-              setSimulatedBy(session.simulatedBy);
-              localStorage.setItem('saheb_simulated_by', session.simulatedBy);
+            // Verify user is still active in users master database
+            const currentUsers = getUsers();
+            const activeDbUser = currentUsers.find(u => u.username.toLowerCase() === storedUsername.toLowerCase());
+            if (!activeDbUser || activeDbUser.active === false) {
+              console.warn('[Security] Session invalidated: user is deactivated or deleted.');
+              clearSession();
+            } else {
+              setUser(activeDbUser);
+              if (session.simulatedBy) {
+                setSimulatedBy(session.simulatedBy);
+                localStorage.setItem('saheb_simulated_by', session.simulatedBy);
+              }
             }
           }
         }
@@ -167,7 +182,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const session: SessionData = JSON.parse(rawSession);
           const currentUsers = getUsers();
-          const targetUsername = session.user?.username;
+          // Resolve username from slim session (or legacy full-user field)
+          const targetUsername = session.username || session.user?.username;
           if (!targetUsername) return;
 
           const activeDbUser = currentUsers.find(u => u.username.toLowerCase() === targetUsername.toLowerCase());
@@ -182,10 +198,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ) {
                 return prev;
               }
-              // Update local session storage so it stays synchronized across reload
-              session.user = { ...activeDbUser };
-              localStorage.setItem('saheb_session', JSON.stringify(session));
-              localStorage.setItem('saheb_active_user', JSON.stringify(activeDbUser));
+              // Keep session lean — only update identity fields, never write pin
+              const leanSession: SessionData = {
+                token: session.token,
+                expiresAt: session.expiresAt,
+                username: activeDbUser.username,
+                roles: activeDbUser.roles || [activeDbUser.role],
+                simulatedBy: session.simulatedBy,
+              };
+              localStorage.setItem('saheb_session', JSON.stringify(leanSession));
+              const { pin: _p, securityAnswer: _sa, ...safeActiveDbUser } = activeDbUser as any;
+              localStorage.setItem('saheb_active_user', JSON.stringify(safeActiveDbUser));
               return { ...activeDbUser };
             });
             const simBy = session.simulatedBy || localStorage.getItem('saheb_simulated_by') || null;
@@ -242,21 +265,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Reset failed login attempts on success
       resetFailedLogin(foundUser.username);
 
-      // Store plain 4-digit PIN
+      // Normalize PIN in users store (Phase 1A: revealPin preserved per Phase 0 scope boundary)
       foundUser.pin = revealPin(foundUser.pin);
       saveUser(foundUser);
 
       const token = generateSecureToken('token');
       const expiresAt = Date.now() + SESSION_DURATION_MS; // 8 hours duration
 
+      // Write a lean session — credentials (pin, securityAnswer) are NOT stored in localStorage
       const session: SessionData = {
         token,
-        user: foundUser,
+        username: foundUser.username,
+        roles: foundUser.roles || [foundUser.role],
         expiresAt,
       };
 
       localStorage.setItem('saheb_session', JSON.stringify(session));
-      localStorage.setItem('saheb_active_user', JSON.stringify(foundUser)); // fallback key
+      // Strip credential fields before writing legacy fallback key
+      const { pin: _pin, securityAnswer: _sa, ...safeUserForStorage } = foundUser as any;
+      localStorage.setItem('saheb_active_user', JSON.stringify(safeUserForStorage));
       localStorage.removeItem('saheb_failed_pin_count');
       localStorage.setItem('saheb_last_active_time', String(Date.now()));
       setUser(foundUser);
@@ -299,18 +326,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updatedUser: User = { ...users[idx], ...updates };
     saveUser(updatedUser);
 
-    // Update session storage
+    // Update session — keep lean (no credentials)
     const rawSession = localStorage.getItem('saheb_session');
     if (rawSession) {
       try {
         const session: SessionData = JSON.parse(rawSession);
-        session.user = updatedUser;
-        localStorage.setItem('saheb_session', JSON.stringify(session));
+        const leanSession: SessionData = {
+          token: session.token,
+          expiresAt: session.expiresAt,
+          username: updatedUser.username,
+          roles: updatedUser.roles || [updatedUser.role],
+          simulatedBy: session.simulatedBy,
+        };
+        localStorage.setItem('saheb_session', JSON.stringify(leanSession));
       } catch (err) {
         console.error(err);
       }
     }
-    localStorage.setItem('saheb_active_user', JSON.stringify(updatedUser));
+    const { pin: _p, securityAnswer: _sa, ...safeUpdated } = updatedUser as any;
+    localStorage.setItem('saheb_active_user', JSON.stringify(safeUpdated));
     setUser(updatedUser);
     window.dispatchEvent(new Event('storage'));
     return true;
@@ -327,13 +361,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const session: SessionData = {
       token,
-      user: targetUser,
+      username: targetUser.username,
+      roles: targetUser.roles || [targetUser.role],
       expiresAt,
       simulatedBy: adminUsername,
     };
 
     localStorage.setItem('saheb_session', JSON.stringify(session));
-    localStorage.setItem('saheb_active_user', JSON.stringify(targetUser));
+    const { pin: _p, securityAnswer: _sa, ...safeTarget } = targetUser as any;
+    localStorage.setItem('saheb_active_user', JSON.stringify(safeTarget));
     localStorage.setItem('saheb_simulated_by', adminUsername);
     setUser(targetUser);
     setSimulatedBy(adminUsername);
@@ -356,12 +392,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const session: SessionData = {
       token,
-      user: adminUser,
+      username: adminUser.username,
+      roles: adminUser.roles || [adminUser.role],
       expiresAt,
     };
 
     localStorage.setItem('saheb_session', JSON.stringify(session));
-    localStorage.setItem('saheb_active_user', JSON.stringify(adminUser));
+    const { pin: _p, securityAnswer: _sa, ...safeAdmin } = adminUser as any;
+    localStorage.setItem('saheb_active_user', JSON.stringify(safeAdmin));
     localStorage.removeItem('saheb_simulated_by');
     setUser(adminUser);
     setSimulatedBy(null);

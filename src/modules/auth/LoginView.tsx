@@ -150,9 +150,9 @@ export const LoginView: React.FC = () => {
 
     if (uname) {
       const lockInfo = getAccountLockInfo(uname);
-      setUnlockQuestion(lockInfo.securityQuestion || 'What is your favorite color?');
+      setUnlockQuestion(lockInfo.securityQuestion || '');
     } else {
-      setUnlockQuestion('What is your favorite color?');
+      setUnlockQuestion('');
     }
     setMode('unlock_security_question');
   };
@@ -160,7 +160,7 @@ export const LoginView: React.FC = () => {
   const handleUnlockUserBlur = () => {
     if (unlockUsername.trim()) {
       const lockInfo = getAccountLockInfo(unlockUsername.trim());
-      setUnlockQuestion(lockInfo.securityQuestion || 'What is your favorite color?');
+      setUnlockQuestion(lockInfo.securityQuestion || '');
     }
   };
 
@@ -704,7 +704,7 @@ export const LoginView: React.FC = () => {
                     <span>Security Question</span>
                   </div>
                   <div className="text-xs font-bold text-slate-800">
-                    {unlockQuestion}
+                    {unlockQuestion || 'No security question configured for this account'}
                   </div>
                 </div>
 
@@ -1165,7 +1165,7 @@ export const LoginView: React.FC = () => {
                     <span>Security Question</span>
                   </div>
                   <div className="text-xs font-bold text-slate-800">
-                    {unlockQuestion}
+                    {unlockQuestion || 'No security question configured for this account'}
                   </div>
                 </div>
 

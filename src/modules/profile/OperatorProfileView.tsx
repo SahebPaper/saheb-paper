@@ -68,6 +68,11 @@ export const OperatorProfileView: React.FC<OperatorProfileViewProps> = () => {
       return;
     }
 
+    if (!securityAnswer.trim()) {
+      setSaveError('Security recovery answer is required');
+      return;
+    }
+
     const payload = {
       displayName: displayName.trim(),
       email: email.trim(),

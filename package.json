@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test": "node --test test/**/*.test.mjs",
     "preview": "vite preview",
     "electron:dev": "electron .",
     "electron:build": "electron-builder",

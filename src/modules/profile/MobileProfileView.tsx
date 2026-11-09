@@ -123,6 +123,11 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
       return;
     }
 
+    if (!securityAnswer.trim()) {
+      showToast('Security recovery answer is required', 'error');
+      return;
+    }
+
     const updated = await updateUserProfile({
       displayName: displayName.trim(),
       email: email.trim(),

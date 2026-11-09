@@ -54,6 +54,11 @@ export const AdminProfileView: React.FC = () => {
       return;
     }
 
+    if (!securityAnswer.trim()) {
+      setErrorMsg('Security recovery answer is required.');
+      return;
+    }
+
     const payload = {
       displayName: displayName.trim(),
       email: email.trim(),

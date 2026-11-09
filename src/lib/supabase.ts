@@ -89,8 +89,8 @@ export function resetDatabaseTarget(): void {
   }
 }
 
-// Global console helpers for immediate debugging / switching:
-if (typeof window !== 'undefined') {
+// Global console helpers for immediate debugging / switching (DEV mode only):
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
   (window as any).switchDatabase = (target: 'prod' | 'demo') => setDatabaseTarget(target);
   (window as any).resetDatabase = () => resetDatabaseTarget();
   (window as any).getDatabaseConfig = () => getActiveDatabaseConfig();

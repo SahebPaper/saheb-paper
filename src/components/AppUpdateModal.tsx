@@ -30,18 +30,18 @@ export interface AppUpdateModalProps {
 }
 
 const DEFAULT_UPDATE_INFO: AppVersionInfo = {
-  version: 'Beta 1.10.22',
-  versionCode: 42,
-  releaseDate: '2026-11-06',
-  title: 'Saheb Paper ERP (Beta 1.10.22) Update',
+  version: 'Beta 1.10.32',
+  versionCode: 52,
+  releaseDate: '2026-11-10',
+  title: 'Saheb Paper ERP (Beta 1.10.32) Update',
   highlights: [
-    'Unified Mobile & PC Party Control: Pure typable box with right-side select list active on both mobile APK and desktop',
-    'Instant Custom Party Save: Direct database save without validation blocks',
-    'OTA Live Bridge: Automatic redirect to live GitHub Pages deployment within native APK wrapper',
-    'Pure In-App OTA Update: Instant seamless update without browser redirects',
+    'Official Hub HTTPS: Live connection active on official https://sahebpaper.github.io/saheb-paper/',
+    'Hardened Session Security: Lean session storage and account unlock protection',
+    'Electron & Android Protection: CSP meta policy and cleartext traffic disabled',
+    'Pure In-App OTA Update: Instant live updates without APK files or external redirects',
   ],
   packageSizeMb: 4.2,
-  apkUrl: 'data:text/plain,ok',
+  apkUrl: 'https://sahebpaper.github.io/saheb-paper/#/',
   mandatory: true,
 };
 

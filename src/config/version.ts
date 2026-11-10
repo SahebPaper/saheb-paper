@@ -22,9 +22,9 @@ export interface AppUpdateInfo {
   changelogs: VersionChangelog[];
 }
 
-export const APP_BASE_VERSION = 'Beta 1.10.31';
-export const APP_BASE_CODE = 51;
-export const APP_BUILD_DATE = '2026-11-08';
+export const APP_BASE_VERSION = 'Beta 1.10.32';
+export const APP_BASE_CODE = 52;
+export const APP_BUILD_DATE = '2026-11-10';
 
 const isStandaloneClient =
   typeof window !== 'undefined' &&
@@ -40,6 +40,18 @@ export const APP_VERSION =
   APP_BASE_VERSION;
 
 export const APP_CHANGELOGS: VersionChangelog[] = [
+  {
+    version: 'Beta 1.10.32',
+    releaseDate: '2026-11-10',
+    title: 'SahebPaper Official Cloud & Security Hardening (Beta 1.10.32)',
+    mandatory: true,
+    highlights: [
+      'Official Hub HTTPS: Live connection active on official https://sahebpaper.github.io/saheb-paper/',
+      'Hardened Session Security: Lean session storage and account unlock protection',
+      'Electron & Android Protection: CSP meta policy and cleartext traffic disabled',
+      'Pure In-App OTA Update: Instant live updates without APK files or external redirects',
+    ],
+  },
   {
     version: 'Beta 1.10.31',
     releaseDate: '2026-11-08',

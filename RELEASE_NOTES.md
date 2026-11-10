@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Current Version](https://img.shields.io/badge/Current-Beta%201.10.31-success?style=for-the-badge)
-![Release Date](https://img.shields.io/badge/Released-Nov%208%2C%202026-blue?style=for-the-badge)
+![Current Version](https://img.shields.io/badge/Current-Beta%201.10.32-success?style=for-the-badge)
+![Release Date](https://img.shields.io/badge/Released-Nov%2010%2C%202026-blue?style=for-the-badge)
 
 **Complete Version History & Changelog**
 
@@ -12,6 +12,20 @@
 ---
 
 ## 🎯 Current Release
+
+### Beta 1.10.32 (Build 52) - November 10, 2026
+
+**Status**: ✅ Production Ready
+
+#### What's New
+
+- **SahebPaper Official Hub HTTPS**: Restored live web app and native live OTA bridge to official `https://sahebpaper.github.io/saheb-paper/`.
+- **Hardened Session Security**: Sanitized session storage to lean metadata (token, username, roles, expiresAt) without credentials.
+- **Account Protection**: Hardened security answer verification and unlock fail-safe with mandatory user setup.
+- **Electron & Android Hardening**: CSP meta plugin injection, cleartext traffic disabled, backup disallowed.
+- **Pure In-App OTA Update**: Instant updates directly over the air with zero external downloads or browser popups.
+
+---
 
 ### Beta 1.10.31 (Build 51) - November 8, 2026
 

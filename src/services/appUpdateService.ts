@@ -134,7 +134,6 @@ export async function checkServerVersion(): Promise<AppVersionInfo | null> {
   const timestamp = Date.now();
   const candidateUrls = [
     `https://sahebpaper.github.io/saheb-paper/version.json?_t=${timestamp}`,
-    `https://thakordhruv097-spec.github.io/saheb-paper/version.json?_t=${timestamp}`,
     `/saheb-paper/version.json?_t=${timestamp}`,
     `/version.json?_t=${timestamp}`,
     `${import.meta.env.BASE_URL}version.json?_t=${timestamp}`,

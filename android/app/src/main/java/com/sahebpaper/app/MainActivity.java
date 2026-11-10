@@ -23,6 +23,7 @@ public class MainActivity extends BridgeActivity {
 
     private void setupNativeBridgeAndClients() {
         if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().clearCache(true);
             getBridge().getWebView().addJavascriptInterface(new AndroidNativeBridge(), "AndroidNativeBridge");
         }
     }
@@ -53,6 +54,7 @@ public class MainActivity extends BridgeActivity {
     public void onStart() {
         super.onStart();
         if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().clearCache(true);
             getBridge().getWebView().addJavascriptInterface(new AndroidNativeBridge(), "AndroidNativeBridge");
             getBridge().getWebView().setWebChromeClient(new com.getcapacitor.BridgeWebChromeClient(getBridge()) {
                 @Override

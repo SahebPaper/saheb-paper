@@ -1,15 +1,14 @@
 {
-  "version": "Beta 1.10.32",
-  "versionCode": 52,
-  "releaseDate": "2026-11-10",
-  "title": "Saheb Paper ERP (Beta 1.10.32) — Security & Official Hub Release",
+  "version": "Beta 1.10.33",
+  "versionCode": 53,
+  "releaseDate": "2026-11-13",
+  "title": "Saheb Paper ERP (Beta 1.10.33) Update",
   "highlights": [
-    "Official Hub HTTPS: Live connection restored to https://sahebpaper.github.io/saheb-paper/",
-    "Hardened Session Security: Lean session storage and account unlock protection",
-    "Electron & Android Protection: CSP meta policy and cleartext traffic disabled",
-    "Pure In-App OTA Update: Instant live updates without APK files or external redirects"
+    "Accurate Today's Output: Displays exactly 0 kg when no reels are produced today, preventing historical stock from falsely showing as daily production",
+    "Real-Time Stock Isolation: Active Stock independently displays live warehouse inventory (21,832 kg)",
+    "Strict KPI Accuracy: Removed artificial fallback logic across output, dispatched reels, and challans"
   ],
   "packageSizeMb": 4.2,
   "apkUrl": "https://sahebpaper.github.io/saheb-paper/#/",
-  "mandatory": true
+  "mandatory": false
 }

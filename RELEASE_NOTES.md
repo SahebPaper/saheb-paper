@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Current Version](https://img.shields.io/badge/Current-Beta%201.10.32-success?style=for-the-badge)
-![Release Date](https://img.shields.io/badge/Released-Nov%2010%2C%202026-blue?style=for-the-badge)
+![Current Version](https://img.shields.io/badge/Current-Beta%201.10.33-success?style=for-the-badge)
+![Release Date](https://img.shields.io/badge/Released-Nov%2013%2C%202026-blue?style=for-the-badge)
 
 **Complete Version History & Changelog**
 
@@ -12,6 +12,18 @@
 ---
 
 ## 🎯 Current Release
+
+### Beta 1.10.33 (Build 53) - November 13, 2026
+
+**Status**: ✅ Production Ready
+
+#### What's New
+
+- **Accurate Today's Output**: Fixed KPI calculation so "Today's Output" shows exactly `0 kg` and `0 Reels Produced` when no reels were created today, rather than falling back to historical warehouse stock.
+- **Real-Time Stock Isolation**: Active Stock accurately displays live warehouse inventory (`21,832 kg`, Grade A & B Ready) independently of daily production metrics.
+- **Strict KPI Telemetry**: Eliminated demo fallback logic across Output, Dispatched, and Challan counts.
+
+---
 
 ### Beta 1.10.32 (Build 52) - November 10, 2026
 

@@ -219,21 +219,21 @@ export const DashboardView: React.FC = () => {
   const quickActions = [
     isMobile
       ? {
-          id: 'scan-qr',
-          label: 'Scan Reel QR',
-          desc: 'Instant camera barcode & dispatch verification',
-          path: '/dispatch-receipt/qr-scanner',
-          icon: QrCode,
-          iconBg: 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400',
-        }
+        id: 'scan-qr',
+        label: 'Scan Reel QR',
+        desc: 'Instant camera barcode & dispatch verification',
+        path: '/dispatch-receipt/qr-scanner',
+        icon: QrCode,
+        iconBg: 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400',
+      }
       : {
-          id: 'stock-audit',
-          label: 'Stock Categorization',
-          desc: 'Grade finished reels & stock classification',
-          path: '/stock-categorization',
-          icon: Package,
-          iconBg: 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400',
-        },
+        id: 'stock-audit',
+        label: 'Stock Categorization',
+        desc: 'Grade finished reels & stock classification',
+        path: '/stock-categorization',
+        icon: Package,
+        iconBg: 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400',
+      },
     {
       id: 'print-tag',
       label: 'Print Thermal Tag',
@@ -264,8 +264,8 @@ export const DashboardView: React.FC = () => {
   const timeLabel = timeframe === 'day'
     ? (selectedDate === systemToday ? 'Today' : selectedDate.split('-').reverse().join('/'))
     : timeframe === 'week' ? 'This Week'
-    : timeframe === 'month' ? 'This Month'
-    : 'All Time';
+      : timeframe === 'month' ? 'This Month'
+        : 'All Time';
 
   // ── RENDER ──
   return (

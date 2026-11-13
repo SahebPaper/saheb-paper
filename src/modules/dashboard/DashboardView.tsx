@@ -79,15 +79,6 @@ export const DashboardView: React.FC = () => {
     const outputKg = rollKg > 0 ? rollKg : reelKg;
     const outputCount = filteredRolls.length > 0 ? filteredRolls.length : filteredReels.length;
 
-    const allReelKg = reels.reduce((s, r) => s + r.weight, 0);
-    const allRollKg = rolls.reduce((s, r) => s + r.weight, 0);
-    const fallbackKg = allRollKg > 0 ? allRollKg : allReelKg;
-    const fallbackCount = rolls.length > 0 ? rolls.length : reels.length;
-
-    const displayKg = outputKg > 0 ? outputKg : fallbackKg;
-    const displayCount = outputKg > 0 ? outputCount : fallbackCount;
-    const isFallback = outputKg === 0 && fallbackKg > 0;
-
     const inStock = reels.filter(r => r.status === 'IN_STOCK' || r.status === 'IN_STOCK_B');
     const stockKg = inStock.reduce((s, r) => s + (Number(r.weight) || 0), 0);
     const stockCount = inStock.length;
@@ -98,24 +89,21 @@ export const DashboardView: React.FC = () => {
       return isDateInFilter(d || '');
     });
     const dispatchedKg = dispatched.reduce((s, r) => s + r.weight, 0);
-    const allDispatched = reels.filter(r => r.status === 'DISPATCHED');
-    const allDispatchedKg = allDispatched.reduce((s, r) => s + r.weight, 0);
-    const displayDispKg = dispatchedKg > 0 ? dispatchedKg : allDispatchedKg;
-    const displayDispCount = dispatchedKg > 0 ? dispatched.length : allDispatched.length;
-    const isDispFallback = dispatchedKg === 0 && allDispatchedKg > 0;
+    const dispatchedCount = dispatched.length;
 
     const filteredSlips = packingSlips.filter(s => isDateInFilter(s.date || s.dispatchDate || ''));
-    const challanCount = filteredSlips.length > 0 ? filteredSlips.length : packingSlips.length;
-    const challanReels = filteredSlips.length > 0
-      ? filteredSlips.reduce((s, sl) => s + (sl.reelNos?.length || 0), 0)
-      : packingSlips.reduce((s, sl) => s + (sl.reelNos?.length || 0), 0);
-    const isChallanFallback = filteredSlips.length === 0 && packingSlips.length > 0;
+    const challanCount = filteredSlips.length;
+    const challanReels = filteredSlips.reduce((s, sl) => s + (sl.reelNos?.length || 0), 0);
 
     return {
-      outputKg: displayKg, outputCount: displayCount, isFallback,
-      stockKg, stockCount,
-      dispatchedKg: displayDispKg, dispatchedCount: displayDispCount, isDispFallback,
-      challanCount, challanReels, isChallanFallback,
+      outputKg,
+      outputCount,
+      stockKg,
+      stockCount,
+      dispatchedKg,
+      dispatchedCount,
+      challanCount,
+      challanReels,
     };
   }, [reels, rolls, packingSlips, timeframe, selectedDate, refreshKey]);
 
@@ -319,7 +307,7 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="text-[11px] text-[#6C4FE0] dark:text-blue-400 font-semibold mt-1 flex items-center gap-0.5 truncate">
             <ArrowUpRight className="h-3 w-3 shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            <span>{kpis.outputCount} {kpis.isFallback ? 'Total Reels' : 'Produced'}</span>
+            <span>{kpis.outputCount} Reels Produced</span>
           </div>
         </div>
 
@@ -351,7 +339,7 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="text-[11px] text-[#6C4FE0] dark:text-blue-400 font-semibold mt-1 flex items-center gap-0.5 truncate">
             <ArrowUpRight className="h-3 w-3 shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            <span>{kpis.dispatchedCount} Reels Shipped{kpis.isDispFallback ? ' (Total)' : ''}</span>
+            <span>{kpis.dispatchedCount} Reels Shipped</span>
           </div>
         </div>
 
@@ -368,7 +356,7 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="text-[11px] text-[#6C4FE0] dark:text-blue-400 font-semibold mt-1 flex items-center gap-0.5 truncate">
             <ArrowUpRight className="h-3 w-3 shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            <span>{kpis.challanReels} Reels in Challans{kpis.isChallanFallback ? ' (Total)' : ''}</span>
+            <span>{kpis.challanReels} Reels in Challans</span>
           </div>
         </div>
       </div>

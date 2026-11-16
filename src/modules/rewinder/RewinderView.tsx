@@ -244,6 +244,18 @@ export const RewinderView: React.FC = () => {
     brokeKg: '0',
   });
 
+  // Manual Reel Modal State
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [manualReelForm, setManualReelForm] = useState({
+    reelNo: '',
+    productName: '',
+    grade: 'A' as 'A' | 'B',
+    gsm: '',
+    size: '',
+    weightKg: '',
+    joint: '0',
+  });
+
   const rollOptions1 = useMemo(() => {
     return availableRolls.map(roll => ({
       value: roll.rollNo,
@@ -290,6 +302,7 @@ export const RewinderView: React.FC = () => {
 
   useMobileBackHandler(isAddModalOpen, () => setIsAddModalOpen(false), 'rewinderAddModal');
   useMobileBackHandler(showQRModal, () => setShowQRModal(false), 'rewinderQRModal');
+  useMobileBackHandler(isManualModalOpen, () => setIsManualModalOpen(false), 'rewinderManualModal');
 
   // Edit Batch / Reels Modal State (Matches Add Reel Entry layout)
   const [editingBatch, setEditingBatch] = useState<{
@@ -402,7 +415,7 @@ export const RewinderView: React.FC = () => {
   useMobileBackHandler(isFilterModalOpen, () => setIsFilterModalOpen(false), 'rewinderFilterModal');
 
   // Lock background scroll when any modal is open
-  useBodyScrollLock(isAddModalOpen || showQRModal || showCascadingModal || editingBatch !== null || isFilterModalOpen);
+  useBodyScrollLock(isAddModalOpen || showQRModal || showCascadingModal || editingBatch !== null || isFilterModalOpen || isManualModalOpen);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
@@ -639,6 +652,79 @@ export const RewinderView: React.FC = () => {
     if (num > 999) return String(Math.round(num / 100));
     if (num > 150) return String(Math.round(num / 10));
     return String(num);
+  };
+
+  const handleOpenManualReelModal = () => {
+    setModalError('');
+    const latestReels = getReels();
+    const nextNo = getInitialReelNo(latestReels, 0);
+
+    setManualReelForm({
+      reelNo: nextNo,
+      productName: '',
+      grade: 'A',
+      gsm: '',
+      size: '',
+      weightKg: '',
+      joint: '0',
+    });
+    setIsManualModalOpen(true);
+  };
+
+  const handleSaveManualReel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isViewer) {
+      setToast({
+        type: 'error',
+        title: 'Action Locked',
+        message: 'Viewer Mode: Saving manual reel is locked.',
+      });
+      return;
+    }
+
+    const { reelNo, productName, grade, gsm, size, weightKg, joint } = manualReelForm;
+
+    if (!reelNo.trim() || !productName.trim() || !gsm || !size || !weightKg) {
+      setModalError('Please fill in all required fields.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const record: Reel = {
+        reelNo: reelNo.trim(),
+        parentRollNo: 'MANUAL',
+        product: cleanProductName(productName),
+        gsm: parseFloat(gsm),
+        size: parseFloat(size),
+        ply: 1, // Default to 1 ply for manual entries unless specified
+        weight: parseFloat(weightKg),
+        dia: 0, // Manual entries might not have dia
+        joint: parseInt(joint) || 0,
+        status: grade === 'B' ? 'IN_STOCK_B' : 'QC_PENDING',
+        qcGrade: grade,
+        productionDate: `${new Date().toISOString().substring(0, 10)} ${new Date().toLocaleTimeString('en-US', { hour12: false }).substring(0, 5)}`,
+      };
+
+      saveSingleReel(record, 0, user?.displayName || 'System');
+
+      const updatedReels = getReels();
+      setReels(updatedReels);
+      setIsManualModalOpen(false);
+
+      setHighlightedReelNos(new Set([record.reelNo]));
+      setTimeout(() => setHighlightedReelNos(new Set()), 5000);
+      setToast({
+        type: 'success',
+        title: 'Manual Reel Added',
+        message: `Manual Reel #${record.reelNo} has been logged successfully.`,
+        duration: 3500,
+      });
+    } catch (err: any) {
+      setModalError(err.message || 'Error saving manual reel.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleOpenAddModal = () => {
@@ -1210,6 +1296,14 @@ export const RewinderView: React.FC = () => {
               <Plus className="h-4 w-4 text-white" />
               <span className="hidden xs:inline">Add Reel Entry</span>
               <span className="xs:hidden">Add Reel</span>
+            </button>
+            <button
+              onClick={handleOpenManualReelModal}
+              className="px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 shrink-0 whitespace-nowrap rounded-xl border border-primary bg-white dark:bg-slate-800 text-primary dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden xs:inline">Add Manual Reel</span>
+              <span className="xs:hidden">Manual</span>
             </button>
           </div>
         </div>
@@ -1980,7 +2074,169 @@ export const RewinderView: React.FC = () => {
         )}
       </div>
 
+      {/* ADD MANUAL REEL MODAL */}
+      {isManualModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-50 dark:bg-slate-900 sm:bg-slate-900/60 sm:backdrop-blur-sm flex flex-col sm:flex-row sm:items-center sm:justify-center sm:p-4 overflow-y-auto overscroll-contain"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsManualModalOpen(false);
+          }}
+        >
+          <div
+            className="w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-2xl bg-slate-50 dark:bg-slate-900 sm:neumorphic-card rounded-none sm:rounded-3xl p-4 sm:p-6 flex flex-col sm:block space-y-4 shadow-none sm:shadow-2xl text-slate-900 dark:text-white overflow-y-auto custom-scrollbar animate-in fade-in sm:zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3 gap-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsManualModalOpen(false)}
+                  className="sm:hidden flex items-center gap-1.5 text-primary dark:text-blue-400 font-bold text-xs p-1.5 -ml-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <ArrowLeft className="h-4 w-4 stroke-[2.5]" />
+                  <span>Back</span>
+                </button>
+                <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white flex items-center flex-wrap gap-1.5 leading-snug">
+                  <span>Add Manual Reel Entry</span>
+                  <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
+                    Direct Stock
+                  </span>
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsManualModalOpen(false)}
+                className="hidden sm:flex items-center justify-center p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveManualReel} className="space-y-4 flex-1 pb-6 sm:pb-0">
+              {modalError && (
+                <div className="px-3 py-2 bg-red-50 dark:bg-red-950/80 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+                  <span>{modalError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Reel No
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={manualReelForm.reelNo}
+                    onChange={e => setManualReelForm(prev => ({ ...prev, reelNo: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Product & Grade
+                  </label>
+                  <CustomSearchableSelect
+                    size="sm"
+                    placeholder="-- Select Product --"
+                    value={manualReelForm.productName ? makeProductSelectKey(manualReelForm.productName, manualReelForm.grade) : ''}
+                    onChange={(val) => {
+                      const { product, grade } = parseProductSelectKey(val);
+                      setManualReelForm(prev => ({ ...prev, productName: product, grade }));
+                    }}
+                    options={productGradeOptions}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    GSM
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={manualReelForm.gsm}
+                    onChange={e => setManualReelForm(prev => ({ ...prev, gsm: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
+                    placeholder="e.g. 18"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Size (cm)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={manualReelForm.size}
+                    onChange={e => setManualReelForm(prev => ({ ...prev, size: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
+                    placeholder="e.g. 30"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Weight (kg)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    step="any"
+                    value={manualReelForm.weightKg}
+                    onChange={e => setManualReelForm(prev => ({ ...prev, weightKg: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
+                    placeholder="e.g. 500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Joints
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={manualReelForm.joint}
+                    onChange={e => setManualReelForm(prev => ({ ...prev, joint: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex flex-col sm:flex-row justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsManualModalOpen(false)}
+                  className="px-5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isViewer || isSubmitting}
+                  className={`px-6 py-2.5 text-xs uppercase tracking-wider rounded-xl font-black transition flex items-center justify-center gap-1.5 ${
+                    isViewer
+                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700 shadow-none'
+                      : isSubmitting
+                      ? 'bg-primary/70 text-white cursor-wait opacity-80'
+                      : 'btn-primary-gradient cursor-pointer active:scale-95'
+                  }`}
+                >
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : isViewer ? <Lock className="h-4 w-4 text-amber-500" /> : null}
+                  <span>{isSubmitting ? 'Saving...' : isViewer ? 'Locked' : 'Save Manual Reel'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ADD REEL ENTRY FULL-SCREEN MOBILE VIEW / DESKTOP MODAL */}
+
       {isAddModalOpen && (
         <div
           className="fixed inset-0 z-50 bg-slate-50 dark:bg-slate-900 sm:bg-slate-900/60 sm:backdrop-blur-sm flex flex-col sm:flex-row sm:items-center sm:justify-center sm:p-4 overflow-y-auto overscroll-contain"

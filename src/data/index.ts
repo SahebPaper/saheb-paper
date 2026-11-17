@@ -1928,8 +1928,8 @@ export function getReels(): Reel[] {
     setJSON(KEYS.REELS, existing, false);
   }
 
-  // Self-Healing Recovery: Ensure all canonical warehouse reels (including the 59 reels recovered from audit history) are restored
-  const existingSet = new Set((existing || []).map(r => (r.reelNo || '').toLowerCase().trim()));
+  // Self-Healing Recovery: Ensure all 170 canonical factory reels are restored and real weights preserved
+  const existingMap = new Map((existing || []).map(r => [(r.reelNo || '').toLowerCase().trim(), r]));
   let restoredMissing = false;
   if (!existing || existing.length === 0) {
     existing = [...DEFAULT_REELS];
@@ -1937,9 +1937,22 @@ export function getReels(): Reel[] {
   } else {
     for (const canon of DEFAULT_REELS) {
       const key = (canon.reelNo || '').toLowerCase().trim();
-      if (key && !existingSet.has(key)) {
+      if (!key) continue;
+      const current = existingMap.get(key);
+      if (!current) {
         existing.push(canon);
-        existingSet.add(key);
+        existingMap.set(key, canon);
+        restoredMissing = true;
+      } else if ((!current.weight || Number(current.weight) === 0 || current.weight === 450 || current.weight === 50) && canon.weight > 0) {
+        // Upgrade corrupted/dummy fallback weight to exact factory weight
+        current.weight = canon.weight;
+        current.gsm = canon.gsm || current.gsm;
+        current.size = canon.size || current.size;
+        current.product = canon.product || current.product;
+        if (canon.status === 'DISPATCHED') {
+          current.status = 'DISPATCHED';
+          current.challanNo = canon.challanNo || current.challanNo;
+        }
         restoredMissing = true;
       }
     }
@@ -2366,14 +2379,15 @@ export function scanMissingReels(): MissingReelInfo[] {
         if (!cleanNo) continue;
         const key = cleanNo.toLowerCase();
         if (!currentReelNos.has(key) && !missingMap.has(key)) {
+          const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
           missingMap.set(key, {
             reelNo: cleanNo,
-            product: 'Napkin Tissue',
-            weight: 0,
-            gsm: 18,
-            size: 30,
-            ply: 1,
-            parentRollNo: 'MANUAL',
+            product: canonMatch ? canonMatch.product : 'Napkin Tissue',
+            weight: canonMatch ? canonMatch.weight : 0,
+            gsm: canonMatch ? canonMatch.gsm : 15,
+            size: canonMatch ? canonMatch.size : 30,
+            ply: canonMatch ? canonMatch.ply : 1,
+            parentRollNo: canonMatch ? canonMatch.parentRollNo : 'MANUAL',
             status: 'DISPATCHED',
             source: `Packing Slip #${slip.slipNo}`,
             timestamp: slip.date || slip.dispatchDate,

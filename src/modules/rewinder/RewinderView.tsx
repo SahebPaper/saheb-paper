@@ -826,8 +826,8 @@ export const RewinderView: React.FC = () => {
       productName: '',
       grade: 'A',
       gsm: '',
-      size: '',
-      ply: '1',
+      size: '32',
+      ply: '2',
       weightKg: '',
       joint: '0',
     });
@@ -2429,7 +2429,7 @@ export const RewinderView: React.FC = () => {
                     value={manualReelForm.size}
                     onChange={e => setManualReelForm(prev => ({ ...prev, size: e.target.value }))}
                     className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
-                    placeholder="e.g. 30"
+                    placeholder="e.g. 32"
                   />
                 </div>
 
@@ -2704,7 +2704,7 @@ export const RewinderView: React.FC = () => {
                         setReelForm(prev => ({ ...prev, runningSize: val, size: val }));
                       }}
                       className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary focus:outline-none"
-                      placeholder="e.g. 30"
+                      placeholder="e.g. 32"
                     />
                   </div>
                   <div>

@@ -1943,17 +1943,25 @@ export function getReels(): Reel[] {
         existing.push(canon);
         existingMap.set(key, canon);
         restoredMissing = true;
-      } else if ((!current.weight || Number(current.weight) === 0 || current.weight === 450 || current.weight === 50) && canon.weight > 0) {
-        // Upgrade corrupted/dummy fallback weight to exact factory weight
-        current.weight = canon.weight;
-        current.gsm = canon.gsm || current.gsm;
-        current.size = canon.size || current.size;
-        current.product = canon.product || current.product;
-        if (canon.status === 'DISPATCHED') {
+      } else {
+        let updated = false;
+        if ((!current.weight || Number(current.weight) === 0 || current.weight === 450 || current.weight === 50) && canon.weight > 0) {
+          current.weight = canon.weight;
+          updated = true;
+        }
+        if (canon.product === 'Napkin Tissue' && (current.size !== canon.size || current.ply !== canon.ply)) {
+          current.size = canon.size;
+          current.ply = canon.ply;
+          updated = true;
+        }
+        if (canon.status === 'DISPATCHED' && current.status !== 'DISPATCHED') {
           current.status = 'DISPATCHED';
           current.challanNo = canon.challanNo || current.challanNo;
+          updated = true;
         }
-        restoredMissing = true;
+        if (updated) {
+          restoredMissing = true;
+        }
       }
     }
   }
@@ -2160,7 +2168,7 @@ export function saveSingleReel(
   addLog(
     'Rewinder',
     'Reel Logged',
-    `Reel #${finalReelNo} logged: ${reel.product}, ${reel.weight}kg, GSM ${reel.gsm}. Returned ${brokeWeight}kg Broke to stock.`,
+    `Reel #${finalReelNo} logged: ${reel.product}, ${reel.weight}kg, GSM ${reel.gsm}, Size ${reel.size}cm, ${reel.ply} Ply. Returned ${brokeWeight}kg Broke to stock.`,
     user
   );
 }
@@ -2185,7 +2193,7 @@ export function saveReel(reel: Reel, user: string, originalReelNo?: string): Ree
   addLog(
     'Rewinder',
     'Reel Updated',
-    `Updated Reel #${reel.reelNo}${originalReelNo && originalReelNo !== reel.reelNo ? ` (was #${originalReelNo})` : ''} specs: ${reel.product}, ${reel.weight}kg, GSM ${reel.gsm}`,
+    `Updated Reel #${reel.reelNo}${originalReelNo && originalReelNo !== reel.reelNo ? ` (was #${originalReelNo})` : ''} specs: ${reel.product}, ${reel.weight}kg, GSM ${reel.gsm}, Size ${reel.size}cm, ${reel.ply} Ply`,
     user
   );
   return reel;
@@ -2333,13 +2341,14 @@ export function scanMissingReels(): MissingReelInfo[] {
       const reelNo = logMatch[1].trim();
       const key = reelNo.toLowerCase();
       if (!currentReelNos.has(key) && !missingMap.has(key)) {
+        const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
         missingMap.set(key, {
           reelNo,
           product: logMatch[2].trim(),
           weight: parseFloat(logMatch[3]) || 0,
-          gsm: parseFloat(logMatch[4]) || 18,
-          size: 30,
-          ply: 1,
+          gsm: parseFloat(logMatch[4]) || 15,
+          size: canonMatch ? canonMatch.size : 32,
+          ply: canonMatch ? canonMatch.ply : 2,
           parentRollNo: 'MANUAL',
           status: 'QC_PENDING',
           source: `Audit Log (${log.action})`,
@@ -2354,13 +2363,14 @@ export function scanMissingReels(): MissingReelInfo[] {
       const reelNo = updateMatch[1].trim();
       const key = reelNo.toLowerCase();
       if (!currentReelNos.has(key) && !missingMap.has(key)) {
+        const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
         missingMap.set(key, {
           reelNo,
           product: updateMatch[2].trim(),
           weight: parseFloat(updateMatch[3]) || 0,
-          gsm: parseFloat(updateMatch[4]) || 18,
-          size: 30,
-          ply: 1,
+          gsm: parseFloat(updateMatch[4]) || 15,
+          size: canonMatch ? canonMatch.size : 32,
+          ply: canonMatch ? canonMatch.ply : 2,
           parentRollNo: 'MANUAL',
           status: 'QC_PENDING',
           source: `Audit Log (${log.action})`,
@@ -2385,8 +2395,8 @@ export function scanMissingReels(): MissingReelInfo[] {
             product: canonMatch ? canonMatch.product : 'Napkin Tissue',
             weight: canonMatch ? canonMatch.weight : 0,
             gsm: canonMatch ? canonMatch.gsm : 15,
-            size: canonMatch ? canonMatch.size : 30,
-            ply: canonMatch ? canonMatch.ply : 1,
+            size: canonMatch ? canonMatch.size : 32,
+            ply: canonMatch ? canonMatch.ply : 2,
             parentRollNo: canonMatch ? canonMatch.parentRollNo : 'MANUAL',
             status: 'DISPATCHED',
             source: `Packing Slip #${slip.slipNo}`,

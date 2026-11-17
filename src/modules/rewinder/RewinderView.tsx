@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useTranslation } from 'react-i18next';
-import { getRolls, getReels, getProducts, saveSingleReel, saveReelsFromRoll, markRollAsConsumed, saveReel, updateBatchReels, updateMachineRollSpecs, scanMissingReels, restoreMissingReels } from '../../data/index';
+import { getRolls, getReels, getProducts, saveSingleReel, saveReelsFromRoll, markRollAsConsumed, saveReel, deleteSingleReel, updateBatchReels, updateMachineRollSpecs, scanMissingReels, restoreMissingReels } from '../../data/index';
 import type { MissingReelInfo } from '../../data/index';
 import type { MachineRoll, Reel, ProductItem } from '../../data/types';
 import { CustomSearchableSelect } from '../../components/CustomSearchableSelect';
@@ -355,6 +355,10 @@ export const RewinderView: React.FC = () => {
 
   useMobileBackHandler(editingSingleReel !== null, () => setEditingSingleReel(null), 'rewinderSingleReelEditModal');
 
+  // 3-Dots Action Menu State for Individual Reels
+  const [activeReelMenu, setActiveReelMenu] = useState<{ reel: Reel; top: number; right: number } | null>(null);
+  useMobileBackHandler(activeReelMenu !== null, () => setActiveReelMenu(null), 'rewinderReelActionMenu');
+
   // Missing Reels Recovery State (Smart detector for reels logged in audit logs that got lost)
   const [missingReelsList, setMissingReelsList] = useState<MissingReelInfo[]>([]);
   const [isRestoringMissing, setIsRestoringMissing] = useState(false);
@@ -491,6 +495,61 @@ export const RewinderView: React.FC = () => {
       setSingleReelModalError(err.message || 'Failed to update reel.');
     } finally {
       setIsSavingSingleReel(false);
+    }
+  };
+
+  const handleOpenReelMenu = (reel: Reel, e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (activeReelMenu?.reel.reelNo === reel.reelNo) {
+      setActiveReelMenu(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setActiveReelMenu({
+      reel,
+      top: rect.bottom + 6,
+      right: window.innerWidth - rect.right,
+    });
+  };
+
+  const handlePrintSingleReel = (reel: Reel) => {
+    if (isViewer) return;
+    setRecentlyGenerated([reel]);
+    setShowQRModal(true);
+  };
+
+  const handleDeleteSingleReelAction = (reel: Reel) => {
+    if (isViewer) return;
+    if (reel.status === 'DISPATCHED') {
+      setToast({
+        type: 'error',
+        title: 'Cannot Delete Reel',
+        message: `Reel #${reel.reelNo} is already dispatched.`,
+        duration: 4000,
+      });
+      return;
+    }
+    const confirmed = window.confirm(
+      `Are you sure you want to delete Reel #${reel.reelNo} (${reel.weight} kg, ${reel.product})?\nThis cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    const res = deleteSingleReel(reel.reelNo, user?.displayName || 'Operator');
+    if (res.success) {
+      setReels(getReels());
+      setToast({
+        type: 'success',
+        title: 'Reel Deleted',
+        message: `Reel #${reel.reelNo} (${reel.weight} kg) has been deleted.`,
+        duration: 3500,
+      });
+    } else {
+      setToast({
+        type: 'error',
+        title: 'Delete Failed',
+        message: res.error || 'Failed to delete reel.',
+        duration: 4000,
+      });
     }
   };
 
@@ -1979,17 +2038,6 @@ export const RewinderView: React.FC = () => {
                     <span className="text-red-500">
                       Broke: <strong>+{batch.totalBroke.toLocaleString()} kg</strong>
                     </span>
-                    {!isViewer && (
-                      <button
-                        type="button"
-                        onClick={() => handleOpenBatchEditModal(batch)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-primary dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 border border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-800 transition cursor-pointer active:scale-95 shadow-2xs shrink-0"
-                        title={`Edit Batch for Roll #${batch.parentRollNo}`}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        <span>Edit Batch</span>
-                      </button>
-                    )}
                   </div>
                 </div>
 
@@ -2071,12 +2119,12 @@ export const RewinderView: React.FC = () => {
                                   {!isViewer && (
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenSingleReelEdit(reel)}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 border border-slate-200 dark:border-slate-700 hover:border-blue-300 transition text-[11px] font-bold cursor-pointer"
-                                      title={`Edit Reel #${reel.reelNo}`}
+                                      onClick={(e) => handleOpenReelMenu(reel, e)}
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer active:scale-95"
+                                      title={`Options for Reel #${reel.reelNo}`}
+                                      aria-label={`Options for Reel #${reel.reelNo}`}
                                     >
-                                      <Pencil className="h-3 w-3" />
-                                      <span>Edit</span>
+                                      <MoreVertical className="h-4 w-4" />
                                     </button>
                                   )}
                                 </td>
@@ -2147,12 +2195,12 @@ export const RewinderView: React.FC = () => {
                                   {!isViewer && (
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenSingleReelEdit(reel)}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:text-primary dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 border border-slate-200 dark:border-slate-700 hover:border-blue-300 transition text-[11px] font-bold cursor-pointer"
-                                      title={`Edit Reel #${reel.reelNo}`}
+                                      onClick={(e) => handleOpenReelMenu(reel, e)}
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer active:scale-95"
+                                      title={`Options for Reel #${reel.reelNo}`}
+                                      aria-label={`Options for Reel #${reel.reelNo}`}
                                     >
-                                      <Pencil className="h-3 w-3" />
-                                      <span>Edit</span>
+                                      <MoreVertical className="h-4 w-4" />
                                     </button>
                                   )}
                                 </td>
@@ -2208,11 +2256,12 @@ export const RewinderView: React.FC = () => {
                                 {!isViewer && (
                                   <button
                                     type="button"
-                                    onClick={() => handleOpenSingleReelEdit(reel)}
-                                    className="p-1 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                                    title={`Edit Reel #${reel.reelNo}`}
+                                    onClick={(e) => handleOpenReelMenu(reel, e)}
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer active:scale-95"
+                                    title={`Options for Reel #${reel.reelNo}`}
+                                    aria-label={`Options for Reel #${reel.reelNo}`}
                                   >
-                                    <Pencil className="h-3.5 w-3.5" />
+                                    <MoreVertical className="h-4 w-4" />
                                   </button>
                                 )}
                               </div>
@@ -2277,11 +2326,12 @@ export const RewinderView: React.FC = () => {
                                 {!isViewer && (
                                   <button
                                     type="button"
-                                    onClick={() => handleOpenSingleReelEdit(reel)}
-                                    className="p-1 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                                    title={`Edit Reel #${reel.reelNo}`}
+                                    onClick={(e) => handleOpenReelMenu(reel, e)}
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer active:scale-95"
+                                    title={`Options for Reel #${reel.reelNo}`}
+                                    aria-label={`Options for Reel #${reel.reelNo}`}
                                   >
-                                    <Pencil className="h-3.5 w-3.5" />
+                                    <MoreVertical className="h-4 w-4" />
                                   </button>
                                 )}
                               </div>
@@ -3965,6 +4015,95 @@ export const RewinderView: React.FC = () => {
           </div>
         </div>
       )}
+      {/* 3-Dots Action Menu Portal for Individual Reels */}
+      {activeReelMenu && createPortal(
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/10 dark:bg-black/30 backdrop-blur-[0.5px]"
+            onClick={() => setActiveReelMenu(null)}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              top: `${Math.min(activeReelMenu.top, window.innerHeight - 200)}px`,
+              right: `${Math.max(12, activeReelMenu.right)}px`,
+            }}
+            className="z-50 w-52 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-100 select-none"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-700/70 mb-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-mono font-black text-primary dark:text-blue-400">
+                  #{activeReelMenu.reel.reelNo}
+                </span>
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                  {activeReelMenu.reel.weight} kg
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                {cleanProductName(activeReelMenu.reel.product)}
+              </p>
+            </div>
+
+            <div className="space-y-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const r = activeReelMenu.reel;
+                  setActiveReelMenu(null);
+                  handleOpenSingleReelEdit(r);
+                }}
+                disabled={isViewer}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/50 hover:text-primary dark:hover:text-blue-400 transition cursor-pointer disabled:opacity-40"
+              >
+                <Pencil className="h-4 w-4 text-blue-500 shrink-0" />
+                <div className="text-left">
+                  <div>Edit Reel</div>
+                  <div className="text-[10px] font-normal text-slate-400 dark:text-slate-500">Weight, GSM, specs &amp; grade</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const r = activeReelMenu.reel;
+                  setActiveReelMenu(null);
+                  handlePrintSingleReel(r);
+                }}
+                disabled={isViewer}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 dark:hover:text-emerald-300 transition cursor-pointer disabled:opacity-40"
+              >
+                <Printer className="h-4 w-4 text-emerald-500 shrink-0" />
+                <div className="text-left">
+                  <div>Print Label</div>
+                  <div className="text-[10px] font-normal text-slate-400 dark:text-slate-500">Thermal barcode / QR</div>
+                </div>
+              </button>
+
+              <div className="my-1 border-t border-slate-100 dark:border-slate-700/70" />
+
+              <button
+                type="button"
+                onClick={() => {
+                  const r = activeReelMenu.reel;
+                  setActiveReelMenu(null);
+                  handleDeleteSingleReelAction(r);
+                }}
+                disabled={isViewer || activeReelMenu.reel.status === 'DISPATCHED'}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer disabled:opacity-40"
+              >
+                <Trash2 className="h-4 w-4 text-red-500 shrink-0" />
+                <div className="text-left">
+                  <div>{activeReelMenu.reel.status === 'DISPATCHED' ? 'Dispatched (Locked)' : 'Delete Reel'}</div>
+                  <div className="text-[10px] font-normal text-red-400/80">Remove from inventory</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
       {/* Mobile Floating Toast */}
       <MobileToast toast={toast} onClose={() => setToast(null)} />
     </div>

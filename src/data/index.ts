@@ -2112,6 +2112,60 @@ export function saveReel(reel: Reel, user: string, originalReelNo?: string): Ree
   return reel;
 }
 
+export function deleteSingleReel(reelNo: string, user: string = 'Operator'): { success: boolean; error?: string } {
+  try {
+    const currentReels = getReels();
+    const index = currentReels.findIndex(r => r.reelNo.trim().toLowerCase() === reelNo.trim().toLowerCase());
+    if (index === -1) {
+      return { success: false, error: `Reel #${reelNo} not found.` };
+    }
+    const reel = currentReels[index];
+    if (reel.status === 'DISPATCHED') {
+      return { success: false, error: `Reel #${reel.reelNo} cannot be deleted because it is already dispatched.` };
+    }
+
+    // Adjust broke if cut from an actual machine roll (Rule 6)
+    const cleanParent = (reel.parentRollNo || '').trim().toLowerCase();
+    if (cleanParent && cleanParent !== 'manual' && cleanParent !== 'unknown') {
+      const allRolls = getRolls();
+      const parts = cleanParent.split('/').map(p => p.trim());
+      let parentRollWeight = 0;
+      parts.forEach(p => {
+        const found = allRolls.find(r => (r.rollNo || '').trim().toLowerCase() === p)
+          || allRolls.find(r => {
+            const normP = p.replace(/[\s\-_]/g, '').replace(/^r/i, '').replace(/^0+/, '');
+            const normR = (r.rollNo || '').trim().toLowerCase().replace(/[\s\-_]/g, '').replace(/^r/i, '').replace(/^0+/, '');
+            return normP && normR && normP === normR;
+          });
+        if (found && found.weight) {
+          parentRollWeight += Number(found.weight) || 0;
+        }
+      });
+
+      if (parentRollWeight > 0 && reel.weight > 0) {
+        const materials = getRawMaterials();
+        const brokeMaterial = materials.find(m => m.name === 'Broke');
+        if (brokeMaterial) {
+          updateRawMaterialStock(brokeMaterial.id, reel.weight, user);
+        }
+      }
+    }
+
+    currentReels.splice(index, 1);
+    setJSON(KEYS.REELS, currentReels);
+    pushDeleteToCloud('reels', 'reel_no', reel.reelNo);
+    addLog(
+      'Rewinder',
+      'Reel Deleted',
+      `Deleted Reel #${reel.reelNo} (${reel.product}, ${reel.weight}kg, GSM ${reel.gsm})`,
+      user
+    );
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to delete reel.' };
+  }
+}
+
 export function updateBatchReels(
   parentRollNo: string,
   updatedReels: (Reel & { originalReelNo?: string })[],

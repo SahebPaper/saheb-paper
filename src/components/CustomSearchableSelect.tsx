@@ -107,7 +107,8 @@ export const CustomSearchableSelect: React.FC<CustomSearchableSelectProps> = ({
   // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node;
+      const target = e.target;
+      if (!target || !(target instanceof Node)) return;
       if (
         containerRef.current &&
         !containerRef.current.contains(target) &&
@@ -126,8 +127,9 @@ export const CustomSearchableSelect: React.FC<CustomSearchableSelectProps> = ({
     updateMenuPosition();
 
     const handleScrollOrResize = (e: Event) => {
+      const target = e.target;
       // Don't reposition or close if scrolling inside the dropdown menu itself
-      if (menuRef.current && menuRef.current.contains(e.target as Node)) {
+      if (target && target instanceof Node && menuRef.current && menuRef.current.contains(target)) {
         return;
       }
       if (buttonRef.current) {

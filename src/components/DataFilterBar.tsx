@@ -86,11 +86,12 @@ export const DataFilterBar: React.FC<DataFilterBarProps> = ({
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && target.closest('[data-custom-datepicker]')) {
+      const target = e.target;
+      if (!target || !(target instanceof Node)) return;
+      if ((target as HTMLElement).closest && (target as HTMLElement).closest('[data-custom-datepicker]')) {
         return;
       }
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      if (panelRef.current && !panelRef.current.contains(target)) {
         setIsOpen(false);
         setOpenDatePickerFor(null);
       }

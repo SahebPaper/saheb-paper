@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { useTranslation } from 'react-i18next';
-import { getReels, updateReelQC } from '../../data/index';
+import { getReels, updateReelQC, deleteSingleReel } from '../../data/index';
 import type { Reel } from '../../data/types';
 import {
   Package,
@@ -21,12 +21,14 @@ import {
   Beaker,
   Lock,
   Scale,
+  Trash2,
 } from 'lucide-react';
 import { WorkflowStepBadge, WORKFLOW_STEPS } from '../../components/WorkflowStepBadge';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { useDataSync } from '../../hooks/useDataSync';
 import { CustomSearchableSelect } from '../../components/CustomSearchableSelect';
 import { cleanProductName, detectProductGrade } from '../../utils/productUtils';
+import { MobileToast, type ToastMessage } from '../../components/MobileToast';
 
 interface FinishStockViewProps {
   hideHeader?: boolean;
@@ -46,6 +48,7 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
   const [activeTab, setActiveTab] = useState<'all' | 'in_stock' | 'pending_qc' | 'dispatched'>('all');
   const [stockSearchQuery, setStockSearchQuery] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   // Filter States
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -399,6 +402,42 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
   };
 
   const hasQcWriteAccess = user?.role === 'Admin' || user?.role === 'RewinderOperator';
+
+  const handleDeleteReel = (reel: Reel) => {
+    if (isViewer) return;
+    if (reel.status === 'DISPATCHED') {
+      setToast({
+        type: 'error',
+        title: 'Cannot Delete Reel',
+        message: `Reel #${reel.reelNo} cannot be deleted because it is already dispatched.`,
+        duration: 4000,
+      });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete Reel #${reel.reelNo} (${reel.weight} kg, ${reel.product})?\nThis will permanently remove it from Stock and the Database.`
+    );
+    if (!confirmed) return;
+
+    const res = deleteSingleReel(reel.reelNo, user?.displayName || 'Operator');
+    if (res.success) {
+      setReels(getReels());
+      setToast({
+        type: 'success',
+        title: 'Reel Deleted',
+        message: `Reel #${reel.reelNo} (${reel.weight} kg) has been deleted from stock and database.`,
+        duration: 3500,
+      });
+    } else {
+      setToast({
+        type: 'error',
+        title: 'Delete Failed',
+        message: res.error || 'Failed to delete reel.',
+        duration: 4000,
+      });
+    }
+  };
 
   return (
     <div className="space-y-6 font-sans pb-12 text-left">
@@ -815,36 +854,51 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
                                 {reel.productionDate}
                               </td>
                               <td className="py-3 px-3 text-right">
-                                {reel.status === 'QC_PENDING' ? (
-                                  hasQcWriteAccess || isViewer ? (
-                                    <button
-                                      onClick={() => {
-                                        setInspectingReel(reel);
-                                        setGsmResult(String(reel.gsm));
-                                        setQcGrade('A');
-                                      }}
-                                      className="px-3.5 py-1.5 bg-[#008163] hover:bg-[#006e54] text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-sm cursor-pointer"
-                                    >
-                                      {isViewer ? 'QC View' : 'QC Test'}
-                                    </button>
-                                  ) : (
-                                    <span className="text-[10px] text-purple-600 dark:text-purple-300 font-black uppercase bg-purple-100 dark:bg-purple-950/40 px-2.5 py-1 rounded-full border border-purple-200 dark:border-purple-800">
-                                      Pending QC
-                                    </span>
-                                  )
-                                ) : (
-                                  <div className="flex items-center justify-end gap-1.5 text-[10px] font-bold">
-                                    {reel.status === 'IN_STOCK_B' || reel.qcGrade === 'B' || detectProductGrade(reel.product) === 'B' ? (
-                                      <span className="px-2.5 py-1 rounded-full font-black uppercase tracking-wider bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                                        Grade B Stock
-                                      </span>
+                                <div className="flex items-center justify-end gap-2">
+                                  {reel.status === 'QC_PENDING' ? (
+                                    hasQcWriteAccess || isViewer ? (
+                                      <button
+                                        onClick={() => {
+                                          setInspectingReel(reel);
+                                          setGsmResult(String(reel.gsm));
+                                          setQcGrade('A');
+                                        }}
+                                        className="px-3.5 py-1.5 bg-[#008163] hover:bg-[#006e54] text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-sm cursor-pointer"
+                                      >
+                                        {isViewer ? 'QC View' : 'QC Test'}
+                                      </button>
                                     ) : (
-                                      <span className="px-2.5 py-1 rounded-full font-black uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                                        Grade A Stock
+                                      <span className="text-[10px] text-purple-600 dark:text-purple-300 font-black uppercase bg-purple-100 dark:bg-purple-950/40 px-2.5 py-1 rounded-full border border-purple-200 dark:border-purple-800">
+                                        Pending QC
                                       </span>
-                                    )}
-                                  </div>
-                                )}
+                                    )
+                                  ) : (
+                                    <div className="flex items-center justify-end gap-1.5 text-[10px] font-bold">
+                                      {reel.status === 'IN_STOCK_B' || reel.qcGrade === 'B' || detectProductGrade(reel.product) === 'B' ? (
+                                        <span className="px-2.5 py-1 rounded-full font-black uppercase tracking-wider bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                          Grade B Stock
+                                        </span>
+                                      ) : (
+                                        <span className="px-2.5 py-1 rounded-full font-black uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                                          Grade A Stock
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {!isViewer && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteReel(reel)}
+                                      disabled={reel.status === 'DISPATCHED'}
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                      title={reel.status === 'DISPATCHED' ? 'Cannot delete dispatched reel' : `Delete Reel #${reel.reelNo}`}
+                                      aria-label={`Delete Reel #${reel.reelNo}`}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -890,15 +944,29 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
                         <div key={reel.reelNo} className="p-4 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-3 text-xs text-left">
                           <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-2.5">
                             <span className="font-mono font-black text-primary dark:text-blue-400 text-xs">{reel.reelNo}</span>
-                            <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase ${
-                              reel.status === 'QC_PENDING'
-                                ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300'
-                                : (reel.status === 'IN_STOCK_B' || reel.qcGrade === 'B' || detectProductGrade(reel.product) === 'B')
-                                ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300/40'
-                                : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300/40'
-                            }`}>
-                              {reel.status === 'QC_PENDING' ? 'Pending QC' : (reel.status === 'IN_STOCK_B' || reel.qcGrade === 'B' || detectProductGrade(reel.product) === 'B') ? 'Grade B Stock' : 'Grade A Stock'}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                                reel.status === 'QC_PENDING'
+                                  ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300'
+                                  : (reel.status === 'IN_STOCK_B' || reel.qcGrade === 'B' || detectProductGrade(reel.product) === 'B')
+                                  ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300/40'
+                                  : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300/40'
+                              }`}>
+                                {reel.status === 'QC_PENDING' ? 'Pending QC' : (reel.status === 'IN_STOCK_B' || reel.qcGrade === 'B' || detectProductGrade(reel.product) === 'B') ? 'Grade B Stock' : 'Grade A Stock'}
+                              </span>
+                              {!isViewer && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteReel(reel)}
+                                  disabled={reel.status === 'DISPATCHED'}
+                                  className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                  title={reel.status === 'DISPATCHED' ? 'Cannot delete dispatched reel' : `Delete Reel #${reel.reelNo}`}
+                                  aria-label={`Delete Reel #${reel.reelNo}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           <div className="grid grid-cols-2 gap-y-2 text-[11px]">
@@ -1162,12 +1230,30 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
               <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
                 {t('finish_stock.qc_inspect')}
               </h3>
-              <button
-                onClick={() => setInspectingReel(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold text-lg cursor-pointer"
-              >
-                &times;
-              </button>
+              <div className="flex items-center gap-1.5">
+                {!isViewer && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const r = inspectingReel;
+                      setInspectingReel(null);
+                      handleDeleteReel(r);
+                    }}
+                    disabled={inspectingReel.status === 'DISPATCHED'}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    title={inspectingReel.status === 'DISPATCHED' ? 'Cannot delete dispatched reel' : `Delete Reel #${inspectingReel.reelNo}`}
+                    aria-label={`Delete Reel #${inspectingReel.reelNo}`}
+                  >
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                  </button>
+                )}
+                <button
+                  onClick={() => setInspectingReel(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold text-lg cursor-pointer p-1"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
 
             <form onSubmit={handleInspectSubmit} className="space-y-4">
@@ -1292,6 +1378,9 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
           </div>
         </div>
       )}
+
+      {/* Mobile Floating Toast */}
+      <MobileToast toast={toast} onClose={() => setToast(null)} />
 
     </div>
   );

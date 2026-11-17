@@ -100,6 +100,7 @@ export const KEYS = {
   LAB_REPORTS: 'saheb_lab_reports',
   CUSTOM_ROLES: 'saheb_custom_roles',
   DELETED_ROLES: 'saheb_deleted_roles',
+  DELETED_REELS: 'saheb_deleted_reels',
 };
 
 /**
@@ -2124,6 +2125,13 @@ export function deleteSingleReel(reelNo: string, user: string = 'Operator'): { s
       return { success: false, error: `Reel #${reel.reelNo} cannot be deleted because it is already dispatched.` };
     }
 
+    // Keep record in deleted reels list so legacy scans or restores never resurrect it
+    const deletedList = getJSON<string[]>(KEYS.DELETED_REELS, []);
+    if (!deletedList.some(d => d.toLowerCase() === reel.reelNo.toLowerCase())) {
+      deletedList.push(reel.reelNo);
+      setJSON(KEYS.DELETED_REELS, deletedList, false);
+    }
+
     // Adjust broke if cut from an actual machine roll (Rule 6)
     const cleanParent = (reel.parentRollNo || '').trim().toLowerCase();
     if (cleanParent && cleanParent !== 'manual' && cleanParent !== 'unknown') {
@@ -2295,6 +2303,7 @@ export interface MissingReelInfo {
 export function scanMissingReels(): MissingReelInfo[] {
   const currentReels = getReels();
   const currentReelNos = new Set(currentReels.map(r => r.reelNo.trim().toLowerCase()));
+  const deletedReelNos = new Set(getJSON<string[]>(KEYS.DELETED_REELS, []).map(d => d.toLowerCase()));
   const missingMap = new Map<string, MissingReelInfo>();
 
   // 1. Scan transaction logs
@@ -2307,7 +2316,7 @@ export function scanMissingReels(): MissingReelInfo[] {
     if (logMatch) {
       const reelNo = logMatch[1].trim();
       const key = reelNo.toLowerCase();
-      if (!currentReelNos.has(key) && !missingMap.has(key)) {
+      if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !missingMap.has(key)) {
         const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
         missingMap.set(key, {
           reelNo,
@@ -2329,7 +2338,7 @@ export function scanMissingReels(): MissingReelInfo[] {
     if (updateMatch) {
       const reelNo = updateMatch[1].trim();
       const key = reelNo.toLowerCase();
-      if (!currentReelNos.has(key) && !missingMap.has(key)) {
+      if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !missingMap.has(key)) {
         const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
         missingMap.set(key, {
           reelNo,
@@ -2355,7 +2364,7 @@ export function scanMissingReels(): MissingReelInfo[] {
         const cleanNo = (rNo || '').trim();
         if (!cleanNo) continue;
         const key = cleanNo.toLowerCase();
-        if (!currentReelNos.has(key) && !missingMap.has(key)) {
+        if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !missingMap.has(key)) {
           const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
           missingMap.set(key, {
             reelNo: cleanNo,

@@ -105,8 +105,8 @@ export function generateDispatchReceiptPdfDoc(
   const totalReelsCount = sortedReelItems.length;
   const totalSummaryCount = specGroupsList.length;
 
-  // If up to 14 reels and up to 3 summary rows, it cleanly fits on Page 1
-  if (totalReelsCount <= 14 && totalSummaryCount <= 3) {
+  // 1. Single Page Check: Up to 18 reels with up to 4 summary items fits cleanly on 1 Page!
+  if (totalReelsCount <= 18 && totalSummaryCount <= 4) {
     pages.push({
       pageNumber: 1,
       reels: sortedReelItems,
@@ -114,7 +114,7 @@ export function generateDispatchReceiptPdfDoc(
       isSummaryContinuation: false,
       showGrandTotal: true,
     });
-  } else if (totalReelsCount <= 16 && totalSummaryCount === 0) {
+  } else if (totalReelsCount <= 22 && totalSummaryCount === 0) {
     pages.push({
       pageNumber: 1,
       reels: sortedReelItems,
@@ -123,8 +123,9 @@ export function generateDispatchReceiptPdfDoc(
       showGrandTotal: true,
     });
   } else {
-    // Multi-page layout
-    const p1ReelCount = Math.min(13, totalReelsCount);
+    // 2. Multi-page layout:
+    // Page 1 takes up to 18 reels without spilling onto excess pages
+    const p1ReelCount = Math.min(18, totalReelsCount);
     const p1Reels = sortedReelItems.slice(0, p1ReelCount);
     let remainingReels = sortedReelItems.slice(p1ReelCount);
 
@@ -139,8 +140,10 @@ export function generateDispatchReceiptPdfDoc(
 
     let pageIdx = 2;
     while (remainingReels.length > 0) {
-      const chunk = remainingReels.slice(0, 16);
-      remainingReels = remainingReels.slice(16);
+      // Page 2+ can hold up to 24 reels with summary, or 30 without summary (so 30-reel challans fit on 2 pages!)
+      const maxReelsOnPage = remainingReels.length <= 22 ? 22 : 28;
+      const chunk = remainingReels.slice(0, maxReelsOnPage);
+      remainingReels = remainingReels.slice(maxReelsOnPage);
       const isLastReelChunk = remainingReels.length === 0;
 
       pages.push({

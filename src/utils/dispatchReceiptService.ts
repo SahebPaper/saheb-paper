@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { Reel, PackingSlip, Party, Vehicle } from '../data/types';
-import { getReels, getParties, getVehicles } from '../data';
+import { getReels, getParties, getVehicles, DEFAULT_REELS } from '../data';
 import { getCompanyConfig } from '../config/company';
 import { exportExcelWorkbook, downloadBlobFile, blobToBase64 } from './fileDownloader';
 import { Filesystem, Directory } from '@capacitor/filesystem';
@@ -21,26 +21,37 @@ export function getLinkedReelsForSlip(slip: PackingSlip, customReels?: Reel[]): 
 
   const matched = allReels.filter(r => slipReelNos.some(srNo => isMatch(srNo, r.reelNo)));
 
-  // If some reel numbers in slip were not found in active reel list, synthesize records so data is never lost
+  // If some reel numbers in slip were not found in active reel list, look up in canonical defaults
   if (matched.length < slipReelNos.length) {
     const missingNos = slipReelNos.filter(srNo => !matched.some(m => isMatch(m.reelNo, srNo)));
+    const defReels = DEFAULT_REELS || [];
+
     missingNos.forEach(mNo => {
-      matched.push({
-        id: `reel-synth-${mNo}`,
-        reelNo: mNo,
-        parentRollNo: 'SYNTH-01',
-        dia: 1000,
-        product: 'Semi Kraft',
-        gsm: 16,
-        size: 65,
-        ply: 1,
-        weight: 450,
-        joint: 0,
-        status: 'DISPATCHED',
-        qcGrade: 'A',
-        productionDate: slip.date || new Date().toISOString(),
-        challanNo: slip.slipNo,
-      } as Reel);
+      const foundCanon = defReels.find(d => isMatch(d.reelNo, mNo));
+      if (foundCanon) {
+        matched.push({
+          ...foundCanon,
+          status: 'DISPATCHED',
+          challanNo: slip.slipNo,
+        });
+      } else {
+        matched.push({
+          id: `reel-synth-${mNo}`,
+          reelNo: mNo,
+          parentRollNo: 'MANUAL',
+          dia: 0,
+          product: 'Napkin Tissue',
+          gsm: 16,
+          size: 30,
+          ply: 1,
+          weight: 50,
+          joint: 0,
+          status: 'DISPATCHED',
+          qcGrade: 'A',
+          productionDate: slip.date || new Date().toISOString(),
+          challanNo: slip.slipNo,
+        } as Reel);
+      }
     });
   }
 

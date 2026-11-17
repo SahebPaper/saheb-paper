@@ -319,9 +319,11 @@ const DEFAULT_STORE_ITEMS: StoreItem[] = [
   { id: 'st-6', type: 'V_BELT', name: 'A-48', pcs: 0, targetMachine: 'Hydrapulper Motor', minStock: 5, remarks: 'Standard Anti-static' },
 ];
 
+import { CANONICAL_REELS } from './canonicalReels';
+
 export const DEFAULT_ROLLS: MachineRoll[] = [];
 
-export const DEFAULT_REELS: Reel[] = [];
+export const DEFAULT_REELS: Reel[] = CANONICAL_REELS;
 
 export function seedSampleReels(): Reel[] {
   return getJSON<Reel[]>(KEYS.REELS, []);
@@ -1921,8 +1923,28 @@ export function getReels(): Reel[] {
 
   // Purge any ghost duplicate reels 26100009..14 for R-20260930-0001 if still in local storage
   const ghostReelNos = new Set(['26100009', '26100010', '26100011', '26100012', '26100013', '26100014']);
-  if (existing && existing.length > 0 && existing.some(r => ghostReelNos.has(r.reelNo))) {
-    existing = existing.filter(r => !ghostReelNos.has(r.reelNo));
+  if (existing && existing.length > 0 && existing.some(r => ghostReelNos.has(r.reelNo) && r.parentRollNo === 'R-20260930-0001')) {
+    existing = existing.filter(r => !(ghostReelNos.has(r.reelNo) && r.parentRollNo === 'R-20260930-0001'));
+    setJSON(KEYS.REELS, existing, false);
+  }
+
+  // Self-Healing Recovery: Ensure all canonical warehouse reels (including the 59 reels recovered from audit history) are restored
+  const existingSet = new Set((existing || []).map(r => (r.reelNo || '').toLowerCase().trim()));
+  let restoredMissing = false;
+  if (!existing || existing.length === 0) {
+    existing = [...DEFAULT_REELS];
+    restoredMissing = true;
+  } else {
+    for (const canon of DEFAULT_REELS) {
+      const key = (canon.reelNo || '').toLowerCase().trim();
+      if (key && !existingSet.has(key)) {
+        existing.push(canon);
+        existingSet.add(key);
+        restoredMissing = true;
+      }
+    }
+  }
+  if (restoredMissing) {
     setJSON(KEYS.REELS, existing, false);
   }
 
@@ -2165,25 +2187,20 @@ export function updateBatchReels(
   try {
     const allExistingReels = getReels();
     const currentReelNos = new Set(updatedReels.map(r => r.reelNo.trim().toLowerCase()));
+    const originalReelNosSet = new Set(originalReels.map(r => r.reelNo.trim().toLowerCase()));
     const cleanParentRoll = (parentRollNo || '').trim().toLowerCase();
 
-    // 1. Identify all reels for this roll that are being removed or renamed
+    // 1. Identify ONLY reels from originalReels that are being removed or renamed in this modal
     const deletedNos: string[] = [];
 
-    // Check originalReels
+    // Check only originalReels (never allExistingReels!)
     for (const orig of originalReels) {
+      // NEVER delete a reel if it was already dispatched!
+      if (orig.status === 'DISPATCHED') continue;
+
       if (!currentReelNos.has(orig.reelNo.trim().toLowerCase())) {
         if (!deletedNos.includes(orig.reelNo.trim())) {
           deletedNos.push(orig.reelNo.trim());
-        }
-      }
-    }
-    // Check allExistingReels for this parentRollNo
-    for (const existing of allExistingReels) {
-      const p = (existing.parentRollNo || '').trim().toLowerCase();
-      if (cleanParentRoll && p === cleanParentRoll) {
-        if (!currentReelNos.has(existing.reelNo.trim().toLowerCase()) && !deletedNos.includes(existing.reelNo.trim())) {
-          deletedNos.push(existing.reelNo.trim());
         }
       }
     }
@@ -2203,8 +2220,9 @@ export function updateBatchReels(
     }
 
     // 2. Broke stock adjustment in Raw Materials (Rule 6: Broke = Parent Roll Weight - Sum of Cut Reels)
+    // Only adjust broke if cleanParentRoll is an actual machine roll, NOT 'manual' or 'unknown'
     let parentRollWeight = 0;
-    if (cleanParentRoll) {
+    if (cleanParentRoll && cleanParentRoll !== 'manual' && cleanParentRoll !== 'unknown') {
       const allRolls = getRolls();
       const parts = cleanParentRoll.split('/').map(p => p.trim());
       parts.forEach(p => {
@@ -2235,12 +2253,13 @@ export function updateBatchReels(
       }
     }
 
-    // 3. Update in local storage: remove ALL reels of this parent roll, then append cleanedReels
+    // 3. Update in local storage: remove ONLY the reels that were part of this original batch
+    // CRITICAL FIX: NEVER filter by cleanParentRoll! Other batches or manual reels must remain untouched!
     const deletedNosSet = new Set(deletedNos.map(n => n.toLowerCase()));
     const remainingReels = allExistingReels.filter(r => {
-      const rParent = (r.parentRollNo || '').trim().toLowerCase();
-      if (cleanParentRoll && rParent === cleanParentRoll) return false;
-      if (deletedNosSet.has(r.reelNo.trim().toLowerCase())) return false;
+      const rNo = r.reelNo.trim().toLowerCase();
+      if (originalReelNosSet.has(rNo)) return false;
+      if (deletedNosSet.has(rNo)) return false;
       return true;
     });
     
@@ -2270,6 +2289,140 @@ export function updateBatchReels(
     console.error('Error updating batch reels:', err);
     return { success: false, error: err.message || 'Failed to update reels' };
   }
+}
+
+export interface MissingReelInfo {
+  reelNo: string;
+  product: string;
+  weight: number;
+  gsm: number;
+  size: number;
+  ply: number;
+  parentRollNo: string;
+  status: string;
+  source: string;
+  timestamp?: string;
+}
+
+export function scanMissingReels(): MissingReelInfo[] {
+  const currentReels = getReels();
+  const currentReelNos = new Set(currentReels.map(r => r.reelNo.trim().toLowerCase()));
+  const missingMap = new Map<string, MissingReelInfo>();
+
+  // 1. Scan transaction logs
+  const logs = getLogs();
+  for (const log of logs) {
+    if (!log.details) continue;
+
+    // Pattern A: "Reel #261106054 logged: Napkin Tissue, 56kg, GSM 15. Returned 0kg Broke to stock."
+    const logMatch = log.details.match(/Reel\s*#?([A-Za-z0-9\-_]+)\s*logged:\s*([^,]+),\s*(\d+(?:\.\d+)?)\s*kg,\s*GSM\s*(\d+(?:\.\d+)?)/i);
+    if (logMatch) {
+      const reelNo = logMatch[1].trim();
+      const key = reelNo.toLowerCase();
+      if (!currentReelNos.has(key) && !missingMap.has(key)) {
+        missingMap.set(key, {
+          reelNo,
+          product: logMatch[2].trim(),
+          weight: parseFloat(logMatch[3]) || 0,
+          gsm: parseFloat(logMatch[4]) || 18,
+          size: 30,
+          ply: 1,
+          parentRollNo: 'MANUAL',
+          status: 'QC_PENDING',
+          source: `Audit Log (${log.action})`,
+          timestamp: log.timestamp,
+        });
+      }
+    }
+
+    // Pattern B: "Updated Reel #261106054 specs: Napkin Tissue, 56kg, GSM 15"
+    const updateMatch = log.details.match(/Updated Reel\s*#?([A-Za-z0-9\-_]+).*?specs:\s*([^,]+),\s*(\d+(?:\.\d+)?)\s*kg,\s*GSM\s*(\d+(?:\.\d+)?)/i);
+    if (updateMatch) {
+      const reelNo = updateMatch[1].trim();
+      const key = reelNo.toLowerCase();
+      if (!currentReelNos.has(key) && !missingMap.has(key)) {
+        missingMap.set(key, {
+          reelNo,
+          product: updateMatch[2].trim(),
+          weight: parseFloat(updateMatch[3]) || 0,
+          gsm: parseFloat(updateMatch[4]) || 18,
+          size: 30,
+          ply: 1,
+          parentRollNo: 'MANUAL',
+          status: 'QC_PENDING',
+          source: `Audit Log (${log.action})`,
+          timestamp: log.timestamp,
+        });
+      }
+    }
+  }
+
+  // 2. Scan packing slips for dispatched reels that might have been purged from reels table
+  const slips = getPackingSlips();
+  for (const slip of slips) {
+    if (slip.reelNos && Array.isArray(slip.reelNos)) {
+      for (const rNo of slip.reelNos) {
+        const cleanNo = (rNo || '').trim();
+        if (!cleanNo) continue;
+        const key = cleanNo.toLowerCase();
+        if (!currentReelNos.has(key) && !missingMap.has(key)) {
+          missingMap.set(key, {
+            reelNo: cleanNo,
+            product: 'Napkin Tissue',
+            weight: 0,
+            gsm: 18,
+            size: 30,
+            ply: 1,
+            parentRollNo: 'MANUAL',
+            status: 'DISPATCHED',
+            source: `Packing Slip #${slip.slipNo}`,
+            timestamp: slip.date || slip.dispatchDate,
+          });
+        }
+      }
+    }
+  }
+
+  return Array.from(missingMap.values());
+}
+
+export function restoreMissingReels(user: string = 'System'): { restoredCount: number; restoredReels: string[] } {
+  const missing = scanMissingReels();
+  if (missing.length === 0) return { restoredCount: 0, restoredReels: [] };
+
+  const currentReels = getReels();
+  const restoredNos: string[] = [];
+
+  for (const item of missing) {
+    const restored: Reel = {
+      reelNo: item.reelNo,
+      parentRollNo: item.parentRollNo || 'MANUAL',
+      product: item.product || 'Napkin Tissue',
+      gsm: item.gsm || 18,
+      size: item.size || 30,
+      ply: item.ply || 1,
+      weight: item.weight || 0,
+      dia: 0,
+      joint: 0,
+      status: (item.status === 'DISPATCHED' ? 'DISPATCHED' : 'QC_PENDING') as any,
+      qcGrade: 'A',
+      productionDate: item.timestamp ? item.timestamp.substring(0, 16).replace('T', ' ') : new Date().toISOString(),
+    };
+    currentReels.push(restored);
+    pushUpsertToCloud('reels', reelToDb(restored));
+    restoredNos.push(item.reelNo);
+  }
+
+  setJSON(KEYS.REELS, currentReels);
+
+  addLog(
+    'Rewinder',
+    'Reels Restored',
+    `Restored ${restoredNos.length} missing reel(s) from audit stream: ${restoredNos.join(', ')}`,
+    user
+  );
+
+  return { restoredCount: restoredNos.length, restoredReels: restoredNos };
 }
 
 export function updateReelQC(

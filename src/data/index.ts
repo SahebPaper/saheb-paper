@@ -1921,14 +1921,19 @@ export function getReels(): Reel[] {
     }
   }
 
-  // Purge any ghost duplicate reels 26100009..14 for R-20260930-0001 if still in local storage
-  const ghostReelNos = new Set(['26100009', '26100010', '26100011', '26100012', '26100013', '26100014']);
-  if (existing && existing.length > 0 && existing.some(r => ghostReelNos.has(r.reelNo) && r.parentRollNo === 'R-20260930-0001')) {
-    existing = existing.filter(r => !(ghostReelNos.has(r.reelNo) && r.parentRollNo === 'R-20260930-0001'));
+  // Purge legacy mock/demo rolls from sandbox that user never entered
+  const dummyParentRolls = new Set([
+    'roll-20261006-01', 'roll-20261006-02', 'r-20260930-0001',
+    'r-20260917-0001', 'r-20260917-0002', 'r-20260917-0003',
+    'r-20260916-0001', 'r-20260914-0001', 'r-20260914-0002',
+    'r-20260914-0003', 'r-20260914-0006'
+  ]);
+  if (existing && existing.length > 0 && existing.some(r => dummyParentRolls.has((r.parentRollNo || '').toLowerCase().trim()))) {
+    existing = existing.filter(r => !dummyParentRolls.has((r.parentRollNo || '').toLowerCase().trim()));
     setJSON(KEYS.REELS, existing, false);
   }
 
-  // Self-Healing Recovery: Ensure all 170 canonical factory reels are restored and real weights preserved
+  // Self-Healing Recovery: Ensure all exact hard copy reels are restored and real weights preserved
   const existingMap = new Map((existing || []).map(r => [(r.reelNo || '').toLowerCase().trim(), r]));
   let restoredMissing = false;
   if (!existing || existing.length === 0) {
@@ -1945,7 +1950,8 @@ export function getReels(): Reel[] {
         restoredMissing = true;
       } else {
         let updated = false;
-        if ((!current.weight || Number(current.weight) === 0 || current.weight === 450 || current.weight === 50) && canon.weight > 0) {
+        // Align with verified hard copy weight & specs
+        if (current.weight !== canon.weight && canon.weight > 0) {
           current.weight = canon.weight;
           updated = true;
         }

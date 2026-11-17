@@ -1,12 +1,11 @@
 {
-  "version": "Beta 1.10.33",
-  "versionCode": 53,
-  "releaseDate": "2026-11-13",
-  "title": "Saheb Paper ERP (Beta 1.10.33) Update",
+  "version": "Beta 1.10.34",
+  "versionCode": 54,
+  "releaseDate": "2026-11-17",
+  "title": "Saheb Paper ERP (Beta 1.10.34) Update",
   "highlights": [
-    "Accurate Today's Output: Displays exactly 0 kg when no reels are produced today, preventing historical stock from falsely showing as daily production",
-    "Real-Time Stock Isolation: Active Stock independently displays live warehouse inventory (21,832 kg)",
-    "Strict KPI Accuracy: Removed artificial fallback logic across output, dispatched reels, and challans"
+    "Manual Reel Ply Selection: Added configurable 1 Ply, 2 Ply, and 3 Ply dropdown selector to manual reel entry modal in Rewinder",
+    "Dynamic Reel Specifications: Stores custom ply configuration directly in production inventory and batch records"
   ],
   "packageSizeMb": 4.2,
   "apkUrl": "https://sahebpaper.github.io/saheb-paper/#/",

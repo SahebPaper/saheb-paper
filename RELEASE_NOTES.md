@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Current Version](https://img.shields.io/badge/Current-Beta%201.10.33-success?style=for-the-badge)
-![Release Date](https://img.shields.io/badge/Released-Nov%2013%2C%202026-blue?style=for-the-badge)
+![Current Version](https://img.shields.io/badge/Current-Beta%201.10.34-success?style=for-the-badge)
+![Release Date](https://img.shields.io/badge/Released-Nov%2017%2C%202026-blue?style=for-the-badge)
 
 **Complete Version History & Changelog**
 
@@ -12,6 +12,17 @@
 ---
 
 ## 🎯 Current Release
+
+### Beta 1.10.34 (Build 54) - November 17, 2026
+
+**Status**: ✅ Production Ready
+
+#### What's New
+
+- **Manual Reel Ply Selection**: Added 1 Ply, 2 Ply, and 3 Ply dropdown selector to manual reel entry modal in Rewinder module.
+- **Dynamic Reel Specification Storage**: Persists custom ply selection directly in reel inventory and batch production records.
+
+---
 
 ### Beta 1.10.33 (Build 53) - November 13, 2026
 

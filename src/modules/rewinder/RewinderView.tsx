@@ -252,6 +252,7 @@ export const RewinderView: React.FC = () => {
     grade: 'A' as 'A' | 'B',
     gsm: '',
     size: '',
+    ply: '1',
     weightKg: '',
     joint: '0',
   });
@@ -665,6 +666,7 @@ export const RewinderView: React.FC = () => {
       grade: 'A',
       gsm: '',
       size: '',
+      ply: '1',
       weightKg: '',
       joint: '0',
     });
@@ -682,7 +684,7 @@ export const RewinderView: React.FC = () => {
       return;
     }
 
-    const { reelNo, productName, grade, gsm, size, weightKg, joint } = manualReelForm;
+    const { reelNo, productName, grade, gsm, size, ply, weightKg, joint } = manualReelForm;
 
     if (!reelNo.trim() || !productName.trim() || !gsm || !size || !weightKg) {
       setModalError('Please fill in all required fields.');
@@ -697,7 +699,7 @@ export const RewinderView: React.FC = () => {
         product: cleanProductName(productName),
         gsm: parseFloat(gsm),
         size: parseFloat(size),
-        ply: 1, // Default to 1 ply for manual entries unless specified
+        ply: parseInt(ply) || 1,
         weight: parseFloat(weightKg),
         dia: 0, // Manual entries might not have dia
         joint: parseInt(joint) || 0,
@@ -2162,6 +2164,21 @@ export const RewinderView: React.FC = () => {
                     className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
                     placeholder="e.g. 18"
                   />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Ply
+                  </label>
+                  <select
+                    value={manualReelForm.ply}
+                    onChange={e => setManualReelForm(prev => ({ ...prev, ply: e.target.value }))}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary focus:outline-none"
+                  >
+                    <option value="1">1 Ply</option>
+                    <option value="2">2 Ply</option>
+                    <option value="3">3 Ply</option>
+                  </select>
                 </div>
 
                 <div className="space-y-1">

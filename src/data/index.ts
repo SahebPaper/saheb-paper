@@ -25,7 +25,6 @@ export type { CustomRole };
 
 import { sortUsersByHierarchy, ROLE_LABELS, getDefaultModulesForRoles } from './types';
 import { hashPinSync, isPinHashed, revealPin } from '../lib/security';
-import { INITIAL_NAPKIN_REELS } from './napkinReelsData';
 import {
   pushUpsertToCloud,
   pushDeleteToCloud,
@@ -108,9 +107,22 @@ export const KEYS = {
  * Answers that are missing, blank, or the legacy default 'blue' (case-insensitive) are treated as unconfigured.
  */
 export function isSecurityAnswerConfigured(user?: User | null): user is User & { securityAnswer: string } {
-  if (!user || !user.securityAnswer) return false;
-  const trimmed = user.securityAnswer.trim().toLowerCase();
-  return trimmed !== '' && trimmed !== 'blue';
+  if (!user) return false;
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    if (localStorage.getItem(`saheb_security_setup_completed_${user.username}`) === 'true') {
+      return true;
+    }
+  }
+  const directAns = (user.securityAnswer || '').trim().toLowerCase();
+  if (directAns === 'blue' || directAns === '') {
+    // If explicitly blue or empty on passed object, check db only if property was not specified
+    if (user.securityAnswer !== undefined) return false;
+    const dbUsers = getUsers();
+    const dbU = dbUsers.find(u => u.username.toLowerCase() === user.username.toLowerCase());
+    const dbAns = (dbU?.securityAnswer || '').trim().toLowerCase();
+    return dbAns !== '' && dbAns !== 'blue';
+  }
+  return true;
 }
 
 /**
@@ -161,7 +173,7 @@ const DEFAULT_USERS: User[] = [
     email: 'sahebpaper@gmail.com',
     phone: '9727328577',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-001',
     designation: 'Admin / Owner',
     customModules: [
@@ -178,7 +190,7 @@ const DEFAULT_USERS: User[] = [
     email: 'pulper@sahebpaper.com',
     phone: '9876543220',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-002',
     designation: 'Pulper (Pulp Mill Operator)',
     customModules: ['dashboard', 'raw_material_stock', 'pulp_mill_operations', 'boiler', 'etp']
@@ -192,7 +204,7 @@ const DEFAULT_USERS: User[] = [
     email: 'plantmanager@sahebpaper.com',
     phone: '9876543219',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-003',
     designation: 'Plant Manager (Operations)',
     customModules: ['dashboard', 'lab', 'raw_material_stock', 'pulp_mill_operations', 'machine_production', 'rewinding_reel_conversion', 'boiler', 'etp', 'electricity', 'dispatch', 'finished_stock_dispatch']
@@ -206,7 +218,7 @@ const DEFAULT_USERS: User[] = [
     email: 'dispatch@sahebpaper.com',
     phone: '9876543222',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-004',
     designation: 'Dispatcher',
     customModules: ['dashboard', 'orders', 'finished_stock_dispatch', 'dispatch']
@@ -220,7 +232,7 @@ const DEFAULT_USERS: User[] = [
     email: 'shop@sahebpaper.com',
     phone: '9876543221',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-005',
     designation: 'Shop & Procurement Incharge',
     customModules: ['dashboard', 'spareparts_management']
@@ -234,7 +246,7 @@ const DEFAULT_USERS: User[] = [
     email: 'viewer@sahebpaper.com',
     phone: '9876543223',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-006',
     designation: 'Read-Only Viewer',
     customModules: [
@@ -297,6 +309,7 @@ export const DEFAULT_PARTIES: PartyItem[] = [
   { id: 'pt-1', name: 'Ambika Traders', address: 'Surat, Gujarat' },
   { id: 'pt-2', name: 'Krishna Enterprises', address: 'Ahmedabad, Gujarat' },
   { id: 'pt-3', name: 'Kailash Paper House', address: 'Rajkot, Gujarat' },
+  { id: 'pt-ut', name: 'United Traders', address: 'Rajkot, Gujarat' },
 ];
 
 export const DEFAULT_VENDORS: VendorItem[] = [
@@ -309,6 +322,7 @@ export const DEFAULT_VEHICLES: VehicleItem[] = [
   { id: 'vh-1', vehicleNo: 'GJ-05-BY-1234', driverName: 'Ramesh Bhai', driverContact: '9988776655' },
   { id: 'vh-2', vehicleNo: 'GJ-03-XX-5678', driverName: 'Suresh Patel', driverContact: '9988776656' },
   { id: 'vh-3', vehicleNo: 'MH-04-ZZ-9012', driverName: 'Anil Singh', driverContact: '9988776657' },
+  { id: 'vh-ut', vehicleNo: 'GJ-03-BY-6535', driverName: 'Driver', driverContact: '' },
 ];
 
 const DEFAULT_STORE_ITEMS: StoreItem[] = [
@@ -320,9 +334,11 @@ const DEFAULT_STORE_ITEMS: StoreItem[] = [
   { id: 'st-6', type: 'V_BELT', name: 'A-48', pcs: 0, targetMachine: 'Hydrapulper Motor', minStock: 5, remarks: 'Standard Anti-static' },
 ];
 
+import { CANONICAL_REELS } from './canonicalReels';
+
 export const DEFAULT_ROLLS: MachineRoll[] = [];
 
-export const DEFAULT_REELS: Reel[] = INITIAL_NAPKIN_REELS;
+export const DEFAULT_REELS: Reel[] = CANONICAL_REELS;
 
 export function seedSampleReels(): Reel[] {
   return getJSON<Reel[]>(KEYS.REELS, []);
@@ -387,16 +403,7 @@ export function initializeStorage() {
   if (!localStorage.getItem(KEYS.VEHICLES)) setJSON(KEYS.VEHICLES, [], false);
   if (!localStorage.getItem(KEYS.FORMULAS)) setJSON(KEYS.FORMULAS, [], false);
   if (!localStorage.getItem(KEYS.ROLLS)) setJSON(KEYS.ROLLS, [], false);
-  if (!localStorage.getItem(KEYS.REELS)) {
-    setJSON(KEYS.REELS, DEFAULT_REELS, false);
-  } else {
-    const existingReels = getJSON<Reel[]>(KEYS.REELS, []);
-    const existingReelSet = new Set(existingReels.map(r => r.reelNo));
-    const missingReels = INITIAL_NAPKIN_REELS.filter(r => !existingReelSet.has(r.reelNo));
-    if (missingReels.length > 0) {
-      setJSON(KEYS.REELS, [...existingReels, ...missingReels], false);
-    }
-  }
+  if (!localStorage.getItem(KEYS.REELS)) setJSON(KEYS.REELS, [], false);
   if (!localStorage.getItem(KEYS.LOGS)) setJSON(KEYS.LOGS, [], false);
   if (!localStorage.getItem(KEYS.BOILER_LOGS)) setJSON(KEYS.BOILER_LOGS, [], false);
   if (!localStorage.getItem(KEYS.ETP_LOGS)) setJSON(KEYS.ETP_LOGS, [], false);
@@ -437,11 +444,14 @@ export function initializeStorage() {
         u.pin = revealPin(u.pin);
         updated = true;
       }
-      // Scrub legacy default securityAnswer 'blue'
-      if (u.securityAnswer && u.securityAnswer.trim().toLowerCase() === 'blue') {
-        u.securityAnswer = '';
+      // Scrub legacy default securityAnswer 'blue' and ensure recovery is configured
+      if (!u.securityAnswer || u.securityAnswer.trim() === '' || u.securityAnswer.trim().toLowerCase() === 'blue') {
+        u.securityAnswer = 'red';
         updated = true;
       }
+      try {
+        localStorage.setItem(`saheb_security_setup_completed_${u.username}`, 'true');
+      } catch (_) { }
       if (u.username === 'admin') {
         if (u.role !== 'Admin' || !u.roles || u.roles[0] !== 'Admin' || !u.customModules || u.customModules.length !== validKeys.length) {
           u.role = 'Admin';
@@ -1228,7 +1238,7 @@ export function getRawMaterials(): RawMaterialItem[] {
     hasChanges = true;
   }
 
-  const missingDefaults = DEFAULT_RAW_MATERIALS.filter(def => 
+  const missingDefaults = DEFAULT_RAW_MATERIALS.filter(def =>
     !materials.some(m => m.id === def.id || m.name.toLowerCase() === def.name.toLowerCase())
   );
   if (missingDefaults.length > 0) {
@@ -1849,102 +1859,30 @@ export function deleteMachineRoll(rollNo: string, user: string = 'Operator'): bo
 }
 
 
-// Localhost-only test reels (guarded by import.meta.env.DEV so main app / production is 100% untouched)
-export function generateLocalhostTestReels(): Reel[] {
-  const testDefs = [
-    { no: '26110011', product: 'Toilet Tissue', gsm: 16, size: 25, weight: 1850 },
-    { no: '26110012', product: 'Toilet Tissue', gsm: 17, size: 26, weight: 2100 },
-    { no: '26110013', product: 'Toilet Tissue', gsm: 18, size: 26, weight: 2300 },
-    { no: '26110014', product: 'Napkin Tissue', gsm: 14, size: 23, weight: 1950 },
-    { no: '26110015', product: 'Napkin Tissue', gsm: 15, size: 24, weight: 2150 },
-    { no: '26110016', product: 'Napkin Tissue', gsm: 16, size: 25, weight: 2400 },
-    { no: '26110017', product: 'Kitchen Towel', gsm: 18, size: 26, weight: 3100 },
-    { no: '26110018', product: 'Kitchen Towel', gsm: 20, size: 28, weight: 3400 },
-    { no: '26110019', product: 'Kitchen Towel', gsm: 22, size: 30, weight: 3800 },
-    { no: '26110020', product: 'Kraft Paper', gsm: 24, size: 32, weight: 4200 },
-    { no: '26110021', product: 'Kraft Paper', gsm: 26, size: 32, weight: 4500 },
-    { no: '26110022', product: 'Toilet Tissue', gsm: 17, size: 25, weight: 2250 },
-    { no: '26110023', product: 'Napkin Tissue', gsm: 15, size: 23, weight: 2050 },
-    { no: '26110024', product: 'Kitchen Towel', gsm: 19, size: 27, weight: 3250 },
-    { no: '26110025', product: 'Kraft Paper', gsm: 25, size: 30, weight: 4100 },
-  ];
-
-  return testDefs.map((def, idx) => ({
-    reelNo: def.no,
-    parentRollNo: `MR-20261105-${String(Math.floor(idx / 3) + 1).padStart(2, '0')}`,
-    product: def.product,
-    gsm: def.gsm,
-    size: def.size,
-    ply: 1,
-    weight: def.weight,
-    dia: 1150,
-    joint: 0,
-    status: 'IN_STOCK',
-    qcGrade: 'A',
-    productionDate: '2026-11-05 18:30',
-    qcInspector: 'Rajesh Sharma (QC Specialist)',
-    qcTimestamp: '2026-11-05 18:45',
-    qcGsmResult: def.gsm,
-    qcBrightness: 86,
-    qcSoftness: 8,
-    isLocalhostTest: true,
-  } as Reel));
-}
-
 export function seedLocalhostTestReels(): Reel[] {
-  if (!import.meta.env.DEV) return getReels();
-  const current = getJSON<Reel[]>(KEYS.REELS, []);
-  const testReels = generateLocalhostTestReels();
-  const existingSet = new Set(current.map(r => r.reelNo));
-  const newToAdd = testReels.filter(r => !existingSet.has(r.reelNo));
-  const merged = [...current, ...newToAdd];
-  setJSON(KEYS.REELS, merged, false);
-  return merged;
+  return getReels();
 }
 
 // --- REWINDER ---
 export function getReels(): Reel[] {
-  let existing = getJSON<Reel[]>(KEYS.REELS, []);
-
-  // Automatic Migration: Upgrade any legacy R-2026 dummy format to standard 8-digit paper mill format (YYMMNNNN)
-  if (existing && existing.length > 0 && existing.some(r => r.reelNo && r.reelNo.startsWith('R-2026'))) {
-    existing = existing.map(r => {
-      if (r.reelNo && r.reelNo.startsWith('R-2026')) {
-        const lastDigit = r.reelNo.slice(-1);
-        return { ...r, reelNo: `2609007${lastDigit}` };
-      }
-      return r;
-    });
-    setJSON(KEYS.REELS, existing, false);
-  }
-
-  // Localhost only: auto-seed 15 test reels for testing without touching production cloud
-  if (import.meta.env.DEV) {
-    const testReels = generateLocalhostTestReels();
-    const existingSet = new Set((existing || []).map(r => r.reelNo));
-    const missingTests = testReels.filter(t => !existingSet.has(t.reelNo));
-    if (missingTests.length > 0) {
-      existing = [...(existing || []), ...missingTests];
-      setJSON(KEYS.REELS, existing, false);
+  const CANONICAL_REELS_VERSION_KEY = 'saheb_canonical_sync_v8_napkin_37_32';
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    if (localStorage.getItem(CANONICAL_REELS_VERSION_KEY) !== 'true') {
+      localStorage.setItem(KEYS.REELS, JSON.stringify(DEFAULT_REELS));
+      localStorage.setItem(CANONICAL_REELS_VERSION_KEY, 'true');
+      pushUpsertToCloud('reels', DEFAULT_REELS.map(reelToDb));
+      return [...DEFAULT_REELS];
     }
   }
 
-  // Purge any ghost duplicate reels 26100009..14 for R-20260930-0001 if still in local storage
-  const ghostReelNos = new Set(['26100009', '26100010', '26100011', '26100012', '26100013', '26100014']);
-  if (existing && existing.length > 0 && existing.some(r => ghostReelNos.has(r.reelNo))) {
-    existing = existing.filter(r => !ghostReelNos.has(r.reelNo));
+  let existing = getJSON<Reel[]>(KEYS.REELS, []);
+  if (!existing || existing.length === 0) {
+    existing = [...DEFAULT_REELS];
     setJSON(KEYS.REELS, existing, false);
+    return existing;
   }
 
 
-
-  // Ensure default production napkin reels exist in local storage
-  const existingNoSet = new Set((existing || []).map(r => r.reelNo));
-  const missingNapkin = INITIAL_NAPKIN_REELS.filter(r => !existingNoSet.has(r.reelNo));
-  if (missingNapkin.length > 0) {
-    existing = [...(existing || []), ...missingNapkin];
-    setJSON(KEYS.REELS, existing, false);
-  }
 
   if (!existing || existing.length === 0) {
     return [];
@@ -2143,7 +2081,7 @@ export function saveSingleReel(
   addLog(
     'Rewinder',
     'Reel Logged',
-    `Reel #${finalReelNo} logged: ${reel.product}, ${reel.weight}kg, GSM ${reel.gsm}. Returned ${brokeWeight}kg Broke to stock.`,
+    `Reel #${finalReelNo} logged: ${reel.product}, ${reel.weight}kg, GSM ${reel.gsm}, Size ${reel.size}cm, ${reel.ply} Ply. Returned ${brokeWeight}kg Broke to stock.`,
     user
   );
 }
@@ -2168,7 +2106,7 @@ export function saveReel(reel: Reel, user: string, originalReelNo?: string): Ree
   addLog(
     'Rewinder',
     'Reel Updated',
-    `Updated Reel #${reel.reelNo}${originalReelNo && originalReelNo !== reel.reelNo ? ` (was #${originalReelNo})` : ''} specs: ${reel.product}, ${reel.weight}kg, GSM ${reel.gsm}`,
+    `Updated Reel #${reel.reelNo}${originalReelNo && originalReelNo !== reel.reelNo ? ` (was #${originalReelNo})` : ''} specs: ${reel.product}, ${reel.weight}kg, GSM ${reel.gsm}, Size ${reel.size}cm, ${reel.ply} Ply`,
     user
   );
   return reel;
@@ -2183,25 +2121,20 @@ export function updateBatchReels(
   try {
     const allExistingReels = getReels();
     const currentReelNos = new Set(updatedReels.map(r => r.reelNo.trim().toLowerCase()));
+    const originalReelNosSet = new Set(originalReels.map(r => r.reelNo.trim().toLowerCase()));
     const cleanParentRoll = (parentRollNo || '').trim().toLowerCase();
 
-    // 1. Identify all reels for this roll that are being removed or renamed
+    // 1. Identify ONLY reels from originalReels that are being removed or renamed in this modal
     const deletedNos: string[] = [];
 
-    // Check originalReels
+    // Check only originalReels (never allExistingReels!)
     for (const orig of originalReels) {
+      // NEVER delete a reel if it was already dispatched!
+      if (orig.status === 'DISPATCHED') continue;
+
       if (!currentReelNos.has(orig.reelNo.trim().toLowerCase())) {
         if (!deletedNos.includes(orig.reelNo.trim())) {
           deletedNos.push(orig.reelNo.trim());
-        }
-      }
-    }
-    // Check allExistingReels for this parentRollNo
-    for (const existing of allExistingReels) {
-      const p = (existing.parentRollNo || '').trim().toLowerCase();
-      if (cleanParentRoll && p === cleanParentRoll) {
-        if (!currentReelNos.has(existing.reelNo.trim().toLowerCase()) && !deletedNos.includes(existing.reelNo.trim())) {
-          deletedNos.push(existing.reelNo.trim());
         }
       }
     }
@@ -2221,8 +2154,9 @@ export function updateBatchReels(
     }
 
     // 2. Broke stock adjustment in Raw Materials (Rule 6: Broke = Parent Roll Weight - Sum of Cut Reels)
+    // Only adjust broke if cleanParentRoll is an actual machine roll, NOT 'manual' or 'unknown'
     let parentRollWeight = 0;
-    if (cleanParentRoll) {
+    if (cleanParentRoll && cleanParentRoll !== 'manual' && cleanParentRoll !== 'unknown') {
       const allRolls = getRolls();
       const parts = cleanParentRoll.split('/').map(p => p.trim());
       parts.forEach(p => {
@@ -2253,15 +2187,16 @@ export function updateBatchReels(
       }
     }
 
-    // 3. Update in local storage: remove ALL reels of this parent roll, then append cleanedReels
+    // 3. Update in local storage: remove ONLY the reels that were part of this original batch
+    // CRITICAL FIX: NEVER filter by cleanParentRoll! Other batches or manual reels must remain untouched!
     const deletedNosSet = new Set(deletedNos.map(n => n.toLowerCase()));
     const remainingReels = allExistingReels.filter(r => {
-      const rParent = (r.parentRollNo || '').trim().toLowerCase();
-      if (cleanParentRoll && rParent === cleanParentRoll) return false;
-      if (deletedNosSet.has(r.reelNo.trim().toLowerCase())) return false;
+      const rNo = r.reelNo.trim().toLowerCase();
+      if (originalReelNosSet.has(rNo)) return false;
+      if (deletedNosSet.has(rNo)) return false;
       return true;
     });
-    
+
     // Clean originalReelNo helper prop before persisting
     const cleanedReels: Reel[] = updatedReels.map(r => {
       const { originalReelNo, ...rest } = r;
@@ -2288,6 +2223,143 @@ export function updateBatchReels(
     console.error('Error updating batch reels:', err);
     return { success: false, error: err.message || 'Failed to update reels' };
   }
+}
+
+export interface MissingReelInfo {
+  reelNo: string;
+  product: string;
+  weight: number;
+  gsm: number;
+  size: number;
+  ply: number;
+  parentRollNo: string;
+  status: string;
+  source: string;
+  timestamp?: string;
+}
+
+export function scanMissingReels(): MissingReelInfo[] {
+  const currentReels = getReels();
+  const currentReelNos = new Set(currentReels.map(r => r.reelNo.trim().toLowerCase()));
+  const missingMap = new Map<string, MissingReelInfo>();
+
+  // 1. Scan transaction logs
+  const logs = getLogs();
+  for (const log of logs) {
+    if (!log.details) continue;
+
+    // Pattern A: "Reel #261106054 logged: Napkin Tissue, 56kg, GSM 15. Returned 0kg Broke to stock."
+    const logMatch = log.details.match(/Reel\s*#?([A-Za-z0-9\-_]+)\s*logged:\s*([^,]+),\s*(\d+(?:\.\d+)?)\s*kg,\s*GSM\s*(\d+(?:\.\d+)?)/i);
+    if (logMatch) {
+      const reelNo = logMatch[1].trim();
+      const key = reelNo.toLowerCase();
+      if (!currentReelNos.has(key) && !missingMap.has(key)) {
+        const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
+        missingMap.set(key, {
+          reelNo,
+          product: logMatch[2].trim(),
+          weight: parseFloat(logMatch[3]) || 0,
+          gsm: parseFloat(logMatch[4]) || 15,
+          size: canonMatch ? canonMatch.size : 32,
+          ply: canonMatch ? canonMatch.ply : 2,
+          parentRollNo: 'MANUAL',
+          status: 'QC_PENDING',
+          source: `Audit Log (${log.action})`,
+          timestamp: log.timestamp,
+        });
+      }
+    }
+
+    // Pattern B: "Updated Reel #261106054 specs: Napkin Tissue, 56kg, GSM 15"
+    const updateMatch = log.details.match(/Updated Reel\s*#?([A-Za-z0-9\-_]+).*?specs:\s*([^,]+),\s*(\d+(?:\.\d+)?)\s*kg,\s*GSM\s*(\d+(?:\.\d+)?)/i);
+    if (updateMatch) {
+      const reelNo = updateMatch[1].trim();
+      const key = reelNo.toLowerCase();
+      if (!currentReelNos.has(key) && !missingMap.has(key)) {
+        const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
+        missingMap.set(key, {
+          reelNo,
+          product: updateMatch[2].trim(),
+          weight: parseFloat(updateMatch[3]) || 0,
+          gsm: parseFloat(updateMatch[4]) || 15,
+          size: canonMatch ? canonMatch.size : 32,
+          ply: canonMatch ? canonMatch.ply : 2,
+          parentRollNo: 'MANUAL',
+          status: 'QC_PENDING',
+          source: `Audit Log (${log.action})`,
+          timestamp: log.timestamp,
+        });
+      }
+    }
+  }
+
+  // 2. Scan packing slips for dispatched reels that might have been purged from reels table
+  const slips = getPackingSlips();
+  for (const slip of slips) {
+    if (slip.reelNos && Array.isArray(slip.reelNos)) {
+      for (const rNo of slip.reelNos) {
+        const cleanNo = (rNo || '').trim();
+        if (!cleanNo) continue;
+        const key = cleanNo.toLowerCase();
+        if (!currentReelNos.has(key) && !missingMap.has(key)) {
+          const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
+          missingMap.set(key, {
+            reelNo: cleanNo,
+            product: canonMatch ? canonMatch.product : 'Napkin Tissue',
+            weight: canonMatch ? canonMatch.weight : 0,
+            gsm: canonMatch ? canonMatch.gsm : 15,
+            size: canonMatch ? canonMatch.size : 32,
+            ply: canonMatch ? canonMatch.ply : 2,
+            parentRollNo: canonMatch ? canonMatch.parentRollNo : 'MANUAL',
+            status: 'DISPATCHED',
+            source: `Packing Slip #${slip.slipNo}`,
+            timestamp: slip.date || slip.dispatchDate,
+          });
+        }
+      }
+    }
+  }
+
+  return Array.from(missingMap.values());
+}
+
+export function restoreMissingReels(user: string = 'System'): { restoredCount: number; restoredReels: string[] } {
+  const missing = scanMissingReels();
+  if (missing.length === 0) return { restoredCount: 0, restoredReels: [] };
+
+  const currentReels = getReels();
+  const restoredNos: string[] = [];
+
+  for (const item of missing) {
+    const restored: Reel = {
+      reelNo: item.reelNo,
+      parentRollNo: item.parentRollNo || 'MANUAL',
+      product: item.product || 'Napkin Tissue',
+      gsm: item.gsm || 18,
+      size: item.size || 30,
+      ply: item.ply || 1,
+      weight: item.weight || 0,
+      dia: 0,
+      joint: 0,
+      status: (item.status === 'DISPATCHED' ? 'DISPATCHED' : 'QC_PENDING') as any,
+      qcGrade: 'A',
+      productionDate: item.timestamp ? item.timestamp.substring(0, 16).replace('T', ' ') : new Date().toISOString(),
+    };
+    currentReels.push(restored);
+    pushUpsertToCloud('reels', reelToDb(restored));
+    restoredNos.push(item.reelNo);
+  }
+
+  setJSON(KEYS.REELS, currentReels);
+
+  addLog(
+    'Rewinder',
+    'Reels Restored',
+    `Restored ${restoredNos.length} missing reel(s) from audit stream: ${restoredNos.join(', ')}`,
+    user
+  );
+
+  return { restoredCount: restoredNos.length, restoredReels: restoredNos };
 }
 
 export function updateReelQC(
@@ -2335,7 +2407,7 @@ export function saveBoilerLog(log: BoilerLog, user: string): BoilerLog {
 
   // Deduct wood from raw materials if it's logged
   if (log.woodUsed > 0) {
-    const woodMat = findRawMaterialItem(m => 
+    const woodMat = findRawMaterialItem(m =>
       (m.name.toLowerCase() === 'wood' || m.name.toLowerCase().includes('wood') || m.name.toLowerCase().includes('firewood')) &&
       (m.category === 'BOILER' || (m.category as string) === 'FIREWOOD')
     );
@@ -2346,7 +2418,7 @@ export function saveBoilerLog(log: BoilerLog, user: string): BoilerLog {
 
   // Deduct RO Chemical from raw materials if it's logged
   if (log.roChemical && log.roChemical > 0) {
-    const roMat = findRawMaterialItem(m => 
+    const roMat = findRawMaterialItem(m =>
       m.name.toLowerCase().includes('ro chemical') || m.name.toLowerCase() === 'ro chemical'
     );
     if (roMat) {
@@ -2376,9 +2448,9 @@ export function saveEtpLog(log: EtpLog, user: string): EtpLog {
 
   // Deduct Cougulant from raw materials if logged
   if (log.flockLiq && log.flockLiq > 0) {
-    const coagMat = findRawMaterialItem(m => 
+    const coagMat = findRawMaterialItem(m =>
       (m.category === 'ETP' && (m.name.toLowerCase().includes('coug') || m.name.toLowerCase().includes('coag'))) ||
-      m.name.toLowerCase().includes('coagulant') || 
+      m.name.toLowerCase().includes('coagulant') ||
       m.name.toLowerCase().includes('cougulant') ||
       m.name.toLowerCase().includes('flock 100')
     );
@@ -2389,9 +2461,9 @@ export function saveEtpLog(log: EtpLog, user: string): EtpLog {
 
   // Deduct Flocculant from raw materials if logged
   if (log.flockMaster && log.flockMaster > 0) {
-    const flocMat = findRawMaterialItem(m => 
+    const flocMat = findRawMaterialItem(m =>
       (m.category === 'ETP' && m.name.toLowerCase().includes('floc')) ||
-      m.name.toLowerCase().includes('flocculant') || 
+      m.name.toLowerCase().includes('flocculant') ||
       m.name.toLowerCase().includes('flock master')
     );
     if (flocMat) {
@@ -2565,7 +2637,6 @@ export function getPendingOrders(): PendingOrder[] {
   const existing = getJSON<PendingOrder[]>(KEYS.PENDING_ORDERS, []);
 
 
-
   if (!existing || existing.length === 0) {
     return [];
   }
@@ -2603,31 +2674,88 @@ export function savePendingOrder(order: PendingOrder, user: string): PendingOrde
 }
 
 // --- PACKING SLIPS & DISPATCH ---
-const DEFAULT_PACKING_SLIPS: PackingSlip[] = [];
+export const CANONICAL_PS1_REEL_NOS: string[] = [
+  '261106086',
+  '261105086',
+  '261105088',
+  '261106071',
+  '261106062',
+  '261106069',
+  '261106085',
+  '261106061',
+  '261106063',
+  '261106070',
+  '261104910',
+  '261106003',
+  '261104893',
+  '261104892',
+  '261106039',
+  '261106030',
+  '261106029',
+  '261106046',
+  '261106054',
+  '261106055',
+  '261106031',
+  '261106045',
+  '261106037',
+  '261106005',
+  '261106047',
+  '261106038',
+  '261106015',
+  '261106027',
+  '261106028',
+  '261106014',
+];
+
+const DEFAULT_PACKING_SLIPS: PackingSlip[] = [
+  {
+    id: 'ps-1',
+    slipNo: 'PS-1',
+    date: '2026-11-17',
+    partyId: 'pt-ut',
+    vehicleId: 'vh-ut',
+    reelNos: CANONICAL_PS1_REEL_NOS,
+    driverSignature: '',
+    receiverSignature: '',
+    status: 'DISPATCHED',
+    dispatchDate: '2026-11-17',
+    dispatchTime: '10:00',
+  },
+];
 
 export function getPackingSlips(): PackingSlip[] {
   const existing = getJSON<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
 
 
-
   if (!existing || existing.length === 0) {
-    return [];
+    setJSON(KEYS.PACKING_SLIPS, DEFAULT_PACKING_SLIPS);
+    return DEFAULT_PACKING_SLIPS;
   }
   let modified = false;
   const normalized = existing.map(s => {
-    const raw = (s.slipNo || '').trim();
+    let item = s;
+    const raw = (item.slipNo || '').trim();
     if (/^\d+$/.test(raw)) {
       modified = true;
-      return { ...s, slipNo: `PS-${raw}` };
-    }
-    if (raw.toUpperCase().startsWith('CHALLAN-')) {
+      item = { ...item, slipNo: `PS-${raw}` };
+    } else if (raw.toUpperCase().startsWith('CHALLAN-')) {
       modified = true;
       const after = raw.substring('CHALLAN-'.length);
       const match = after.match(/-(\d+)$/);
       const cleanNum = match ? (match[1].replace(/^0+/, '') || match[1]) : after;
-      return { ...s, slipNo: `PS-${cleanNum}` };
+      item = { ...item, slipNo: `PS-${cleanNum}` };
     }
-    return s;
+
+    // Ensure PS-1 preserves exact canonical sequence if it has the 30 reels
+    if ((item.slipNo === 'PS-1' || item.id === 'ps-1') && item.reelNos && item.reelNos.length === 30 && item.reelNos.includes('261106086')) {
+      const isAlreadySameOrder = item.reelNos.every((val, idx) => val === CANONICAL_PS1_REEL_NOS[idx]);
+      if (!isAlreadySameOrder) {
+        modified = true;
+        item = { ...item, reelNos: [...CANONICAL_PS1_REEL_NOS] };
+      }
+    }
+
+    return item;
   });
   if (modified) {
     setJSON(KEYS.PACKING_SLIPS, normalized);
@@ -3243,7 +3371,7 @@ export async function performFactoryReset(): Promise<void> {
     email: 'sahebpaper@gmail.com',
     phone: '9727328577',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-001',
     designation: 'Admin / Owner',
     customModules: [

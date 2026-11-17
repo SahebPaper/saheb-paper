@@ -3407,7 +3407,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                                   <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 space-y-2">
                                     <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400">
                                       <span>
-                                        Reels of {prodItem.product} ({item.gsm} GSM • {item.size} MM) — Click to toggle for dispatch:
+                                        Reels of {prodItem.product} ({item.gsm} GSM • {item.size} CM) — Click to toggle for dispatch:
                                       </span>
                                       <span className="font-mono">
                                         {item.selectedReelsCount} of {item.reelCount} selected ({item.selectedWeight.toLocaleString()} KG)
@@ -6176,7 +6176,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                 ...reel,
                 displayIndex: runningSr,
                 isGroupStart: idxInGroup === 0,
-                groupLabel: `${group.product} • ${group.gsm} GSM • ${group.size} MM • ${group.ply} PLY`,
+                groupLabel: `${group.product} • ${group.gsm} GSM • ${group.size} CM • ${group.ply} PLY`,
                 groupTotalReels: group.reels.length,
                 groupTotalWeight: group.totalWeight,
               });
@@ -6514,7 +6514,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                                       <th className="py-1.5 print:py-1 px-2 sm:px-3 font-mono">REEL NO</th>
                                       <th className="py-1.5 print:py-1 px-2 sm:px-3">PRODUCT</th>
                                       <th className="py-1.5 print:py-1 px-1.5 sm:px-2.5 text-center">GSM</th>
-                                      <th className="py-1.5 print:py-1 px-1.5 sm:px-2.5 text-center whitespace-nowrap">DECAL (MM)</th>
+                                      <th className="py-1.5 print:py-1 px-1.5 sm:px-2.5 text-center whitespace-nowrap">SIZE (CM)</th>
                                       <th className="py-1.5 print:py-1 px-1.5 sm:px-2.5 text-center">PLY</th>
                                       <th className="py-1.5 print:py-1 px-2 sm:px-3 text-right whitespace-nowrap">WEIGHT (KG)</th>
                                     </tr>
@@ -6569,7 +6569,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                                   <tr>
                                     <th className="py-1.5 print:py-1 px-2 sm:px-3">PRODUCT SPECIFICATION</th>
                                     <th className="py-1.5 print:py-1 px-1.5 sm:px-2.5 text-center">GSM</th>
-                                    <th className="py-1.5 print:py-1 px-1.5 sm:px-2.5 text-center">DECAL</th>
+                                    <th className="py-1.5 print:py-1 px-1.5 sm:px-2.5 text-center">SIZE (CM)</th>
                                     <th className="py-1.5 print:py-1 px-1.5 sm:px-2.5 text-center">PLY</th>
                                     <th className="py-1.5 print:py-1 px-1.5 sm:px-2.5 text-center">REELS</th>
                                     <th className="py-1.5 print:py-1 px-2 sm:px-3 text-right whitespace-nowrap">TOTAL WEIGHT</th>
@@ -6580,7 +6580,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                                     <tr key={idx} className="hover:bg-slate-50">
                                       <td className="py-1.5 print:py-0.75 px-2 sm:px-3 font-bold text-slate-900 text-xs print:text-[11px]">{item.product}</td>
                                       <td className="py-1.5 print:py-0.75 px-1.5 sm:px-2.5 text-center font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{item.gsm}</td>
-                                      <td className="py-1.5 print:py-0.75 px-1.5 sm:px-2.5 text-center whitespace-nowrap font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{item.size} MM</td>
+                                      <td className="py-1.5 print:py-0.75 px-1.5 sm:px-2.5 text-center whitespace-nowrap font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{item.size} CM</td>
                                       <td className="py-1.5 print:py-0.75 px-1.5 sm:px-2.5 text-center whitespace-nowrap font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{item.ply} Ply</td>
                                       <td className="py-1.5 print:py-0.75 px-1.5 sm:px-2.5 text-center font-black font-mono text-black text-xs print:text-[11.5px]">{item.reels.length}</td>
                                       <td className="py-1.5 print:py-0.75 px-2 sm:px-3 text-right font-mono font-black text-black whitespace-nowrap text-xs print:text-[11.5px]">{item.totalWeight.toLocaleString()} KG</td>

@@ -52,7 +52,7 @@ export function getInstalledVersionCode(): number {
         }
       }
     }
-  } catch {}
+  } catch { }
   return DEFAULT_CLIENT_VERSION_CODE;
 }
 
@@ -67,7 +67,7 @@ export function getInstalledVersionName(): string {
         return stored;
       }
     }
-  } catch {}
+  } catch { }
   return DEFAULT_CLIENT_VERSION;
 }
 

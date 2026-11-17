@@ -22,9 +22,9 @@ export interface AppUpdateInfo {
   changelogs: VersionChangelog[];
 }
 
-export const APP_BASE_VERSION = 'Beta 1.10.32';
-export const APP_BASE_CODE = 52;
-export const APP_BUILD_DATE = '2026-11-10';
+export const APP_BASE_VERSION = 'Beta 1.10.34';
+export const APP_BASE_CODE = 54;
+export const APP_BUILD_DATE = '2026-11-17';
 
 const isStandaloneClient =
   typeof window !== 'undefined' &&
@@ -40,6 +40,27 @@ export const APP_VERSION =
   APP_BASE_VERSION;
 
 export const APP_CHANGELOGS: VersionChangelog[] = [
+  {
+    version: 'Beta 1.10.34',
+    releaseDate: '2026-11-17',
+    title: 'Manual Reel Ply Selection & Reel Config (Beta 1.10.34)',
+    mandatory: false,
+    highlights: [
+      'Manual Reel Ply Selection: Added configurable 1 Ply, 2 Ply, and 3 Ply dropdown selector to manual reel entry modal in Rewinder',
+      'Dynamic Reel Specifications: Stores custom ply configuration directly in production inventory and batch records',
+    ],
+  },
+  {
+    version: 'Beta 1.10.33',
+    releaseDate: '2026-11-13',
+    title: 'Accurate Production Telemetry & Isolated Stock (Beta 1.10.33)',
+    mandatory: false,
+    highlights: [
+      'Accurate Today\'s Output: Displays exactly 0 kg when no reels are produced today, preventing historical stock from falsely showing as daily production',
+      'Real-Time Stock Isolation: Active Stock independently displays live warehouse inventory (21,832 kg)',
+      'Strict KPI Accuracy: Removed artificial fallback logic across output, dispatched reels, and challans',
+    ],
+  },
   {
     version: 'Beta 1.10.32',
     releaseDate: '2026-11-10',

@@ -6212,15 +6212,23 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
         const totalSummaryCount = specGroupsList.length;
         const pages: ReceiptPageDistribution[] = [];
 
-        // Maximize Page 1 capacity (signatures have been completely removed):
-        // Up to 32 items (30 reels + summary) fit cleanly on a single A4 page!
-        const SINGLE_PAGE_MAX_ROWS = 32;
-        // On multi-page orders, Page 1 packs up to 26 reels to cleanly fill the first sheet
-        const PAGE1_MULTI_REEL_LIMIT = 26;
-        // Continuation pages (Page 2+) have NO company header, logo, or metadata, fitting up to 34 items
-        const CONT_PAGE_MAX_ITEMS = 34;
+        const numGroups = specGroupsList.length;
 
-        if (totalReelsCount + totalSummaryCount <= SINGLE_PAGE_MAX_ROWS) {
+        // Dynamic Un-congested Capacity Check:
+        // Ensures rows have generous height (>= 5.8 mm) with zero squishing or crowding.
+        const MIN_UNCONGESTED_ROW_HEIGHT = 5.8; // mm
+        const targetBottomY = 270; // mm
+        const page1TableStartY = 57.5; // mm
+        const tableHeaderHeight = 5.8; // mm
+        const groupHeadersHeight = numGroups * 5.2; // mm
+        const summaryHeight = 3.5 + 5.5 + (numGroups * 5.2) + 7.0; // mm
+        const singlePageOverhead = tableHeaderHeight + groupHeadersHeight + summaryHeight;
+        const availableForSinglePageReels = targetBottomY - page1TableStartY - singlePageOverhead;
+
+        const maxSinglePageReels = Math.max(1, Math.floor(availableForSinglePageReels / MIN_UNCONGESTED_ROW_HEIGHT));
+        const fitsOnSinglePage = totalReelsCount <= maxSinglePageReels;
+
+        if (fitsOnSinglePage) {
           // Fits fully on 1 single A4 page with summary and signatures
           pages.push({
             pageNumber: 1,
@@ -6232,25 +6240,28 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
           });
         } else {
           // Multi-page document:
-          // Page 1 takes maximum reels (up to 22) to avoid empty wasted space
-          const p1Reels = sortedReelItems.slice(0, PAGE1_MULTI_REEL_LIMIT);
-          let remainingReels = sortedReelItems.slice(PAGE1_MULTI_REEL_LIMIT);
-          const p1IsLast = remainingReels.length === 0;
+          // Page 1 takes the maximum reels it can fit comfortably WITHOUT dead white space
+          const p1Available = targetBottomY - page1TableStartY - tableHeaderHeight - (Math.min(numGroups, 2) * 5.2);
+          const maxP1Comfortable = Math.max(10, Math.floor(p1Available / 6.0));
+          const p1ReelCount = Math.min(totalReelsCount - 3, Math.min(26, maxP1Comfortable));
+          const p1Reels = sortedReelItems.slice(0, p1ReelCount);
+          let remainingReels = sortedReelItems.slice(p1ReelCount);
 
           pages.push({
             pageNumber: 1,
             reels: p1Reels,
-            summaryItems: p1IsLast ? specGroupsList : [],
+            summaryItems: [],
             isSummaryContinuation: false,
-            showGrandTotal: p1IsLast,
-            showSignatures: p1IsLast,
+            showGrandTotal: false,
+            showSignatures: false,
           });
 
           let pIdx = 2;
+          const CONT_PAGE_MAX_ITEMS = 36;
           while (remainingReels.length > 0) {
             // Continuation pages have NO company logo/header, so they have huge vertical space
-            const canFitRemainingWithSummary = (remainingReels.length + totalSummaryCount + 3) <= CONT_PAGE_MAX_ITEMS;
-            const chunkSize = canFitRemainingWithSummary ? remainingReels.length : (CONT_PAGE_MAX_ITEMS - 2);
+            const canFitRemainingWithSummary = (remainingReels.length + numGroups + 2) <= CONT_PAGE_MAX_ITEMS;
+            const chunkSize = canFitRemainingWithSummary ? remainingReels.length : (CONT_PAGE_MAX_ITEMS - 6);
 
             const chunk = remainingReels.slice(0, chunkSize);
             remainingReels = remainingReels.slice(chunkSize);
@@ -6537,14 +6548,14 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                                             </td>
                                           </tr>
                                         )}
-                                        <tr className="hover:bg-slate-50">
-                                          <td className="py-1.5 print:py-0.75 px-1.5 sm:px-2.5 text-center font-bold text-slate-600 text-[11px]">{reel.displayIndex}</td>
-                                          <td className="py-1.5 print:py-0.75 px-2 sm:px-3 font-mono font-bold text-black whitespace-nowrap text-xs print:text-[11.5px]">{reel.reelNo}</td>
-                                          <td className="py-1.5 print:py-0.75 px-2 sm:px-3 truncate max-w-[130px] sm:max-w-none text-slate-900 font-medium text-xs print:text-[11px]">{reel.product}</td>
-                                          <td className="py-1.5 print:py-0.75 px-1.5 sm:px-2.5 text-center font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{reel.gsm}</td>
-                                          <td className="py-1.5 print:py-0.75 px-1.5 sm:px-2.5 text-center font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{reel.size}</td>
-                                          <td className="py-1.5 print:py-0.75 px-1.5 sm:px-2.5 text-center font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{reel.ply || 1}</td>
-                                          <td className="py-1.5 print:py-0.75 px-2 sm:px-3 text-right font-mono font-black text-black whitespace-nowrap text-xs print:text-[11.5px]">{reel.weight}</td>
+                                        <tr className={`border-b border-slate-200 transition ${rIdx % 2 === 1 ? 'bg-slate-50/70' : 'bg-white'} hover:bg-blue-50/40`}>
+                                          <td className="py-2 print:py-1 px-1.5 sm:px-2.5 text-center font-bold text-slate-600 text-[11px] sm:text-xs">{reel.displayIndex}</td>
+                                          <td className="py-2 print:py-1 px-2 sm:px-3 font-mono font-bold text-black whitespace-nowrap text-xs print:text-[11.5px]">{reel.reelNo}</td>
+                                          <td className="py-2 print:py-1 px-2 sm:px-3 truncate max-w-[140px] sm:max-w-none text-slate-900 font-medium text-xs print:text-[11px]">{reel.product}</td>
+                                          <td className="py-2 print:py-1 px-1.5 sm:px-2.5 text-center font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{reel.gsm}</td>
+                                          <td className="py-2 print:py-1 px-1.5 sm:px-2.5 text-center font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{reel.size}</td>
+                                          <td className="py-2 print:py-1 px-1.5 sm:px-2.5 text-center font-semibold text-slate-800 text-xs print:text-[11px] font-mono">{reel.ply || 1}</td>
+                                          <td className="py-2 print:py-1 px-2 sm:px-3 text-right font-mono font-black text-black whitespace-nowrap text-xs print:text-[11.5px]">{reel.weight}</td>
                                         </tr>
                                       </React.Fragment>
                                     ))}

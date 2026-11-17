@@ -29,6 +29,11 @@ export async function downloadBlobFile(blob: Blob, filename: string): Promise<vo
     (window as any)?.AndroidNativeBridge
   );
 
+  const isMobile = typeof window !== 'undefined' && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '') ||
+    ('maxTouchPoints' in navigator && navigator.maxTouchPoints > 1 && window.innerWidth <= 1024)
+  );
+
   // 1. Android Capacitor Native APK: 100% Reliable File Saving & Share Sheet
   if (isCapacitor) {
     try {
@@ -102,9 +107,89 @@ export async function downloadBlobFile(blob: Blob, filename: string): Promise<vo
     }
   }
 
-  // 2. Supabase Cloud Storage (for Mobile Web Browsers e.g. Chrome on Android outside APK)
-  // Uploads file to Supabase 'documents' bucket and triggers real HTTPS download with Content-Disposition: attachment.
-  // This completely eliminates blob URL restrictions on Android Chrome, PWA, and mobile browsers.
+  // 2. Desktop Browsers: Direct Instant Blob Download (0ms latency, zero cloud cache interference)
+  if (!isMobile && typeof window !== 'undefined') {
+    // 2A. File System Access API (Supported on Desktop Chrome/Edge)
+    if ('showSaveFilePicker' in window) {
+      try {
+        const isXlsx = filename.endsWith('.xlsx');
+        const isJson = filename.endsWith('.json');
+        const isPdf = filename.endsWith('.pdf');
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: filename,
+          types: isPdf
+            ? [{
+                description: 'PDF Document (*.pdf)',
+                accept: { 'application/pdf': ['.pdf'] },
+              }]
+            : isXlsx
+            ? [{
+                description: 'Excel Spreadsheet (*.xlsx)',
+                accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+              }]
+            : isJson
+            ? [{
+                description: 'JSON Data (*.json)',
+                accept: { 'application/json': ['.json'] },
+              }]
+            : [{
+                description: 'File',
+                accept: { 'application/octet-stream': [`.${filename.split('.').pop() || 'bin'}`] },
+              }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+      } catch (fsErr: any) {
+        if (fsErr?.name === 'AbortError') {
+          return;
+        }
+      }
+    }
+
+    // 2B. Microsoft msSaveBlob check
+    const nav = window.navigator as any;
+    if (typeof nav !== 'undefined' && nav.msSaveOrOpenBlob) {
+      nav.msSaveOrOpenBlob(blob, filename);
+      return;
+    }
+
+    // 2C. Direct HTML5 Blob Object URL Download
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.style.display = 'none';
+    link.href = url;
+    link.setAttribute('download', filename);
+    link.setAttribute('rel', 'noopener noreferrer');
+
+    document.body.appendChild(link);
+
+    try {
+      link.click();
+    } catch {
+      const evt = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true,
+      });
+      link.dispatchEvent(evt);
+    }
+
+    setTimeout(() => {
+      try {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+        window.URL.revokeObjectURL(url);
+      } catch {
+        // ignore
+      }
+    }, 10000);
+    return;
+  }
+
+  // 3. Mobile Web Browsers (Android Chrome outside APK): Supabase Cloud Storage route
   if (typeof window !== 'undefined') {
     try {
       const cloudUrls = await uploadDocumentToCloud(blob, filename);
@@ -117,47 +202,7 @@ export async function downloadBlobFile(blob: Blob, filename: string): Promise<vo
     }
   }
 
-  // 3. File System Access API (Supported on Desktop Chrome/Edge)
-  if (typeof window !== 'undefined' && 'showSaveFilePicker' in window && !isCapacitor) {
-    try {
-      const isXlsx = filename.endsWith('.xlsx');
-      const isJson = filename.endsWith('.json');
-      const handle = await (window as any).showSaveFilePicker({
-        suggestedName: filename,
-        types: isXlsx
-          ? [{
-              description: 'Excel Spreadsheet (*.xlsx)',
-              accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
-            }]
-          : isJson
-          ? [{
-              description: 'JSON Data (*.json)',
-              accept: { 'application/json': ['.json'] },
-            }]
-          : [{
-              description: 'File',
-              accept: { 'application/octet-stream': [`.${filename.split('.').pop() || 'bin'}`] },
-            }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return;
-    } catch (fsErr: any) {
-      if (fsErr?.name === 'AbortError') {
-        return;
-      }
-    }
-  }
-
-  // 4. Microsoft msSaveBlob check
-  const nav = window.navigator as any;
-  if (typeof nav !== 'undefined' && nav.msSaveOrOpenBlob) {
-    nav.msSaveOrOpenBlob(blob, filename);
-    return;
-  }
-
-  // 5. Standard Clean Blob Object URL Download
+  // 4. Fallback Clean Blob Object URL Download (Mobile fallback)
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.style.display = 'none';

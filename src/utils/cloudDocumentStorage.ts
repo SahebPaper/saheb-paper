@@ -22,13 +22,18 @@ export async function uploadDocumentToCloud(
   try {
     const contentType = blob.type || (filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
     
-    // Upload with overwrite (upsert: true)
+    // Upload with timestamped path and cacheControl: '0' to prevent CDN / browser stale caching
+    const timestamp = Date.now();
+    const cleanExt = filename.includes('.') ? filename.substring(filename.lastIndexOf('.')) : '';
+    const baseName = filename.includes('.') ? filename.substring(0, filename.lastIndexOf('.')) : filename;
+    const storagePath = `${baseName}_${timestamp}${cleanExt}`;
+
     const { error: uploadError } = await supabase.storage
       .from('documents')
-      .upload(filename, blob, {
+      .upload(storagePath, blob, {
         upsert: true,
         contentType,
-        cacheControl: '3600',
+        cacheControl: '0',
       });
 
     if (uploadError) {
@@ -36,15 +41,15 @@ export async function uploadDocumentToCloud(
       return null;
     }
 
-    // Direct download URL: instructs browser & Android DownloadManager to save directly to phone storage
+    // Direct download URL: instructs browser & Android DownloadManager to save directly with original filename
     const { data: downloadData } = supabase.storage
       .from('documents')
-      .getPublicUrl(filename, { download: filename });
+      .getPublicUrl(storagePath, { download: filename });
 
     // Inline view URL: for viewing in browser tab / PDF viewer
     const { data: viewData } = supabase.storage
       .from('documents')
-      .getPublicUrl(filename);
+      .getPublicUrl(storagePath);
 
     return {
       downloadUrl: downloadData.publicUrl,
@@ -65,7 +70,8 @@ export async function uploadDocumentToCloud(
 export function triggerCloudDownload(downloadUrl: string, filename: string): void {
   try {
     const a = document.createElement('a');
-    a.href = downloadUrl;
+    const separator = downloadUrl.includes('?') ? '&' : '?';
+    a.href = `${downloadUrl}${separator}nocache=${Date.now()}`;
     a.download = filename;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';

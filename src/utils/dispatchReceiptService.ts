@@ -315,13 +315,24 @@ export function generateDispatchReceiptHtml(
   }
 
   const totalReelsCount = sortedReelItems.length;
-  const totalSummaryCount = specGroupsList.length;
+  const numGroups = specGroupsList.length;
   const pages: ReceiptPageDistribution[] = [];
 
-  // Single-page capacity: Up to 32 items (reels + summary) fit comfortably on a single A4 page
-  const SINGLE_PAGE_MAX_ROWS = 32;
+  // Dynamic Un-congested Capacity Check:
+  // Ensures rows have generous height (>= 5.8 mm) with zero squishing or crowding.
+  const MIN_UNCONGESTED_ROW_HEIGHT = 5.8; // mm
+  const targetBottomY = 270; // mm
+  const page1TableStartY = 57.5; // mm
+  const tableHeaderHeight = 5.8; // mm
+  const groupHeadersHeight = numGroups * 5.2; // mm
+  const summaryHeight = 3.5 + 5.5 + (numGroups * 5.2) + 7.0; // mm
+  const singlePageOverhead = tableHeaderHeight + groupHeadersHeight + summaryHeight;
+  const availableForSinglePageReels = targetBottomY - page1TableStartY - singlePageOverhead;
 
-  if (totalReelsCount + totalSummaryCount <= SINGLE_PAGE_MAX_ROWS) {
+  const maxSinglePageReels = Math.max(1, Math.floor(availableForSinglePageReels / MIN_UNCONGESTED_ROW_HEIGHT));
+  const fitsOnSinglePage = totalReelsCount <= maxSinglePageReels;
+
+  if (fitsOnSinglePage) {
     pages.push({
       pageNumber: 1,
       reels: sortedReelItems,
@@ -330,25 +341,27 @@ export function generateDispatchReceiptHtml(
       showGrandTotal: true,
     });
   } else {
-    const PAGE1_MULTI_REEL_LIMIT = 26;
-    const CONT_PAGE_MAX_ITEMS = 34;
-
-    const p1Reels = sortedReelItems.slice(0, PAGE1_MULTI_REEL_LIMIT);
-    let remainingReels = sortedReelItems.slice(PAGE1_MULTI_REEL_LIMIT);
-    const p1IsLast = remainingReels.length === 0;
+    // Multi-page layout:
+    // Page 1 takes the maximum reels it can fit comfortably WITHOUT dead white space
+    const p1Available = targetBottomY - page1TableStartY - tableHeaderHeight - (Math.min(numGroups, 2) * 5.2);
+    const maxP1Comfortable = Math.max(10, Math.floor(p1Available / 6.0));
+    const p1ReelCount = Math.min(totalReelsCount - 3, Math.min(26, maxP1Comfortable));
+    const p1Reels = sortedReelItems.slice(0, p1ReelCount);
+    let remainingReels = sortedReelItems.slice(p1ReelCount);
 
     pages.push({
       pageNumber: 1,
       reels: p1Reels,
-      summaryItems: p1IsLast ? specGroupsList : [],
+      summaryItems: [],
       isSummaryContinuation: false,
-      showGrandTotal: p1IsLast,
+      showGrandTotal: false,
     });
 
     let pIdx = 2;
+    const CONT_PAGE_MAX_ITEMS = 36;
     while (remainingReels.length > 0) {
-      const canFitRemainingWithSummary = (remainingReels.length + totalSummaryCount + 3) <= CONT_PAGE_MAX_ITEMS;
-      const chunkSize = canFitRemainingWithSummary ? remainingReels.length : (CONT_PAGE_MAX_ITEMS - 2);
+      const canFitRemainingWithSummary = (remainingReels.length + numGroups + 2) <= CONT_PAGE_MAX_ITEMS;
+      const chunkSize = canFitRemainingWithSummary ? remainingReels.length : (CONT_PAGE_MAX_ITEMS - 6);
 
       const chunk = remainingReels.slice(0, chunkSize);
       remainingReels = remainingReels.slice(chunkSize);

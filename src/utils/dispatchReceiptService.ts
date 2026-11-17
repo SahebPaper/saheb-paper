@@ -19,41 +19,45 @@ export function getLinkedReelsForSlip(slip: PackingSlip, customReels?: Reel[]): 
 
   const isMatch = (a: string, b: string) => (a || '').trim().toUpperCase() === (b || '').trim().toUpperCase();
 
-  const matched = allReels.filter(r => slipReelNos.some(srNo => isMatch(srNo, r.reelNo)));
+  const reelMap = new Map<string, Reel>();
+  // 1. Seed from default canonical reels first
+  (DEFAULT_REELS || []).forEach(r => {
+    if (r && r.reelNo) {
+      reelMap.set(r.reelNo.trim().toUpperCase(), r);
+    }
+  });
+  // 2. Override with active runtime reels
+  allReels.forEach(r => {
+    if (r && r.reelNo) {
+      reelMap.set(r.reelNo.trim().toUpperCase(), r);
+    }
+  });
 
-  // If some reel numbers in slip were not found in active reel list, look up in canonical defaults
-  if (matched.length < slipReelNos.length) {
-    const missingNos = slipReelNos.filter(srNo => !matched.some(m => isMatch(m.reelNo, srNo)));
-    const defReels = DEFAULT_REELS || [];
-
-    missingNos.forEach(mNo => {
-      const foundCanon = defReels.find(d => isMatch(d.reelNo, mNo));
-      if (foundCanon) {
-        matched.push({
-          ...foundCanon,
-          status: 'DISPATCHED',
-          challanNo: slip.slipNo,
-        });
-      } else {
-        matched.push({
-          id: `reel-synth-${mNo}`,
-          reelNo: mNo,
-          parentRollNo: 'MANUAL',
-          dia: 0,
-          product: 'Napkin Tissue',
-          gsm: 16,
-          size: 30,
-          ply: 1,
-          weight: 50,
-          joint: 0,
-          status: 'DISPATCHED',
-          qcGrade: 'A',
-          productionDate: slip.date || new Date().toISOString(),
-          challanNo: slip.slipNo,
-        } as Reel);
-      }
-    });
-  }
+  const matched: Reel[] = [];
+  slipReelNos.forEach(srNo => {
+    const cleanNo = (srNo || '').trim().toUpperCase();
+    const found = reelMap.get(cleanNo);
+    if (found) {
+      matched.push(found);
+    } else {
+      matched.push({
+        id: `reel-synth-${cleanNo}`,
+        reelNo: cleanNo,
+        parentRollNo: 'MANUAL',
+        dia: 0,
+        product: 'Napkin Tissue',
+        gsm: 15,
+        size: 32,
+        ply: 2,
+        weight: 50,
+        joint: 0,
+        status: 'DISPATCHED',
+        qcGrade: 'A',
+        productionDate: slip.date || new Date().toISOString(),
+        challanNo: slip.slipNo,
+      } as Reel);
+    }
+  });
 
   return matched;
 }
@@ -138,7 +142,7 @@ export async function exportDispatchChallanExcel(
       'REEL NUMBER',
       'PRODUCT DESCRIPTION',
       'GSM',
-      'DECAL (MM)',
+      'SIZE (CM)',
       'PLY',
       'WEIGHT (KG)',
       'JOINTS',
@@ -175,7 +179,7 @@ export async function exportDispatchChallanExcel(
 
   rows.push(['']);
   rows.push(['PRODUCT SPECIFICATION SUMMARY']);
-  rows.push(['PRODUCT SPECIFICATION', 'GSM', 'DECAL (MM)', 'PLY', 'TOTAL REELS', 'TOTAL WEIGHT (KG)']);
+  rows.push(['PRODUCT SPECIFICATION', 'GSM', 'SIZE (CM)', 'PLY', 'TOTAL REELS', 'TOTAL WEIGHT (KG)']);
 
   Object.values(specMap).forEach(spec => {
     rows.push([
@@ -283,7 +287,7 @@ export function generateDispatchReceiptHtml(
           ...reel,
           displayIndex: runningSr,
           isGroupStart: idxInGroup === 0,
-          groupLabel: `${group.product.toUpperCase()} • ${group.gsm} GSM • ${group.size} MM • ${group.ply} PLY`,
+          groupLabel: `${group.product.toUpperCase()} • ${group.gsm} GSM • ${group.size} CM • ${group.ply} PLY`,
           groupTotalReels: group.reels.length,
           groupTotalWeight: group.totalWeight,
         });
@@ -452,7 +456,7 @@ export function generateDispatchReceiptHtml(
               <th>REEL NO</th>
               <th>PRODUCT</th>
               <th class="text-center">GSM</th>
-              <th class="text-center">DECAL (MM)</th>
+              <th class="text-center">SIZE (CM)</th>
               <th class="text-center">PLY</th>
               <th class="text-right">WEIGHT (KG)</th>
             </tr>
@@ -472,7 +476,7 @@ export function generateDispatchReceiptHtml(
             <tr>
               <th>PRODUCT SPECIFICATION</th>
               <th class="text-center">GSM</th>
-              <th class="text-center">DECAL</th>
+              <th class="text-center">SIZE (CM)</th>
               <th class="text-center">PLY</th>
               <th class="text-center">REELS</th>
               <th class="text-right">TOTAL WEIGHT</th>
@@ -483,7 +487,7 @@ export function generateDispatchReceiptHtml(
               <tr>
                 <td class="font-bold">${item.product}</td>
                 <td class="text-center font-mono">${item.gsm}</td>
-                <td class="text-center font-mono">${item.size} MM</td>
+                <td class="text-center font-mono">${item.size} CM</td>
                 <td class="text-center font-mono">${item.ply} Ply</td>
                 <td class="text-center font-mono font-bold">${item.reels.length}</td>
                 <td class="text-right font-mono font-bold">${item.totalWeight.toLocaleString()} KG</td>

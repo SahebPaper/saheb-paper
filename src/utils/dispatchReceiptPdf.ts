@@ -73,7 +73,7 @@ export function generateDispatchReceiptPdfDoc(
           ...reel,
           displayIndex: runningSr,
           isGroupStart: idxInGroup === 0,
-          groupLabel: `${group.product.toUpperCase()} • ${group.gsm} GSM • ${group.size} MM • ${group.ply} PLY`,
+          groupLabel: `${group.product.toUpperCase()} • ${group.gsm} GSM • ${group.size} CM • ${group.ply} PLY`,
           groupTotalReels: group.reels.length,
           groupTotalWeight: group.totalWeight,
         });
@@ -105,8 +105,12 @@ export function generateDispatchReceiptPdfDoc(
   const totalReelsCount = sortedReelItems.length;
   const totalSummaryCount = specGroupsList.length;
 
-  // 1. Single Page Check: Up to 18 reels with up to 4 summary items fits cleanly on 1 Page!
-  if (totalReelsCount <= 18 && totalSummaryCount <= 4) {
+  // Single Page Check: Up to 32 items (e.g. 30 reels + summary rows) fit cleanly on 1 Single A4 Page!
+  const SINGLE_PAGE_MAX_ITEMS = 33;
+  const PAGE1_MULTI_REEL_LIMIT = 26;
+  const CONT_PAGE_MAX_ITEMS = 34;
+
+  if (totalReelsCount + totalSummaryCount <= SINGLE_PAGE_MAX_ITEMS) {
     pages.push({
       pageNumber: 1,
       reels: sortedReelItems,
@@ -114,18 +118,10 @@ export function generateDispatchReceiptPdfDoc(
       isSummaryContinuation: false,
       showGrandTotal: true,
     });
-  } else if (totalReelsCount <= 22 && totalSummaryCount === 0) {
-    pages.push({
-      pageNumber: 1,
-      reels: sortedReelItems,
-      summaryItems: [],
-      isSummaryContinuation: false,
-      showGrandTotal: true,
-    });
   } else {
-    // 2. Multi-page layout:
-    // Page 1 takes up to 18 reels without spilling onto excess pages
-    const p1ReelCount = Math.min(18, totalReelsCount);
+    // Multi-page layout:
+    // Page 1 takes up to 26 reels to fill the first sheet cleanly
+    const p1ReelCount = Math.min(PAGE1_MULTI_REEL_LIMIT, totalReelsCount);
     const p1Reels = sortedReelItems.slice(0, p1ReelCount);
     let remainingReels = sortedReelItems.slice(p1ReelCount);
 
@@ -140,10 +136,12 @@ export function generateDispatchReceiptPdfDoc(
 
     let pageIdx = 2;
     while (remainingReels.length > 0) {
-      // Page 2+ can hold up to 24 reels with summary, or 30 without summary (so 30-reel challans fit on 2 pages!)
-      const maxReelsOnPage = remainingReels.length <= 22 ? 22 : 28;
-      const chunk = remainingReels.slice(0, maxReelsOnPage);
-      remainingReels = remainingReels.slice(maxReelsOnPage);
+      // Continuation page (Page 2+) has much more space (no company banner/metadata box)
+      const canFitRemainingWithSummary = (remainingReels.length + totalSummaryCount + 2) <= CONT_PAGE_MAX_ITEMS;
+      const chunkSize = canFitRemainingWithSummary ? remainingReels.length : (CONT_PAGE_MAX_ITEMS - 2);
+
+      const chunk = remainingReels.slice(0, chunkSize);
+      remainingReels = remainingReels.slice(chunkSize);
       const isLastReelChunk = remainingReels.length === 0;
 
       pages.push({
@@ -155,7 +153,7 @@ export function generateDispatchReceiptPdfDoc(
       });
     }
 
-    // If summary still hasn't been shown because reels took up page
+    // Safety fallback: if summary still hasn't been shown because reels took up page
     if (!pages[pages.length - 1].showGrandTotal) {
       pages.push({
         pageNumber: pageIdx++,
@@ -318,29 +316,29 @@ export function generateDispatchReceiptPdfDoc(
       currentY += 3.5;
 
       // Solid Black/Dark Slate Table Header Row
-      const colSr = 17;
+      const colSr = 16;
       const colReel = 24;
-      const colProd = 56;
-      const colGsm = 112;
-      const colDecal = 135;
-      const colPly = 157;
+      const colProd = 60;
+      const colGsm = 114;
+      const colDecal = 138;
+      const colPly = 160;
       const colWeight = 197;
 
       doc.setFillColor(15, 23, 42); // #0f172a
-      doc.rect(10, currentY, 190, 6.2, 'F');
+      doc.rect(10, currentY, 190, 5.6, 'F');
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(255, 255, 255);
-      doc.text('SR', colSr, currentY + 4.3, { align: 'center' });
-      doc.text('REEL NO', colReel, currentY + 4.3);
-      doc.text('PRODUCT', colProd, currentY + 4.3);
-      doc.text('GSM', colGsm, currentY + 4.3, { align: 'center' });
-      doc.text('DECAL (MM)', colDecal, currentY + 4.3, { align: 'center' });
-      doc.text('PLY', colPly, currentY + 4.3, { align: 'center' });
-      doc.text('WEIGHT (KG)', colWeight, currentY + 4.3, { align: 'right' });
+      doc.text('SR', colSr, currentY + 3.9, { align: 'center' });
+      doc.text('REEL NO', colReel, currentY + 3.9);
+      doc.text('PRODUCT', colProd, currentY + 3.9);
+      doc.text('GSM', colGsm, currentY + 3.9, { align: 'center' });
+      doc.text('SIZE (CM)', colDecal, currentY + 3.9, { align: 'center' });
+      doc.text('PLY', colPly, currentY + 3.9, { align: 'center' });
+      doc.text('WEIGHT (KG)', colWeight, currentY + 3.9, { align: 'right' });
 
-      currentY += 6.2;
+      currentY += 5.6;
 
       // Reel Rows
       pageData.reels.forEach((reel, rIdx) => {
@@ -349,85 +347,86 @@ export function generateDispatchReceiptPdfDoc(
           const isContd = !reel.isGroupStart && rIdx === 0;
 
           doc.setFillColor(241, 245, 249); // #f1f5f9
-          doc.rect(10, currentY, 190, 5.8, 'F');
+          doc.rect(10, currentY, 190, 4.8, 'F');
 
           doc.setDrawColor(203, 213, 225);
           doc.setLineWidth(0.25);
-          doc.line(10, currentY + 5.8, 200, currentY + 5.8);
+          doc.line(10, currentY + 4.8, 200, currentY + 4.8);
 
           // Blue Dot Indicator
           doc.setFillColor(37, 99, 235); // #2563eb
-          doc.circle(13.8, currentY + 2.9, 1.1, 'F');
+          doc.circle(13.5, currentY + 2.4, 1.0, 'F');
 
           // Group Title Text
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7.5);
+          doc.setFontSize(7.2);
           doc.setTextColor(15, 23, 42);
-          doc.text(`${reel.groupLabel} ${isContd ? '(Contd.)' : ''}`, 17, currentY + 4);
+          doc.text(`${reel.groupLabel} ${isContd ? '(Contd.)' : ''}`, 16.5, currentY + 3.4);
 
           // Right Badge Pill: [X Reels • Y KG]
           const badgeText = `${reel.groupTotalReels} Reels • ${reel.groupTotalWeight.toLocaleString()} KG`;
-          const badgeWidth = Math.max(28, doc.getTextWidth(badgeText) + 4);
+          const badgeWidth = Math.max(26, doc.getTextWidth(badgeText) + 4);
           const badgeX = 198 - badgeWidth;
 
           doc.setFillColor(226, 232, 240); // #e2e8f0
           doc.setDrawColor(203, 213, 225);
-          doc.roundedRect(badgeX, currentY + 1, badgeWidth, 3.8, 1, 1, 'FD');
+          doc.roundedRect(badgeX, currentY + 0.8, badgeWidth, 3.2, 0.8, 0.8, 'FD');
 
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.5);
+          doc.setFontSize(6.2);
           doc.setTextColor(51, 65, 85);
-          doc.text(badgeText, badgeX + (badgeWidth / 2), currentY + 3.6, { align: 'center' });
+          doc.text(badgeText, badgeX + (badgeWidth / 2), currentY + 2.8, { align: 'center' });
 
-          currentY += 5.8;
+          currentY += 4.8;
         }
 
         // Data Row
+        const rowHeight = 4.6;
         doc.setFillColor(255, 255, 255);
-        doc.rect(10, currentY, 190, 5.1, 'F');
+        doc.rect(10, currentY, 190, rowHeight, 'F');
 
         doc.setDrawColor(226, 232, 240);
         doc.setLineWidth(0.2);
-        doc.line(10, currentY + 5.1, 200, currentY + 5.1);
+        doc.line(10, currentY + rowHeight, 200, currentY + rowHeight);
 
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
+        doc.setFontSize(7.2);
         doc.setTextColor(15, 23, 42);
 
         // SR
-        doc.text(String(reel.displayIndex), colSr, currentY + 3.6, { align: 'center' });
+        doc.text(String(reel.displayIndex), colSr, currentY + 3.3, { align: 'center' });
 
         // REEL NO
         doc.setFont('helvetica', 'bold');
-        doc.text(reel.reelNo, colReel, currentY + 3.6);
+        doc.text(reel.reelNo, colReel, currentY + 3.3);
 
         // PRODUCT
         doc.setFont('helvetica', 'normal');
-        doc.text((reel.product || 'Tissue Paper').substring(0, 30), colProd, currentY + 3.6);
+        doc.text((reel.product || 'Tissue Paper').substring(0, 30), colProd, currentY + 3.3);
 
         // GSM
-        doc.text(String(reel.gsm || '---'), colGsm, currentY + 3.6, { align: 'center' });
+        doc.text(String(reel.gsm || '---'), colGsm, currentY + 3.3, { align: 'center' });
 
-        // DECAL (MM)
-        doc.text(String(reel.size || '---'), colDecal, currentY + 3.6, { align: 'center' });
+        // SIZE (CM)
+        doc.text(String(reel.size || '---'), colDecal, currentY + 3.3, { align: 'center' });
 
         // PLY
-        doc.text(String(reel.ply || 1), colPly, currentY + 3.6, { align: 'center' });
+        doc.text(String(reel.ply || 1), colPly, currentY + 3.3, { align: 'center' });
 
         // WEIGHT (KG)
         doc.setFont('helvetica', 'bold');
-        doc.text(`${(reel.weight || 0).toLocaleString()}`, colWeight, currentY + 3.6, { align: 'right' });
+        doc.text(`${(reel.weight || 0).toLocaleString()}`, colWeight, currentY + 3.3, { align: 'right' });
 
-        currentY += 5.1;
+        currentY += rowHeight;
       });
 
-      currentY += 4.5;
+      currentY += 3.5;
     }
 
     // 4. Section: PRODUCT SUMMARY (ITEMIZED BREAKDOWN)
     if (pageData.summaryItems.length > 0) {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
+      doc.setFontSize(8.0);
       doc.setTextColor(15, 23, 42);
       doc.text(
         pageData.isSummaryContinuation
@@ -437,7 +436,7 @@ export function generateDispatchReceiptPdfDoc(
         currentY + 1
       );
 
-      currentY += 3.5;
+      currentY += 3.2;
 
       // Summary Table Header
       const sumColProd = 13;
@@ -448,44 +447,44 @@ export function generateDispatchReceiptPdfDoc(
       const sumColWeight = 197;
 
       doc.setFillColor(15, 23, 42);
-      doc.rect(10, currentY, 190, 6.2, 'F');
+      doc.rect(10, currentY, 190, 5.4, 'F');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
+      doc.setFontSize(7.2);
       doc.setTextColor(255, 255, 255);
-      doc.text('PRODUCT SPECIFICATION', sumColProd, currentY + 4.3);
-      doc.text('GSM', sumColGsm, currentY + 4.3, { align: 'center' });
-      doc.text('DECAL', sumColDecal, currentY + 4.3, { align: 'center' });
-      doc.text('PLY', sumColPly, currentY + 4.3, { align: 'center' });
-      doc.text('REELS', sumColReels, currentY + 4.3, { align: 'center' });
-      doc.text('TOTAL WEIGHT', sumColWeight, currentY + 4.3, { align: 'right' });
+      doc.text('PRODUCT SPECIFICATION', sumColProd, currentY + 3.7);
+      doc.text('GSM', sumColGsm, currentY + 3.7, { align: 'center' });
+      doc.text('SIZE (CM)', sumColDecal, currentY + 3.7, { align: 'center' });
+      doc.text('PLY', sumColPly, currentY + 3.7, { align: 'center' });
+      doc.text('REELS', sumColReels, currentY + 3.7, { align: 'center' });
+      doc.text('TOTAL WEIGHT', sumColWeight, currentY + 3.7, { align: 'right' });
 
-      currentY += 6.2;
+      currentY += 5.4;
 
       // Summary Rows
       pageData.summaryItems.forEach((item) => {
         doc.setFillColor(255, 255, 255);
-        doc.rect(10, currentY, 190, 5.2, 'F');
+        doc.rect(10, currentY, 190, 4.6, 'F');
 
         doc.setDrawColor(226, 232, 240);
         doc.setLineWidth(0.2);
-        doc.line(10, currentY + 5.2, 200, currentY + 5.2);
+        doc.line(10, currentY + 4.6, 200, currentY + 4.6);
 
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.5);
+        doc.setFontSize(7.2);
         doc.setTextColor(15, 23, 42);
-        doc.text(item.product, sumColProd, currentY + 3.7);
+        doc.text(item.product, sumColProd, currentY + 3.3);
 
         doc.setFont('helvetica', 'normal');
-        doc.text(String(item.gsm), sumColGsm, currentY + 3.7, { align: 'center' });
-        doc.text(`${item.size} MM`, sumColDecal, currentY + 3.7, { align: 'center' });
-        doc.text(`${item.ply} Ply`, sumColPly, currentY + 3.7, { align: 'center' });
+        doc.text(String(item.gsm), sumColGsm, currentY + 3.3, { align: 'center' });
+        doc.text(`${item.size} CM`, sumColDecal, currentY + 3.3, { align: 'center' });
+        doc.text(`${item.ply} Ply`, sumColPly, currentY + 3.3, { align: 'center' });
 
         doc.setFont('helvetica', 'bold');
-        doc.text(String(item.reels.length), sumColReels, currentY + 3.7, { align: 'center' });
-        doc.text(`${item.totalWeight.toLocaleString()} KG`, sumColWeight, currentY + 3.7, { align: 'right' });
+        doc.text(String(item.reels.length), sumColReels, currentY + 3.3, { align: 'center' });
+        doc.text(`${item.totalWeight.toLocaleString()} KG`, sumColWeight, currentY + 3.3, { align: 'right' });
 
-        currentY += 5.2;
+        currentY += 4.6;
       });
 
       // 5. Signature Peach / Light-Amber GRAND TOTAL Row
@@ -493,16 +492,16 @@ export function generateDispatchReceiptPdfDoc(
         doc.setFillColor(254, 215, 170); // #fed7aa (warm peach / light amber)
         doc.setDrawColor(251, 146, 60); // #fb923c
         doc.setLineWidth(0.35);
-        doc.rect(10, currentY, 190, 6.8, 'FD');
+        doc.rect(10, currentY, 190, 6.0, 'FD');
 
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
+        doc.setFontSize(8.0);
         doc.setTextColor(0, 0, 0);
-        doc.text('GRAND TOTAL', sumColProd, currentY + 4.7);
-        doc.text(`${linkedReels.length} Reels`, sumColReels, currentY + 4.7, { align: 'center' });
-        doc.text(`${grandTotalWeight.toLocaleString()} KG`, sumColWeight, currentY + 4.7, { align: 'right' });
+        doc.text('GRAND TOTAL', sumColProd, currentY + 4.2);
+        doc.text(`${linkedReels.length} Reels`, sumColReels, currentY + 4.2, { align: 'center' });
+        doc.text(`${grandTotalWeight.toLocaleString()} KG`, sumColWeight, currentY + 4.2, { align: 'right' });
 
-        currentY += 6.8;
+        currentY += 6.0;
       }
     }
 

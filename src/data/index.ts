@@ -303,6 +303,7 @@ export const DEFAULT_PARTIES: PartyItem[] = [
   { id: 'pt-1', name: 'Ambika Traders', address: 'Surat, Gujarat' },
   { id: 'pt-2', name: 'Krishna Enterprises', address: 'Ahmedabad, Gujarat' },
   { id: 'pt-3', name: 'Kailash Paper House', address: 'Rajkot, Gujarat' },
+  { id: 'pt-ut', name: 'United Traders', address: 'Rajkot, Gujarat' },
 ];
 
 export const DEFAULT_VENDORS: VendorItem[] = [
@@ -315,6 +316,7 @@ export const DEFAULT_VEHICLES: VehicleItem[] = [
   { id: 'vh-1', vehicleNo: 'GJ-05-BY-1234', driverName: 'Ramesh Bhai', driverContact: '9988776655' },
   { id: 'vh-2', vehicleNo: 'GJ-03-XX-5678', driverName: 'Suresh Patel', driverContact: '9988776656' },
   { id: 'vh-3', vehicleNo: 'MH-04-ZZ-9012', driverName: 'Anil Singh', driverContact: '9988776657' },
+  { id: 'vh-ut', vehicleNo: 'GJ-03-BY-6535', driverName: 'Driver', driverContact: '' },
 ];
 
 const DEFAULT_STORE_ITEMS: StoreItem[] = [
@@ -443,7 +445,7 @@ export function initializeStorage() {
       }
       try {
         localStorage.setItem(`saheb_security_setup_completed_${u.username}`, 'true');
-      } catch (_) {}
+      } catch (_) { }
       if (u.username === 'admin') {
         if (u.role !== 'Admin' || !u.roles || u.roles[0] !== 'Admin' || !u.customModules || u.customModules.length !== validKeys.length) {
           u.role = 'Admin';
@@ -1230,7 +1232,7 @@ export function getRawMaterials(): RawMaterialItem[] {
     hasChanges = true;
   }
 
-  const missingDefaults = DEFAULT_RAW_MATERIALS.filter(def => 
+  const missingDefaults = DEFAULT_RAW_MATERIALS.filter(def =>
     !materials.some(m => m.id === def.id || m.name.toLowerCase() === def.name.toLowerCase())
   );
   if (missingDefaults.length > 0) {
@@ -2188,7 +2190,7 @@ export function updateBatchReels(
       if (deletedNosSet.has(rNo)) return false;
       return true;
     });
-    
+
     // Clean originalReelNo helper prop before persisting
     const cleanedReels: Reel[] = updatedReels.map(r => {
       const { originalReelNo, ...rest } = r;
@@ -2399,7 +2401,7 @@ export function saveBoilerLog(log: BoilerLog, user: string): BoilerLog {
 
   // Deduct wood from raw materials if it's logged
   if (log.woodUsed > 0) {
-    const woodMat = findRawMaterialItem(m => 
+    const woodMat = findRawMaterialItem(m =>
       (m.name.toLowerCase() === 'wood' || m.name.toLowerCase().includes('wood') || m.name.toLowerCase().includes('firewood')) &&
       (m.category === 'BOILER' || (m.category as string) === 'FIREWOOD')
     );
@@ -2410,7 +2412,7 @@ export function saveBoilerLog(log: BoilerLog, user: string): BoilerLog {
 
   // Deduct RO Chemical from raw materials if it's logged
   if (log.roChemical && log.roChemical > 0) {
-    const roMat = findRawMaterialItem(m => 
+    const roMat = findRawMaterialItem(m =>
       m.name.toLowerCase().includes('ro chemical') || m.name.toLowerCase() === 'ro chemical'
     );
     if (roMat) {
@@ -2440,9 +2442,9 @@ export function saveEtpLog(log: EtpLog, user: string): EtpLog {
 
   // Deduct Cougulant from raw materials if logged
   if (log.flockLiq && log.flockLiq > 0) {
-    const coagMat = findRawMaterialItem(m => 
+    const coagMat = findRawMaterialItem(m =>
       (m.category === 'ETP' && (m.name.toLowerCase().includes('coug') || m.name.toLowerCase().includes('coag'))) ||
-      m.name.toLowerCase().includes('coagulant') || 
+      m.name.toLowerCase().includes('coagulant') ||
       m.name.toLowerCase().includes('cougulant') ||
       m.name.toLowerCase().includes('flock 100')
     );
@@ -2453,9 +2455,9 @@ export function saveEtpLog(log: EtpLog, user: string): EtpLog {
 
   // Deduct Flocculant from raw materials if logged
   if (log.flockMaster && log.flockMaster > 0) {
-    const flocMat = findRawMaterialItem(m => 
+    const flocMat = findRawMaterialItem(m =>
       (m.category === 'ETP' && m.name.toLowerCase().includes('floc')) ||
-      m.name.toLowerCase().includes('flocculant') || 
+      m.name.toLowerCase().includes('flocculant') ||
       m.name.toLowerCase().includes('flock master')
     );
     if (flocMat) {
@@ -2666,30 +2668,88 @@ export function savePendingOrder(order: PendingOrder, user: string): PendingOrde
 }
 
 // --- PACKING SLIPS & DISPATCH ---
-const DEFAULT_PACKING_SLIPS: PackingSlip[] = [];
+export const CANONICAL_PS1_REEL_NOS: string[] = [
+  '261106086',
+  '261105086',
+  '261105088',
+  '261106071',
+  '261106062',
+  '261106069',
+  '261106085',
+  '261106061',
+  '261106063',
+  '261106070',
+  '261104910',
+  '261106003',
+  '261104893',
+  '261104892',
+  '261106039',
+  '261106030',
+  '261106029',
+  '261106046',
+  '261106054',
+  '261106055',
+  '261106031',
+  '261106045',
+  '261106037',
+  '261106005',
+  '261106047',
+  '261106038',
+  '261106015',
+  '261106027',
+  '261106028',
+  '261106014',
+];
+
+const DEFAULT_PACKING_SLIPS: PackingSlip[] = [
+  {
+    id: 'ps-1',
+    slipNo: 'PS-1',
+    date: '2026-11-17',
+    partyId: 'pt-ut',
+    vehicleId: 'vh-ut',
+    reelNos: CANONICAL_PS1_REEL_NOS,
+    driverSignature: '',
+    receiverSignature: '',
+    status: 'DISPATCHED',
+    dispatchDate: '2026-11-17',
+    dispatchTime: '10:00',
+  },
+];
 
 export function getPackingSlips(): PackingSlip[] {
   const existing = getJSON<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
 
 
   if (!existing || existing.length === 0) {
-    return [];
+    setJSON(KEYS.PACKING_SLIPS, DEFAULT_PACKING_SLIPS);
+    return DEFAULT_PACKING_SLIPS;
   }
   let modified = false;
   const normalized = existing.map(s => {
-    const raw = (s.slipNo || '').trim();
+    let item = s;
+    const raw = (item.slipNo || '').trim();
     if (/^\d+$/.test(raw)) {
       modified = true;
-      return { ...s, slipNo: `PS-${raw}` };
-    }
-    if (raw.toUpperCase().startsWith('CHALLAN-')) {
+      item = { ...item, slipNo: `PS-${raw}` };
+    } else if (raw.toUpperCase().startsWith('CHALLAN-')) {
       modified = true;
       const after = raw.substring('CHALLAN-'.length);
       const match = after.match(/-(\d+)$/);
       const cleanNum = match ? (match[1].replace(/^0+/, '') || match[1]) : after;
-      return { ...s, slipNo: `PS-${cleanNum}` };
+      item = { ...item, slipNo: `PS-${cleanNum}` };
     }
-    return s;
+
+    // Ensure PS-1 preserves exact canonical sequence if it has the 30 reels
+    if ((item.slipNo === 'PS-1' || item.id === 'ps-1') && item.reelNos && item.reelNos.length === 30 && item.reelNos.includes('261106086')) {
+      const isAlreadySameOrder = item.reelNos.every((val, idx) => val === CANONICAL_PS1_REEL_NOS[idx]);
+      if (!isAlreadySameOrder) {
+        modified = true;
+        item = { ...item, reelNos: [...CANONICAL_PS1_REEL_NOS] };
+      }
+    }
+
+    return item;
   });
   if (modified) {
     setJSON(KEYS.PACKING_SLIPS, normalized);

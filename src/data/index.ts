@@ -25,6 +25,7 @@ export type { CustomRole };
 
 import { sortUsersByHierarchy, ROLE_LABELS, getDefaultModulesForRoles } from './types';
 import { hashPinSync, isPinHashed, revealPin } from '../lib/security';
+import { INITIAL_NAPKIN_REELS } from './napkinReelsData';
 import {
   pushUpsertToCloud,
   pushDeleteToCloud,
@@ -321,7 +322,7 @@ const DEFAULT_STORE_ITEMS: StoreItem[] = [
 
 export const DEFAULT_ROLLS: MachineRoll[] = [];
 
-export const DEFAULT_REELS: Reel[] = [];
+export const DEFAULT_REELS: Reel[] = INITIAL_NAPKIN_REELS;
 
 export function seedSampleReels(): Reel[] {
   return getJSON<Reel[]>(KEYS.REELS, []);
@@ -386,7 +387,16 @@ export function initializeStorage() {
   if (!localStorage.getItem(KEYS.VEHICLES)) setJSON(KEYS.VEHICLES, [], false);
   if (!localStorage.getItem(KEYS.FORMULAS)) setJSON(KEYS.FORMULAS, [], false);
   if (!localStorage.getItem(KEYS.ROLLS)) setJSON(KEYS.ROLLS, [], false);
-  if (!localStorage.getItem(KEYS.REELS)) setJSON(KEYS.REELS, [], false);
+  if (!localStorage.getItem(KEYS.REELS)) {
+    setJSON(KEYS.REELS, DEFAULT_REELS, false);
+  } else {
+    const existingReels = getJSON<Reel[]>(KEYS.REELS, []);
+    const existingReelSet = new Set(existingReels.map(r => r.reelNo));
+    const missingReels = INITIAL_NAPKIN_REELS.filter(r => !existingReelSet.has(r.reelNo));
+    if (missingReels.length > 0) {
+      setJSON(KEYS.REELS, [...existingReels, ...missingReels], false);
+    }
+  }
   if (!localStorage.getItem(KEYS.LOGS)) setJSON(KEYS.LOGS, [], false);
   if (!localStorage.getItem(KEYS.BOILER_LOGS)) setJSON(KEYS.BOILER_LOGS, [], false);
   if (!localStorage.getItem(KEYS.ETP_LOGS)) setJSON(KEYS.ETP_LOGS, [], false);
@@ -1928,6 +1938,14 @@ export function getReels(): Reel[] {
 
 
 
+  // Ensure default production napkin reels exist in local storage
+  const existingNoSet = new Set((existing || []).map(r => r.reelNo));
+  const missingNapkin = INITIAL_NAPKIN_REELS.filter(r => !existingNoSet.has(r.reelNo));
+  if (missingNapkin.length > 0) {
+    existing = [...(existing || []), ...missingNapkin];
+    setJSON(KEYS.REELS, existing, false);
+  }
+
   if (!existing || existing.length === 0) {
     return [];
   }
@@ -2547,6 +2565,7 @@ export function getPendingOrders(): PendingOrder[] {
   const existing = getJSON<PendingOrder[]>(KEYS.PENDING_ORDERS, []);
 
 
+
   if (!existing || existing.length === 0) {
     return [];
   }
@@ -2588,6 +2607,7 @@ const DEFAULT_PACKING_SLIPS: PackingSlip[] = [];
 
 export function getPackingSlips(): PackingSlip[] {
   const existing = getJSON<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
+
 
 
   if (!existing || existing.length === 0) {

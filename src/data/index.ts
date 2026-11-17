@@ -100,6 +100,7 @@ export const KEYS = {
   LAB_REPORTS: 'saheb_lab_reports',
   CUSTOM_ROLES: 'saheb_custom_roles',
   DELETED_ROLES: 'saheb_deleted_roles',
+  DELETED_REELS: 'saheb_deleted_reels',
 };
 
 /**
@@ -2124,6 +2125,13 @@ export function deleteSingleReel(reelNo: string, user: string = 'Operator'): { s
       return { success: false, error: `Reel #${reel.reelNo} cannot be deleted because it is already dispatched.` };
     }
 
+    // Keep record in deleted reels list so legacy scans or restores never resurrect it
+    const deletedList = getJSON<string[]>(KEYS.DELETED_REELS, []);
+    if (!deletedList.some(d => d.toLowerCase() === reel.reelNo.toLowerCase())) {
+      deletedList.push(reel.reelNo);
+      setJSON(KEYS.DELETED_REELS, deletedList, false);
+    }
+
     // Adjust broke if cut from an actual machine roll (Rule 6)
     const cleanParent = (reel.parentRollNo || '').trim().toLowerCase();
     if (cleanParent && cleanParent !== 'manual' && cleanParent !== 'unknown') {
@@ -2295,6 +2303,7 @@ export interface MissingReelInfo {
 export function scanMissingReels(): MissingReelInfo[] {
   const currentReels = getReels();
   const currentReelNos = new Set(currentReels.map(r => r.reelNo.trim().toLowerCase()));
+  const deletedReelNos = new Set(getJSON<string[]>(KEYS.DELETED_REELS, []).map(d => d.toLowerCase()));
   const missingMap = new Map<string, MissingReelInfo>();
 
   // 1. Scan transaction logs
@@ -2307,7 +2316,7 @@ export function scanMissingReels(): MissingReelInfo[] {
     if (logMatch) {
       const reelNo = logMatch[1].trim();
       const key = reelNo.toLowerCase();
-      if (!currentReelNos.has(key) && !missingMap.has(key)) {
+      if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !missingMap.has(key)) {
         const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
         missingMap.set(key, {
           reelNo,
@@ -2329,7 +2338,7 @@ export function scanMissingReels(): MissingReelInfo[] {
     if (updateMatch) {
       const reelNo = updateMatch[1].trim();
       const key = reelNo.toLowerCase();
-      if (!currentReelNos.has(key) && !missingMap.has(key)) {
+      if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !missingMap.has(key)) {
         const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
         missingMap.set(key, {
           reelNo,
@@ -2355,7 +2364,7 @@ export function scanMissingReels(): MissingReelInfo[] {
         const cleanNo = (rNo || '').trim();
         if (!cleanNo) continue;
         const key = cleanNo.toLowerCase();
-        if (!currentReelNos.has(key) && !missingMap.has(key)) {
+        if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !missingMap.has(key)) {
           const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
           missingMap.set(key, {
             reelNo: cleanNo,
@@ -2761,6 +2770,39 @@ export const CANONICAL_PS1_REEL_NOS: string[] = [
   '261106014',
 ];
 
+export const CANONICAL_PS2_REEL_NOS: string[] = [
+  '261106096',
+  '261106092',
+  '261106098',
+  '261106090',
+  '261106091',
+  '261106001',
+  '261106088',
+  '261004431',
+  '261004335',
+  '261106010',
+  '261106008',
+  '261106022',
+  '261106040',
+  '261106011',
+  '261106021',
+  '261106068',
+  '261106056',
+  '261106074',
+  '261106064',
+  '261106065',
+  '261106024',
+  '261106048',
+  '261106017',
+  '261106058',
+  '261106051',
+  '261106043',
+  '261106019',
+  '261106073',
+  '261106052',
+  '261106033',
+];
+
 const DEFAULT_PACKING_SLIPS: PackingSlip[] = [
   {
     id: 'ps-1',
@@ -2775,17 +2817,40 @@ const DEFAULT_PACKING_SLIPS: PackingSlip[] = [
     dispatchDate: '2026-11-17',
     dispatchTime: '10:00',
   },
+  {
+    id: 'ps-2',
+    slipNo: 'PS-2',
+    date: '2026-11-17',
+    partyId: 'pt-2',
+    vehicleId: 'vh-1',
+    reelNos: CANONICAL_PS2_REEL_NOS,
+    driverSignature: '',
+    receiverSignature: '',
+    status: 'DISPATCHED',
+    dispatchDate: '2026-11-17',
+    dispatchTime: '11:30',
+  },
 ];
 
 export function getPackingSlips(): PackingSlip[] {
-  const existing = getJSON<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
-
+  let existing = getJSON<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
 
   if (!existing || existing.length === 0) {
     setJSON(KEYS.PACKING_SLIPS, DEFAULT_PACKING_SLIPS);
     return DEFAULT_PACKING_SLIPS;
   }
   let modified = false;
+
+  // Ensure both PS-1 and PS-2 are present in existing list
+  if (!existing.some(s => s.id === 'ps-1' || s.slipNo === 'PS-1')) {
+    existing.unshift(DEFAULT_PACKING_SLIPS[0]);
+    modified = true;
+  }
+  if (!existing.some(s => s.id === 'ps-2' || s.slipNo === 'PS-2')) {
+    existing.push(DEFAULT_PACKING_SLIPS[1]);
+    modified = true;
+  }
+
   const normalized = existing.map(s => {
     let item = s;
     const raw = (item.slipNo || '').trim();
@@ -2806,6 +2871,15 @@ export function getPackingSlips(): PackingSlip[] {
       if (!isAlreadySameOrder) {
         modified = true;
         item = { ...item, reelNos: [...CANONICAL_PS1_REEL_NOS] };
+      }
+    }
+
+    // Ensure PS-2 preserves exact canonical sequence if it has the 30 reels
+    if ((item.slipNo === 'PS-2' || item.id === 'ps-2') && item.reelNos && item.reelNos.length === 30 && item.reelNos.includes('261106096')) {
+      const isAlreadySameOrder = item.reelNos.every((val, idx) => val === CANONICAL_PS2_REEL_NOS[idx]);
+      if (!isAlreadySameOrder) {
+        modified = true;
+        item = { ...item, reelNos: [...CANONICAL_PS2_REEL_NOS] };
       }
     }
 

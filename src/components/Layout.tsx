@@ -302,12 +302,17 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
     setIsSubmittingMandatory(true);
     try {
+      if (user?.username) {
+        localStorage.setItem(`saheb_security_setup_completed_${user.username}`, 'true');
+      }
       const ok = await updateUserProfile({
         securityQuestion: mandatoryQuestion,
         securityAnswer: cleanAns,
       });
       if (!ok) {
         setMandatoryError('Failed to save security configuration. Please try again.');
+      } else {
+        setMandatoryAnswer('');
       }
     } finally {
       setIsSubmittingMandatory(false);

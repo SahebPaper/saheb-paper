@@ -11,10 +11,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 56,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261105086",
@@ -26,10 +25,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 59,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261105088",
@@ -41,10 +39,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 61,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106071",
@@ -56,10 +53,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 61,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106062",
@@ -71,10 +67,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 66,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106069",
@@ -86,10 +81,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 59,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106085",
@@ -101,10 +95,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 57,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106061",
@@ -116,10 +109,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 64,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106063",
@@ -131,10 +123,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 63,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106070",
@@ -146,10 +137,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 62,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261104910",
@@ -161,10 +151,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 52,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106003",
@@ -176,10 +165,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 57,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261104893",
@@ -191,10 +179,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 55,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261104892",
@@ -206,10 +193,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 54,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106039",
@@ -221,10 +207,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 61,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106030",
@@ -236,10 +221,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 64,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106029",
@@ -251,10 +235,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 66,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106046",
@@ -266,10 +249,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 59,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106054",
@@ -281,10 +263,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 56,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106055",
@@ -296,10 +277,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 54,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106031",
@@ -311,10 +291,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 66,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106045",
@@ -326,10 +305,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 60,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106037",
@@ -341,10 +319,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 62,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106005",
@@ -356,10 +333,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 51,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106047",
@@ -371,10 +347,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 58,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106038",
@@ -386,10 +361,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 60,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106015",
@@ -401,10 +375,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 61,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106027",
@@ -416,10 +389,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 75,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106028",
@@ -431,10 +403,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 74,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106014",
@@ -446,10 +417,9 @@ export const CANONICAL_REELS: Reel[] = [
     "ply": 2,
     "weight": 59,
     "joint": 0,
-    "status": "DISPATCHED",
+    "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 09:00",
-    "challanNo": "PS-1"
+    "productionDate": "2026-11-17 09:00"
   },
   {
     "reelNo": "261106096",
@@ -1264,7 +1234,7 @@ export const CANONICAL_REELS: Reel[] = [
     "productionDate": "2026-11-17 10:00"
   },
   {
-    "reelNo": "261108030",
+    "reelNo": "260803050",
     "parentRollNo": "MANUAL",
     "dia": 0,
     "product": "Napkin Tissue",
@@ -1317,7 +1287,7 @@ export const CANONICAL_REELS: Reel[] = [
     "joint": 0,
     "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 16:50"
+    "productionDate": "2026-11-17 10:30"
   },
   {
     "reelNo": "26110002",
@@ -1331,6 +1301,6 @@ export const CANONICAL_REELS: Reel[] = [
     "joint": 0,
     "status": "IN_STOCK",
     "qcGrade": "A",
-    "productionDate": "2026-11-17 16:51"
+    "productionDate": "2026-11-17 10:30"
   }
 ];

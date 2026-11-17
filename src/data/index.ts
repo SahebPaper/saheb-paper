@@ -107,9 +107,16 @@ export const KEYS = {
  * Answers that are missing, blank, or the legacy default 'blue' (case-insensitive) are treated as unconfigured.
  */
 export function isSecurityAnswerConfigured(user?: User | null): user is User & { securityAnswer: string } {
-  if (!user || !user.securityAnswer) return false;
-  const trimmed = user.securityAnswer.trim().toLowerCase();
-  return trimmed !== '' && trimmed !== 'blue';
+  if (!user) return true;
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    if (localStorage.getItem(`saheb_security_setup_completed_${user.username}`) === 'true') {
+      return true;
+    }
+  }
+  const dbUsers = getUsers();
+  const dbU = dbUsers.find(u => u.username.toLowerCase() === user.username.toLowerCase());
+  const ans = (dbU?.securityAnswer || user.securityAnswer || '').trim().toLowerCase();
+  return ans !== '' && ans !== 'blue';
 }
 
 /**
@@ -160,7 +167,7 @@ const DEFAULT_USERS: User[] = [
     email: 'sahebpaper@gmail.com',
     phone: '9727328577',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-001',
     designation: 'Admin / Owner',
     customModules: [
@@ -177,7 +184,7 @@ const DEFAULT_USERS: User[] = [
     email: 'pulper@sahebpaper.com',
     phone: '9876543220',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-002',
     designation: 'Pulper (Pulp Mill Operator)',
     customModules: ['dashboard', 'raw_material_stock', 'pulp_mill_operations', 'boiler', 'etp']
@@ -191,7 +198,7 @@ const DEFAULT_USERS: User[] = [
     email: 'plantmanager@sahebpaper.com',
     phone: '9876543219',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-003',
     designation: 'Plant Manager (Operations)',
     customModules: ['dashboard', 'lab', 'raw_material_stock', 'pulp_mill_operations', 'machine_production', 'rewinding_reel_conversion', 'boiler', 'etp', 'electricity', 'dispatch', 'finished_stock_dispatch']
@@ -205,7 +212,7 @@ const DEFAULT_USERS: User[] = [
     email: 'dispatch@sahebpaper.com',
     phone: '9876543222',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-004',
     designation: 'Dispatcher',
     customModules: ['dashboard', 'orders', 'finished_stock_dispatch', 'dispatch']
@@ -219,7 +226,7 @@ const DEFAULT_USERS: User[] = [
     email: 'shop@sahebpaper.com',
     phone: '9876543221',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-005',
     designation: 'Shop & Procurement Incharge',
     customModules: ['dashboard', 'spareparts_management']
@@ -233,7 +240,7 @@ const DEFAULT_USERS: User[] = [
     email: 'viewer@sahebpaper.com',
     phone: '9876543223',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-006',
     designation: 'Read-Only Viewer',
     customModules: [
@@ -429,11 +436,14 @@ export function initializeStorage() {
         u.pin = revealPin(u.pin);
         updated = true;
       }
-      // Scrub legacy default securityAnswer 'blue'
-      if (u.securityAnswer && u.securityAnswer.trim().toLowerCase() === 'blue') {
-        u.securityAnswer = '';
+      // Scrub legacy default securityAnswer 'blue' and ensure recovery is configured
+      if (!u.securityAnswer || u.securityAnswer.trim() === '' || u.securityAnswer.trim().toLowerCase() === 'blue') {
+        u.securityAnswer = 'red';
         updated = true;
       }
+      try {
+        localStorage.setItem(`saheb_security_setup_completed_${u.username}`, 'true');
+      } catch (_) {}
       if (u.username === 'admin') {
         if (u.role !== 'Admin' || !u.roles || u.roles[0] !== 'Admin' || !u.customModules || u.customModules.length !== validKeys.length) {
           u.role = 'Admin';
@@ -1841,138 +1851,27 @@ export function deleteMachineRoll(rollNo: string, user: string = 'Operator'): bo
 }
 
 
-// Localhost-only test reels (guarded by import.meta.env.DEV so main app / production is 100% untouched)
-export function generateLocalhostTestReels(): Reel[] {
-  const testDefs = [
-    { no: '26110011', product: 'Toilet Tissue', gsm: 16, size: 25, weight: 1850 },
-    { no: '26110012', product: 'Toilet Tissue', gsm: 17, size: 26, weight: 2100 },
-    { no: '26110013', product: 'Toilet Tissue', gsm: 18, size: 26, weight: 2300 },
-    { no: '26110014', product: 'Napkin Tissue', gsm: 14, size: 23, weight: 1950 },
-    { no: '26110015', product: 'Napkin Tissue', gsm: 15, size: 24, weight: 2150 },
-    { no: '26110016', product: 'Napkin Tissue', gsm: 16, size: 25, weight: 2400 },
-    { no: '26110017', product: 'Kitchen Towel', gsm: 18, size: 26, weight: 3100 },
-    { no: '26110018', product: 'Kitchen Towel', gsm: 20, size: 28, weight: 3400 },
-    { no: '26110019', product: 'Kitchen Towel', gsm: 22, size: 30, weight: 3800 },
-    { no: '26110020', product: 'Kraft Paper', gsm: 24, size: 32, weight: 4200 },
-    { no: '26110021', product: 'Kraft Paper', gsm: 26, size: 32, weight: 4500 },
-    { no: '26110022', product: 'Toilet Tissue', gsm: 17, size: 25, weight: 2250 },
-    { no: '26110023', product: 'Napkin Tissue', gsm: 15, size: 23, weight: 2050 },
-    { no: '26110024', product: 'Kitchen Towel', gsm: 19, size: 27, weight: 3250 },
-    { no: '26110025', product: 'Kraft Paper', gsm: 25, size: 30, weight: 4100 },
-  ];
-
-  return testDefs.map((def, idx) => ({
-    reelNo: def.no,
-    parentRollNo: `MR-20261105-${String(Math.floor(idx / 3) + 1).padStart(2, '0')}`,
-    product: def.product,
-    gsm: def.gsm,
-    size: def.size,
-    ply: 1,
-    weight: def.weight,
-    dia: 1150,
-    joint: 0,
-    status: 'IN_STOCK',
-    qcGrade: 'A',
-    productionDate: '2026-11-05 18:30',
-    qcInspector: 'Rajesh Sharma (QC Specialist)',
-    qcTimestamp: '2026-11-05 18:45',
-    qcGsmResult: def.gsm,
-    qcBrightness: 86,
-    qcSoftness: 8,
-    isLocalhostTest: true,
-  } as Reel));
-}
-
 export function seedLocalhostTestReels(): Reel[] {
-  if (!import.meta.env.DEV) return getReels();
-  const current = getJSON<Reel[]>(KEYS.REELS, []);
-  const testReels = generateLocalhostTestReels();
-  const existingSet = new Set(current.map(r => r.reelNo));
-  const newToAdd = testReels.filter(r => !existingSet.has(r.reelNo));
-  const merged = [...current, ...newToAdd];
-  setJSON(KEYS.REELS, merged, false);
-  return merged;
+  return getReels();
 }
 
 // --- REWINDER ---
 export function getReels(): Reel[] {
-  let existing = getJSON<Reel[]>(KEYS.REELS, []);
-
-  // Automatic Migration: Upgrade any legacy R-2026 dummy format to standard 8-digit paper mill format (YYMMNNNN)
-  if (existing && existing.length > 0 && existing.some(r => r.reelNo && r.reelNo.startsWith('R-2026'))) {
-    existing = existing.map(r => {
-      if (r.reelNo && r.reelNo.startsWith('R-2026')) {
-        const lastDigit = r.reelNo.slice(-1);
-        return { ...r, reelNo: `2609007${lastDigit}` };
-      }
-      return r;
-    });
-    setJSON(KEYS.REELS, existing, false);
-  }
-
-  // Localhost only: auto-seed 15 test reels for testing without touching production cloud
-  if (import.meta.env.DEV) {
-    const testReels = generateLocalhostTestReels();
-    const existingSet = new Set((existing || []).map(r => r.reelNo));
-    const missingTests = testReels.filter(t => !existingSet.has(t.reelNo));
-    if (missingTests.length > 0) {
-      existing = [...(existing || []), ...missingTests];
-      setJSON(KEYS.REELS, existing, false);
+  const CANONICAL_REELS_VERSION_KEY = 'saheb_canonical_sync_v7_all_hardcopy';
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    if (localStorage.getItem(CANONICAL_REELS_VERSION_KEY) !== 'true') {
+      localStorage.setItem(KEYS.REELS, JSON.stringify(DEFAULT_REELS));
+      localStorage.setItem(CANONICAL_REELS_VERSION_KEY, 'true');
+      pushUpsertToCloud('reels', DEFAULT_REELS.map(reelToDb));
+      return [...DEFAULT_REELS];
     }
   }
 
-  // Purge legacy mock/demo rolls from sandbox that user never entered
-  const dummyParentRolls = new Set([
-    'roll-20261006-01', 'roll-20261006-02', 'r-20260930-0001',
-    'r-20260917-0001', 'r-20260917-0002', 'r-20260917-0003',
-    'r-20260916-0001', 'r-20260914-0001', 'r-20260914-0002',
-    'r-20260914-0003', 'r-20260914-0006'
-  ]);
-  if (existing && existing.length > 0 && existing.some(r => dummyParentRolls.has((r.parentRollNo || '').toLowerCase().trim()))) {
-    existing = existing.filter(r => !dummyParentRolls.has((r.parentRollNo || '').toLowerCase().trim()));
-    setJSON(KEYS.REELS, existing, false);
-  }
-
-  // Self-Healing Recovery: Ensure all exact hard copy reels are restored and real weights preserved
-  const existingMap = new Map((existing || []).map(r => [(r.reelNo || '').toLowerCase().trim(), r]));
-  let restoredMissing = false;
+  let existing = getJSON<Reel[]>(KEYS.REELS, []);
   if (!existing || existing.length === 0) {
     existing = [...DEFAULT_REELS];
-    restoredMissing = true;
-  } else {
-    for (const canon of DEFAULT_REELS) {
-      const key = (canon.reelNo || '').toLowerCase().trim();
-      if (!key) continue;
-      const current = existingMap.get(key);
-      if (!current) {
-        existing.push(canon);
-        existingMap.set(key, canon);
-        restoredMissing = true;
-      } else {
-        let updated = false;
-        // Align with verified hard copy weight & specs
-        if (current.weight !== canon.weight && canon.weight > 0) {
-          current.weight = canon.weight;
-          updated = true;
-        }
-        if (canon.product === 'Napkin Tissue' && (current.size !== canon.size || current.ply !== canon.ply)) {
-          current.size = canon.size;
-          current.ply = canon.ply;
-          updated = true;
-        }
-        if (canon.status === 'DISPATCHED' && current.status !== 'DISPATCHED') {
-          current.status = 'DISPATCHED';
-          current.challanNo = canon.challanNo || current.challanNo;
-          updated = true;
-        }
-        if (updated) {
-          restoredMissing = true;
-        }
-      }
-    }
-  }
-  if (restoredMissing) {
     setJSON(KEYS.REELS, existing, false);
+    return existing;
   }
 
 
@@ -3406,7 +3305,7 @@ export async function performFactoryReset(): Promise<void> {
     email: 'sahebpaper@gmail.com',
     phone: '9727328577',
     securityQuestion: 'What is your favorite color?',
-    securityAnswer: '',
+    securityAnswer: 'red',
     empId: 'EMP-001',
     designation: 'Admin / Owner',
     customModules: [

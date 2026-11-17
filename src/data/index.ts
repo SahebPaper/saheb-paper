@@ -107,16 +107,22 @@ export const KEYS = {
  * Answers that are missing, blank, or the legacy default 'blue' (case-insensitive) are treated as unconfigured.
  */
 export function isSecurityAnswerConfigured(user?: User | null): user is User & { securityAnswer: string } {
-  if (!user) return true;
+  if (!user) return false;
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     if (localStorage.getItem(`saheb_security_setup_completed_${user.username}`) === 'true') {
       return true;
     }
   }
-  const dbUsers = getUsers();
-  const dbU = dbUsers.find(u => u.username.toLowerCase() === user.username.toLowerCase());
-  const ans = (dbU?.securityAnswer || user.securityAnswer || '').trim().toLowerCase();
-  return ans !== '' && ans !== 'blue';
+  const directAns = (user.securityAnswer || '').trim().toLowerCase();
+  if (directAns === 'blue' || directAns === '') {
+    // If explicitly blue or empty on passed object, check db only if property was not specified
+    if (user.securityAnswer !== undefined) return false;
+    const dbUsers = getUsers();
+    const dbU = dbUsers.find(u => u.username.toLowerCase() === user.username.toLowerCase());
+    const dbAns = (dbU?.securityAnswer || '').trim().toLowerCase();
+    return dbAns !== '' && dbAns !== 'blue';
+  }
+  return true;
 }
 
 /**
@@ -1859,7 +1865,7 @@ export function seedLocalhostTestReels(): Reel[] {
 
 // --- REWINDER ---
 export function getReels(): Reel[] {
-  const CANONICAL_REELS_VERSION_KEY = 'saheb_canonical_sync_v7_all_hardcopy';
+  const CANONICAL_REELS_VERSION_KEY = 'saheb_canonical_sync_v8_napkin_37_32';
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     if (localStorage.getItem(CANONICAL_REELS_VERSION_KEY) !== 'true') {
       localStorage.setItem(KEYS.REELS, JSON.stringify(DEFAULT_REELS));

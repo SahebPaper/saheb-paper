@@ -2425,6 +2425,38 @@ export function restoreMissingReels(user: string = 'System'): { restoredCount: n
   return { restoredCount: restoredNos.length, restoredReels: restoredNos };
 }
 
+export function dismissMissingReels(reelNos?: string[]): { dismissedCount: number; dismissedReels: string[] } {
+  try {
+    const targets = reelNos && reelNos.length > 0
+      ? reelNos
+      : scanMissingReels().map(m => m.reelNo);
+
+    if (targets.length === 0) return { dismissedCount: 0, dismissedReels: [] };
+
+    const deletedList = getJSON<string[]>(KEYS.DELETED_REELS, []);
+    const existingSet = new Set(deletedList.map(d => d.toLowerCase()));
+    const dismissedReels: string[] = [];
+
+    for (const rNo of targets) {
+      const clean = (rNo || '').trim();
+      if (clean && !existingSet.has(clean.toLowerCase())) {
+        deletedList.push(clean);
+        existingSet.add(clean.toLowerCase());
+        dismissedReels.push(clean);
+      }
+    }
+
+    if (dismissedReels.length > 0) {
+      setJSON(KEYS.DELETED_REELS, deletedList, false);
+    }
+
+    return { dismissedCount: dismissedReels.length, dismissedReels };
+  } catch (e) {
+    console.error('Error dismissing missing reels:', e);
+    return { dismissedCount: 0, dismissedReels: [] };
+  }
+}
+
 export function updateReelQC(
   reelNo: string,
   qcGrade: 'A' | 'B',

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useTranslation } from 'react-i18next';
-import { getRolls, getReels, getProducts, saveSingleReel, saveReelsFromRoll, markRollAsConsumed, saveReel, deleteSingleReel, updateBatchReels, updateMachineRollSpecs, scanMissingReels, restoreMissingReels } from '../../data/index';
+import { getRolls, getReels, getProducts, saveSingleReel, saveReelsFromRoll, markRollAsConsumed, saveReel, deleteSingleReel, updateBatchReels, updateMachineRollSpecs, scanMissingReels, restoreMissingReels, dismissMissingReels } from '../../data/index';
 import type { MissingReelInfo } from '../../data/index';
 import type { MachineRoll, Reel, ProductItem } from '../../data/types';
 import { CustomSearchableSelect } from '../../components/CustomSearchableSelect';
@@ -394,6 +394,22 @@ export const RewinderView: React.FC = () => {
       });
     } finally {
       setIsRestoringMissing(false);
+    }
+  };
+
+  const handleDismissMissingReels = () => {
+    try {
+      const reelNos = missingReelsList.map(m => m.reelNo);
+      dismissMissingReels(reelNos);
+      setMissingReelsList([]);
+      setToast({
+        type: 'info',
+        title: 'Alert Dismissed',
+        message: 'Missing reels alert dismissed.',
+        duration: 3000,
+      });
+    } catch {
+      setMissingReelsList([]);
     }
   };
 
@@ -1951,8 +1967,8 @@ export const RewinderView: React.FC = () => {
 
         {/* Recovery Banner for Missing Reels (Restores reels lost from batch edit bug) */}
         {missingReelsList.length > 0 && (
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative">
+            <div className="flex items-start gap-3 flex-1 pr-7 sm:pr-0">
               <div className="p-2 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0">
                 <AlertTriangle className="h-5 w-5" />
               </div>
@@ -1967,14 +1983,35 @@ export const RewinderView: React.FC = () => {
                 </p>
               </div>
             </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+              <button
+                type="button"
+                onClick={handleDismissMissingReels}
+                className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-bold text-xs shadow-xs transition active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+                title="Dismiss this alert"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span>Dismiss</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleRestoreMissingReels}
+                disabled={isRestoringMissing || isViewer}
+                className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <RotateCcw className={`h-3.5 w-3.5 ${isRestoringMissing ? 'animate-spin' : ''}`} />
+                <span>{isRestoringMissing ? 'Restoring...' : `Restore ${missingReelsList.length} Reel(s)`}</span>
+              </button>
+            </div>
+            {/* Direct Close Icon Button in top right for quick dismissal */}
             <button
               type="button"
-              onClick={handleRestoreMissingReels}
-              disabled={isRestoringMissing || isViewer}
-              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+              onClick={handleDismissMissingReels}
+              aria-label="Dismiss alert"
+              className="absolute top-2.5 right-2.5 p-1 rounded-lg text-amber-600/70 hover:text-amber-900 dark:text-amber-400/70 dark:hover:text-amber-200 hover:bg-amber-100/60 dark:hover:bg-amber-900/40 transition cursor-pointer"
+              title="Close"
             >
-              <RotateCcw className={`h-3.5 w-3.5 ${isRestoringMissing ? 'animate-spin' : ''}`} />
-              <span>{isRestoringMissing ? 'Restoring...' : `Restore ${missingReelsList.length} Reel(s)`}</span>
+              <X className="h-4 w-4" />
             </button>
           </div>
         )}

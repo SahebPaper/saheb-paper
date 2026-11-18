@@ -4593,7 +4593,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                             <span className="font-mono font-black text-slate-900 dark:text-white">{rNo}</span>
                             {reelObj && (
                               <span className="text-[11px] text-slate-500 font-semibold">
-                                {reelObj.product} &bull; {reelObj.gsm} GSM &bull; {reelObj.size} mm &bull; <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{reelObj.weight} kg</strong>
+                                {reelObj.product} &bull; {reelObj.gsm} GSM &bull; {reelObj.size} cm &bull; <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{reelObj.weight} kg</strong>
                               </span>
                             )}
                           </div>
@@ -5048,7 +5048,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
                       }`}
                     >
-                      {sz} mm ({count})
+                      {sz} cm ({count})
                     </button>
                   );
                 })}
@@ -6025,7 +6025,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                     GSM &amp; DECAL
                   </span>
                   <span className="font-extrabold text-white mt-0.5 block truncate">
-                    {reviewedSpecsForm.gsm || reviewedReelPopup.gsm} GSM • {reviewedSpecsForm.size || reviewedReelPopup.size} mm
+                    {reviewedSpecsForm.gsm || reviewedReelPopup.gsm} GSM • {reviewedSpecsForm.size || reviewedReelPopup.size} cm
                   </span>
                 </div>
 

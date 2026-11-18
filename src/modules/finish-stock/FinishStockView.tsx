@@ -709,7 +709,7 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
               { value: 'ALL', label: 'All Decals' },
               ...availableSizes.map(size => ({
                 value: String(size),
-                label: `${size} mm (${getSizeMatchCount(size)})`,
+                label: `${size} cm (${getSizeMatchCount(size)})`,
               })),
             ]}
             placeholder="All Decals"
@@ -809,7 +809,7 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
               <div className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex flex-wrap justify-between items-center gap-3">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                    {group.product} (GSM {group.gsm} | {group.size} mm | {group.ply} Ply)
+                    {group.product} (GSM {group.gsm} | {group.size} cm | {group.ply} Ply)
                   </h4>
                   <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
                     group.grade === 'B'
@@ -1130,7 +1130,7 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
               {/* STEP 3: DECAL */}
               <div>
                 <label className="block text-[11px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                  <span>3. Select Decal (mm)</span>
+                  <span>3. Select Decal (cm)</span>
                   <span className="text-[10px] text-slate-400 font-medium">
                     {filterGsm !== 'ALL' ? `Cascaded for GSM ${filterGsm}` : 'All Decals'}
                   </span>
@@ -1140,7 +1140,7 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
                   onChange={handleSizeChange}
                   options={[
                     { value: 'ALL', label: `All Decals (${availableSizes.length} available)` },
-                    ...availableSizes.map(s => ({ value: String(s), label: `${s} mm` })),
+                    ...availableSizes.map(s => ({ value: String(s), label: `${s} cm` })),
                   ]}
                   placeholder="Select Decal..."
                 />
@@ -1151,7 +1151,7 @@ export const FinishStockView: React.FC<FinishStockViewProps> = ({ hideHeader = f
                 <label className="block text-[11px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
                   <span>4. Select Ply</span>
                   <span className="text-[10px] text-slate-400 font-medium">
-                    {filterSize !== 'ALL' ? `Cascaded for Decal ${filterSize} mm` : 'All Ply'}
+                    {filterSize !== 'ALL' ? `Cascaded for Decal ${filterSize} cm` : 'All Ply'}
                   </span>
                 </label>
                 <CustomSearchableSelect

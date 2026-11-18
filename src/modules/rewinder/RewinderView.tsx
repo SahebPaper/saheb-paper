@@ -3965,7 +3965,7 @@ export const RewinderView: React.FC = () => {
                   onChange={handleSizeChange}
                   options={[
                     { value: 'ALL', label: `All Decals (${availableSizes.length} available)` },
-                    ...availableSizes.map(s => ({ value: String(s), label: `${s} mm` })),
+                    ...availableSizes.map(s => ({ value: String(s), label: `${s} cm` })),
                   ]}
                   placeholder="Select Decal..."
                 />
@@ -3976,7 +3976,7 @@ export const RewinderView: React.FC = () => {
                 <label className="block text-[11px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex justify-between">
                   <span>4. SELECT PLY</span>
                   <span className="text-[10px] text-slate-400 font-medium">
-                    {filterSize !== 'ALL' ? `Cascaded for Decal ${filterSize} mm` : 'ALL PLY'}
+                    {filterSize !== 'ALL' ? `Cascaded for Decal ${filterSize} cm` : 'ALL PLY'}
                   </span>
                 </label>
                 <CustomSearchableSelect

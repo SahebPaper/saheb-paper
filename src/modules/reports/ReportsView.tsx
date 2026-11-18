@@ -2011,7 +2011,7 @@ export const ReportsView: React.FC = () => {
                           <tr key={idx} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/60 transition">
                             <td className="py-3.5 px-4 text-slate-900 dark:text-white font-black">{row.product}</td>
                             <td className="py-3.5 px-4 text-center font-mono">{row.gsm}</td>
-                            <td className="py-3.5 px-4 text-center font-mono">{row.size} MM</td>
+                            <td className="py-3.5 px-4 text-center font-mono">{row.size} CM</td>
                             <td className="py-3.5 px-4 text-center font-mono">{row.ply} Ply</td>
                             <td className="py-3.5 px-4 text-center font-mono font-black text-primary dark:text-blue-400">
                               {row.reelsCount}
@@ -2048,7 +2048,7 @@ export const ReportsView: React.FC = () => {
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                   <th className="py-3 px-4">Reel Number</th>
                   <th className="py-3 px-4">Product Name</th>
-                  <th className="py-3 px-4 text-center">GSM / Decal (mm)</th>
+                  <th className="py-3 px-4 text-center">GSM / Decal (cm)</th>
                   <th className="py-3 px-4 text-right">Net Weight (kg)</th>
                   <th className="py-3 px-4 text-center">QC Grade</th>
                   <th className="py-3 px-4 text-right">Production Date</th>
@@ -2069,7 +2069,7 @@ export const ReportsView: React.FC = () => {
                       </td>
                       <td className="py-3.5 px-4 text-slate-900 dark:text-white">{r.product}</td>
                       <td className="py-3.5 px-4 text-center font-mono">
-                        {r.gsm} GSM &bull; {r.size} mm
+                        {r.gsm} GSM &bull; {r.size} cm
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono font-black text-slate-900 dark:text-white">
                         {r.weight.toLocaleString()} kg

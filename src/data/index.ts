@@ -1387,7 +1387,7 @@ export function saveProduct(product: ProductItem, user: string = 'Admin'): Produ
   addLog(
     'Admin',
     isUpdate ? 'Product Updated' : 'Product Created',
-    `${isUpdate ? 'Updated' : 'Created'} product "${product.name}" (${product.gsm} GSM, ${product.size} mm, ${product.ply} Ply, Grade ${product.grade})`,
+    `${isUpdate ? 'Updated' : 'Created'} product "${product.name}" (${product.gsm} GSM, ${product.size} cm, ${product.ply} Ply, Grade ${product.grade})`,
     user
   );
   return product;
@@ -3557,7 +3557,7 @@ export function deleteProduct(id: string, user: string = 'Admin'): void {
     setJSON(KEYS.PRODUCTS, products);
     pushUpsertToCloud('products', productToDb(target));
     notifyDataUpdated('products');
-    addLog('Admin', 'Product Deleted', `Deleted product "${target.name}" (${target.gsm} GSM, ${target.size} mm)`, user);
+    addLog('Admin', 'Product Deleted', `Deleted product "${target.name}" (${target.gsm} GSM, ${target.size} cm)`, user);
   }
 }
 

@@ -949,7 +949,7 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
                     GSM &amp; DECAL
                   </span>
                   <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block truncate">
-                    {editSpecsForm.gsm || verifyingReel.gsm} GSM • {editSpecsForm.size || verifyingReel.size} mm
+                    {editSpecsForm.gsm || verifyingReel.gsm} GSM • {editSpecsForm.size || verifyingReel.size} cm
                   </span>
                 </div>
 

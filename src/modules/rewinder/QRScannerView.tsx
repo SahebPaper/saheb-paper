@@ -1071,7 +1071,7 @@ export const QRScannerViewInner: React.FC<QRScannerViewProps> = ({ onOpenPrintSt
                   </div>
                   <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800">
                     <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">GSM &amp; Decal</span>
-                    <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block">{scanResult.reel.gsm} GSM &bull; {scanResult.reel.size} mm</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block">{scanResult.reel.gsm} GSM &bull; {scanResult.reel.size} cm</span>
                   </div>
                   <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800">
                     <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Production Date</span>

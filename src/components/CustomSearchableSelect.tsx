@@ -29,6 +29,7 @@ interface MenuCoords {
   left: number;
   width: number;
   openUpwards: boolean;
+  maxHeight?: number;
 }
 
 export const CustomSearchableSelect: React.FC<CustomSearchableSelectProps> = ({
@@ -56,11 +57,15 @@ export const CustomSearchableSelect: React.FC<CustomSearchableSelectProps> = ({
   const calculateCoords = useCallback((): MenuCoords | null => {
     if (!buttonRef.current) return null;
     const rect = buttonRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
+    const spaceBelow = window.innerHeight - rect.bottom - 16;
+    const spaceAbove = rect.top - 16;
 
-    // Prefer opening upwards if space below is limited (< 240px) and there's more space above
-    const openUpwards = spaceBelow < 240 && spaceAbove > spaceBelow;
+    // Prefer opening upwards if space below is limited (< 300px) and there's more space above than below
+    const openUpwards = spaceBelow < 300 && spaceAbove > spaceBelow;
+
+    const availableSpace = openUpwards ? spaceAbove : spaceBelow;
+    // Bound maxHeight between 140px and 340px, never exceeding available viewport space minus margins
+    const maxHeight = Math.max(140, Math.min(340, availableSpace));
 
     const minWidth = Math.max(rect.width, 240);
     let left = rect.left;
@@ -77,6 +82,7 @@ export const CustomSearchableSelect: React.FC<CustomSearchableSelectProps> = ({
         left,
         width: Math.min(minWidth, window.innerWidth - 24),
         openUpwards: true,
+        maxHeight,
       };
     } else {
       return {
@@ -84,6 +90,7 @@ export const CustomSearchableSelect: React.FC<CustomSearchableSelectProps> = ({
         left,
         width: Math.min(minWidth, window.innerWidth - 24),
         openUpwards: false,
+        maxHeight,
       };
     }
   }, []);
@@ -179,16 +186,17 @@ export const CustomSearchableSelect: React.FC<CustomSearchableSelectProps> = ({
               bottom: currentCoords.bottom !== undefined ? `${currentCoords.bottom}px` : undefined,
               left: `${currentCoords.left}px`,
               width: `${currentCoords.width}px`,
+              maxHeight: currentCoords.maxHeight !== undefined ? `${currentCoords.maxHeight}px` : undefined,
               zIndex: 99999,
             }
           : undefined
       }
       className={
         usePortal
-          ? `bg-white dark:bg-[#091124] border border-slate-200 dark:border-slate-700/90 rounded-2xl shadow-2xl shadow-slate-900/25 dark:shadow-black/70 p-2 space-y-1.5 max-h-60 sm:max-h-72 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150 ${
+          ? `bg-white dark:bg-[#091124] border border-slate-200 dark:border-slate-700/90 rounded-2xl shadow-2xl shadow-slate-900/25 dark:shadow-black/70 p-2 space-y-1.5 overscroll-contain overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150 ${
               currentCoords?.openUpwards ? 'origin-bottom' : 'origin-top'
             }`
-          : 'absolute left-0 top-full mt-1.5 w-full min-w-[240px] max-w-[calc(100vw-2rem)] bg-white dark:bg-[#091124] border border-slate-200 dark:border-slate-700/90 rounded-2xl shadow-2xl shadow-slate-900/15 dark:shadow-black/60 z-[9999] p-2 space-y-1.5 max-h-60 sm:max-h-72 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150 origin-top'
+          : 'absolute left-0 top-full mt-1.5 w-full min-w-[240px] max-w-[calc(100vw-2rem)] bg-white dark:bg-[#091124] border border-slate-200 dark:border-slate-700/90 rounded-2xl shadow-2xl shadow-slate-900/15 dark:shadow-black/60 z-[9999] p-2 space-y-1.5 max-h-60 sm:max-h-72 overscroll-contain overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150 origin-top'
       }
     >
       {/* Search Bar */}
@@ -207,7 +215,7 @@ export const CustomSearchableSelect: React.FC<CustomSearchableSelectProps> = ({
       )}
 
       {/* Options List */}
-      <div className="space-y-1">
+      <div className="space-y-1 pb-1">
         {filteredOptions.length > 0 ? (
           filteredOptions.map(o => {
             const isSelected = o.value === value;

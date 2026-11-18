@@ -17,6 +17,8 @@ const installer_migration_authoring_cjs_1 = require("./installer-migration-autho
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
 const clock_cjs_1 = require("./clock.cjs");
 const install_scope_cjs_1 = require("./install-scope.cjs");
+const security_cjs_1 = require("./security.cjs");
+const jsonc_edit_cjs_1 = require("./jsonc-edit.cjs");
 // #2874 (ADR-58 cleanup phase): this file is the ~1200-line migration
 // plan/apply/rollback/lock/journal engine — almost none of it is on the
 // installRuntimeArtifacts call tree. Only `readInstallManifest` and
@@ -122,8 +124,17 @@ function evaluateRemoveEmptyDir(configDir, fullPath) {
     catch {
         return 'left-in-place';
     }
-    if (resolvedTarget === resolvedRoot || !resolvedTarget.startsWith(resolvedRoot + node_path_1.default.sep)) {
-        // Refuses both "target IS configDir" and "target escaped configDir".
+    // `resolvedTarget === resolvedRoot` is a DELIBERATE ADDITIONAL rejection,
+    // separate from the containment decision: `tryWithinRootLexical` treats
+    // target === root as CONTAINED, but removing the config root itself is
+    // never in scope for this action (see the doc comment above) — this arm
+    // prevents `rmdirSync` from ever being asked to remove `configDir` itself.
+    // Kept as its own check per ADR-4650 decision 6 (a wrapper may add its own
+    // conditions on top of the canonical predicate, never invert it).
+    if (resolvedTarget === resolvedRoot)
+        return 'left-in-place';
+    if ((0, security_cjs_1.tryWithinRootLexical)(resolvedTarget, resolvedRoot) === null) {
+        // Refuses "target escaped configDir".
         return 'left-in-place';
     }
     let entries;
@@ -270,11 +281,26 @@ function readInstallManifest(configDir) {
         version: typeof m.version === 'string' ? m.version : null,
         timestamp: typeof m.timestamp === 'string' ? m.timestamp : null,
         mode: typeof m.mode === 'string' ? m.mode : null,
-        files: m.files && typeof m.files === 'object' ? m.files : {},
+        // #4544 (review): `typeof [] === 'object'` — a manifest whose `files` is a
+        // JSON array passed the object-shape guard, and Object.keys() then yielded
+        // "0","1",... as install-relative file paths. Consumers iterate these keys,
+        // so an array shape must degrade to the empty set exactly like a
+        // non-object shape does.
+        files: m.files && typeof m.files === 'object' && !Array.isArray(m.files)
+            ? m.files
+            : {},
         manifestVersion: normalizeManifestVersion(m.manifestVersion),
         runtime: normalizeReportedRuntime(rawRuntime),
         scope: (0, install_scope_cjs_1.isInstallScopeId)(m.scope) ? m.scope : null,
     };
+}
+function normalizeHostGeneration(raw) {
+    if (!raw || typeof raw !== 'object')
+        return undefined;
+    const r = raw;
+    if (r.runtime !== 'opencode' || (r.generation !== 1 && r.generation !== 2))
+        return undefined;
+    return { runtime: 'opencode', generation: r.generation, version: typeof r.version === 'string' ? r.version : null };
 }
 function readInstallState(configDir) {
     const state = readJsonIfPresent(node_path_1.default.join(configDir, INSTALL_STATE_NAME), STRICT_JSON);
@@ -282,9 +308,11 @@ function readInstallState(configDir) {
         return { schemaVersion: 1, appliedMigrations: [] };
     }
     const s = state;
+    const hostGeneration = normalizeHostGeneration(s.hostGeneration);
     return {
         schemaVersion: typeof s.schemaVersion === 'number' ? s.schemaVersion : 1,
         appliedMigrations: Array.isArray(s.appliedMigrations) ? s.appliedMigrations : [],
+        ...(hostGeneration ? { hostGeneration } : {}),
     };
 }
 // Strict atomic write for the install state: must never be left half-written.
@@ -598,11 +626,30 @@ function acquireInstallMigrationLock(configDir, { timeoutMs = DEFAULT_LOCK_TIMEO
         }
     }
 }
+// DELIBERATELY LEXICAL — the RESOLUTION policy stays lexical, never realpath
+// (`assertWithinRoot` / `tryWithinRoot`, src/security.cts).
+//
+// Reviewed under epic #4636 Phase 3 and reverted after the remote matrix proved
+// the realpath collapse wrong. This module's contract is that a symlinked
+// managed path is treated AS A LINK and never dereferenced — it is snapshotted
+// as a link, restored as a link, and backed up as a link. The realpath-based
+// predicate dereferences exactly the symlinks this module exists to preserve
+// and then rejects them for escaping configDir
+// ("migration path escapes configDir: extensions/gsd.cjs"). Four tests in
+// tests/installer-migrations.test.cjs pin that behavior.
+//
+// The containment DECISION now routes through the canonical LEXICAL predicate
+// (`tryWithinRootLexical`, ADR-4650 decision 6) — only the comparison moved;
+// the lexical policy itself remains this module's own required choice, and
+// the thrown message / returned `fullPath` are unchanged.
+//
+// `normalizeRelPath` is the pre-gate: it throws on absolute paths and on any
+// '..' segment BEFORE this runs, so the check below is defense-in-depth over
+// already-traversal-free input rather than the primary boundary.
 function ensureInsideConfig(configDir, relPath) {
     const normalized = normalizeRelPath(relPath);
     const fullPath = node_path_1.default.resolve(configDir, normalized);
-    const root = node_path_1.default.resolve(configDir);
-    if (fullPath !== root && !fullPath.startsWith(root + node_path_1.default.sep)) {
+    if ((0, security_cjs_1.tryWithinRootLexical)(fullPath, configDir) === null) {
         throw new Error(`migration path escapes configDir: ${relPath}`);
     }
     return { normalized, fullPath };
@@ -617,6 +664,31 @@ function isStructurallyEmpty(value) {
 function journalAction(action, status, extras = {}) {
     const { value: _value, ...safeAction } = action;
     return { ...safeAction, ...extras, status };
+}
+/**
+ * The text a `rewrite-json` action writes. A file with JSONC syntax (comments, trailing commas, or a
+ * `.jsonc` name) is edited in place from the action's `edits`, so the user's annotations survive (#5334);
+ * everything else, and any edit the text editor cannot place, is written as the action's whole `value`.
+ */
+function renderRewrittenJson(fullPath, action) {
+    if (Array.isArray(action.edits) && action.edits.length > 0) {
+        let original = null;
+        try {
+            original = node_fs_1.default.readFileSync(fullPath, 'utf8');
+        }
+        catch { /* fall through to the value rewrite */ }
+        if (original !== null && (fullPath.endsWith('.jsonc') || (0, jsonc_edit_cjs_1.hasJsoncFeatures)(original))) {
+            let text = original;
+            for (const edit of action.edits) {
+                text = (0, jsonc_edit_cjs_1.setJsoncValue)(text, edit.path, edit.value);
+                if (text === null)
+                    break;
+            }
+            if (text !== null)
+                return text;
+        }
+    }
+    return JSON.stringify(action.value, null, 2) + '\n';
 }
 function planInstallerMigrations({ configDir, runtime = null, scope = null, migrations, baselineScan = false, now = () => new Date().toISOString(), }) {
     if (!configDir)
@@ -689,6 +761,8 @@ function planInstallerMigrations({ configDir, runtime = null, scope = null, migr
             }
             if (action.type === 'rewrite-json') {
                 action.value = rawAction.value;
+                if (Array.isArray(rawAction.edits))
+                    action.edits = rawAction.edits;
                 action.deleteIfEmpty = rawAction.deleteIfEmpty === true;
             }
             if (rawAction.prompt)
@@ -860,7 +934,7 @@ function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().t
                     }));
                 }
                 else {
-                    (0, shell_command_projection_cjs_1.platformWriteSync)(fullPath, JSON.stringify(action.value, null, 2) + '\n');
+                    (0, shell_command_projection_cjs_1.platformWriteSync)(fullPath, renderRewrittenJson(fullPath, action));
                     journal.actions.push(journalAction(action, 'rewritten', {
                         rollbackRelPath: node_path_1.default.posix.join(rollbackRootRelPath, normalized),
                     }));
@@ -909,6 +983,7 @@ function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().t
         writeInstallState(configDir, {
             schemaVersion: 1,
             appliedMigrations: nextApplied,
+            ...(state.hostGeneration ? { hostGeneration: state.hostGeneration } : {}),
         });
         return {
             appliedMigrationIds: journal.appliedMigrationIds,
@@ -981,6 +1056,7 @@ function markPendingMigrationsApplied({ configDir, plan, now = () => new Date().
         writeInstallState(configDir, {
             schemaVersion: 1,
             appliedMigrations: nextApplied,
+            ...(state.hostGeneration ? { hostGeneration: state.hostGeneration } : {}),
         });
     }
     return newlyApplied;
@@ -1037,6 +1113,18 @@ function runInstallerMigrations({ configDir, runtime = null, scope = null, migra
 // Unused but kept to satisfy eslint — sleepSync is referenced in the original
 // and may be used by test code that patches this module.
 void sleepSync;
+/**
+ * Record which OpenCode generation this install targets (ADR-5331 D2; #5337). Idempotent and
+ * atomic; leaves the applied-migrations journal untouched.
+ */
+function recordHostGeneration(configDir, info) {
+    const state = readInstallState(configDir);
+    const next = { runtime: 'opencode', generation: info.generation, version: info.version ?? null };
+    const prev = state.hostGeneration;
+    if (prev && prev.generation === next.generation && prev.version === next.version)
+        return;
+    writeInstallState(configDir, { ...state, hostGeneration: next });
+}
 module.exports = {
     DEFAULT_MIGRATIONS_DIR,
     INSTALL_MIGRATION_LOCK_NAME,
@@ -1053,6 +1141,7 @@ module.exports = {
     planInstallerMigrations,
     readInstallManifest,
     readInstallState,
+    recordHostGeneration,
     runInstallerMigrations,
     writeInstallState,
 };

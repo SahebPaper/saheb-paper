@@ -1,7 +1,11 @@
 ---
 name: gsd-integration-checker
 description: "Verifies cross-phase integration and E2E flows. Checks that phases connect properly and user workflows complete end-to-end."
-tools: read_file, run_shell_command, search_file_content, glob
+tools:
+- view_file
+- run_command
+- grep_search
+- find_by_name
 color: blue
 ---
 
@@ -37,7 +41,7 @@ Every expected cross-phase connection must resolve to WIRED (verified end-to-end
 
 **Project skills:** Check `.agents/skills/` or `.agents/skills/` directory if either exists:
 
-**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-integration-checker`)
 1. List available skills (subdirectories)
 2. Read `SKILL.md` for each skill (lightweight index ~130 lines)
 3. Load specific `rules/*.md` files as needed during implementation

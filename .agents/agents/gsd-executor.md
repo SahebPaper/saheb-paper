@@ -1,7 +1,13 @@
 ---
 name: gsd-executor
 description: "Executes GSD plans with atomic commits, deviation handling, checkpoint protocols, and state management. Spawned by execute-phase orchestrator or execute-plan command."
-tools: read_file, write_file, replace, run_shell_command, search_file_content, glob
+tools:
+- view_file
+- write_to_file
+- replace_file_content
+- run_command
+- grep_search
+- find_by_name
 color: yellow
 ---
 
@@ -61,7 +67,7 @@ Before executing, discover project context:
 - Load `rules/*.md` as needed during **implementation**.
 - Follow skill rules relevant to the task you are about to commit.
 
-**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-executor`)
 
 **GEMINI.md enforcement:** If `./GEMINI.md` exists, treat its directives as hard constraints during execution. Before committing each task, verify that code changes do not violate GEMINI.md rules (forbidden patterns, required conventions, mandated tools). If a task action would contradict a GEMINI.md directive, apply the GEMINI.md rule — it takes precedence over plan instructions. Document any GEMINI.md-driven adjustments as deviations (Rule 2: auto-add missing critical functionality).
 </project_context>
@@ -71,8 +77,9 @@ Before executing, discover project context:
 <step name="load_project_state" priority="first">
 Load execution context:
 
+@.agents/gsd-core/references/gsd-run-resolver.md
+
 ```bash
-_GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.agents/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; elif _gsd_at "${CLAUDE_CONFIG_DIR:-.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${HERMES_HOME:-$HOME/.hermes}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEX_HOME:-$HOME/.codex}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/gsd-core/bin/${_GSD_SHIM_NAME}" "${COPILOT_CONFIG_DIR:-$HOME/.copilot}/gsd-core/bin/${_GSD_SHIM_NAME}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}/gsd-core/bin/${_GSD_SHIM_NAME}" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}/gsd-core/bin/${_GSD_SHIM_NAME}" "${TRAE_CONFIG_DIR:-$HOME/.trae}/gsd-core/bin/${_GSD_SHIM_NAME}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CLINE_CONFIG_DIR:-$HOME/.cline}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GROK_AGENTS_HOME:-$HOME/.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}/gsd-core/bin/${_GSD_SHIM_NAME}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/gsd-core/bin/${_GSD_SHIM_NAME}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and gsd_run is not on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; case "$(gsd_run runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') GSD_IDENTITY_STATUS=ok;; esac; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
 INIT=$(gsd_run query init.execute-phase "${PHASE}")
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
@@ -106,7 +113,7 @@ PLAN_START_EPOCH=$(date +%s)
 If running inside a git worktree, capture authoritative worktree identity before
 any task commit changes HEAD. The execute-phase orchestrator consumes this from
 your final `<worktree_metadata>` return block to build the wave cleanup manifest
-without relying on runtime harness metadata (#1297).
+without relying on runtime harness metadata (#1297). On the claude-orchestration Workflow path, return the same four fields through its structured-output schema instead (#4747).
 
 ```bash
 GSD_WORKTREE_PATH=""
@@ -326,7 +333,7 @@ For full automation-first patterns, server lifecycle, CLI handling:
 **Auto-mode checkpoint behavior** (when `AUTO_CFG` is `"true"`):
 
 - **checkpoint:human-verify** → Auto-approve **except package-legitimacy checkpoints**. If checkpoint has `gate="blocking-human"` OR its purpose indicates package legitimacy verification (`what-built` mentions `Package verification required before install` or `Package install failed — human verification required`), do **not** auto-approve. STOP and return checkpoint_return_format for explicit human confirmation. Precondition-unmet checkpoints report `blocking-human` — never auto-approved.
-- **checkpoint:decision** → If checkpoint has `gate="blocking-human"`, do **not** auto-select — STOP and return checkpoint_return_format for an explicit human decision (a `blocking-human` decision exists because its default answer would be wrong to assume). Otherwise auto-select first option (planners front-load the recommended choice), log `⚡ Auto-selected: [option name]`, continue to next task.
+- **checkpoint:decision** → If checkpoint has `gate="blocking-human"`, do **not** auto-select — STOP and return checkpoint_return_format for an explicit human decision (a `blocking-human` decision exists because its default answer would be wrong to assume). Otherwise auto-select `auto_select`'s option (absent → STOP like `blocking-human`, #4095), log `⚡ Auto-selected: [option]`, continue to next task.
 - **checkpoint:human-action** → STOP normally. Auth gates cannot be automated — return structured checkpoint message using checkpoint_return_format.
 
 **Standard checkpoint behavior** (when `AUTO_CFG` is not `"true"`):
@@ -403,8 +410,8 @@ The reference is the single source; do not improvise a variant.
 ## Plan-Level TDD Gate Enforcement (type: tdd plans, #4269: stated ONCE)
 
 When the plan frontmatter has `type: tdd`, the mandatory RED/GREEN/REFACTOR gate sequence,
-its fail-fast rules (including the #3770 INVALID_RED / intentional-RED-evidence requirement
-enforced via `gsd_run check tdd-red-evidence`), and the `## TDD Gate Compliance` SUMMARY.md contract are
+its format-based RED evidence rules (#3770 INVALID_RED: `gsd_run check tdd-red-evidence`
+plus semantic inspection), and the `## TDD Gate Compliance` SUMMARY.md contract are
 specified in the canonical `gsd-core/references/tdd.md` "Gate Enforcement Rules" section
 (embedded when TDD applies). The reference is the single source; do not improvise a variant.
 </tdd_execution>
@@ -470,9 +477,9 @@ if [[ "$ABS_PATH" != "$WT_ROOT" && "$ABS_PATH" != "$WT_ROOT/"* ]]; then
   exit 1
 fi
 ```
-Prefer **relative paths** for all Edit/Write operations inside a worktree. When an absolute path
-is unavoidable, always derive it from `git rev-parse --show-toplevel` run inside the worktree,
-not from a `pwd` captured in the orchestrator context.
+Prefer **relative paths** for Edit/Write in a worktree; an unavoidable absolute comes from
+`git rev-parse --show-toplevel` inside it, never an orchestrator `pwd`. Same check before each
+`<automated>`: `worktree-path-safety.md` step 0c (#4767).
 
 **0. Pre-commit HEAD safety assertion (MANDATORY — #2924, #3819):**
 Assert HEAD is not the protected/default branch before committing (#3819). If drifted onto it, HALT — never self-recover via `git update-ref refs/heads/<protected>`:
@@ -497,7 +504,11 @@ if [ "$IS_PROTECTED" != "false" ]; then
   echo "Re-home onto a phase/agent branch (#2924, #3819); override: git.allow_default_branch_commits:true in .planning/config.json." >&2
   exit 1
 fi
-if [ -f .git ]; then  # worktree
+# #4799: set SEQUENTIAL=true ONLY if your prompt has a `<sequential_execution>` block (the
+# orchestrator dispatched you onto its own working tree, which may be a linked phase worktree on
+# the configured branch). Otherwise leave it false: the allow-list below applies (fails closed).
+SEQUENTIAL=false
+if [ -f .git ] && [ "$SEQUENTIAL" != "true" ]; then  # agent-isolated worktree
   # Positive allow-list: HEAD must be on a per-agent branch (`agent-<id>` or
   # legacy `worktree-agent-<id>`). This catches feature/* and any other
   # arbitrary branch that the deny-list would silently allow (#2924, #1995).
@@ -565,7 +576,7 @@ git commit -m "{type}({phase}-{plan}): {concise task description}
 
 **6. Post-commit deletion check:** After recording the hash, verify the commit did not accidentally delete tracked files:
 ```bash
-DELETIONS=$(git diff --diff-filter=D --name-only HEAD~1 HEAD 2>/dev/null || true)
+DELETIONS=$(git show --first-parent --diff-filter=D --name-only --pretty=format: HEAD 2>/dev/null || true)
 if [ -n "$DELETIONS" ]; then
   echo "WARNING: Commit includes file deletions: $DELETIONS"
 fi
@@ -614,7 +625,7 @@ back, those deletions appear on the main branch, destroying prior-wave work (#20
   touching `refs/stash`:
 
   - **Move WIP off the working tree:** commit it to a throwaway branch you own
-    (e.g. `git checkout -b scratch-/<task>-wip && git add -A && git commit -m "wip"`),
+    (e.g. `git checkout -b scratch-/<task>-wip && git add -A && git commit -m "chore(wip): scratch"`),
     then `git checkout <your-worktree-branch>` to return to your task. The
     throwaway branch lives in the per-worktree branch namespace and never
     collides with sibling worktrees.
@@ -668,9 +679,11 @@ ledger (protocol 0c — a fresh shell per Bash call; the base comes from disk):
 ```bash
 PLAN_HEAD_BEFORE=$(cat "$(git rev-parse --git-dir)/gsd-plan-head-before-{phase}-{plan}")
 COMMITS_ACTUAL=$(git rev-list --count ${PLAN_HEAD_BEFORE}..HEAD)
+PLAN_HEAD_AFTER=$(git rev-parse HEAD)
 ```
-Write BOTH into the frontmatter — `commits: ${COMMITS_ACTUAL}`,
-`plan_head_before: ${PLAN_HEAD_BEFORE}` — including when the count is `0`.
+Write ALL THREE into the frontmatter — `commits: ${COMMITS_ACTUAL}`,
+`plan_head_before: ${PLAN_HEAD_BEFORE}`, `plan_head_after: ${PLAN_HEAD_AFTER}` — including
+when the count is `0`.
 A `0` with code changes means the changes sit UNCOMMITTED: **HALT — do not write the
 SUMMARY with a narrated count**; surface `git status --short` in your return. A `0` with no
 code changes (docs-only) is legitimate. `/gsd-verify-work` flags mismatches as BLOCKER.
@@ -745,7 +758,7 @@ After writing SUMMARY.md, verify claims before proceeding.
 
 **2. Check commits exist:**
 ```bash
-git log --oneline --all | grep -q "{hash}" && echo "FOUND: {hash}" || echo "MISSING: {hash}"
+git merge-base --is-ancestor "{hash}" HEAD 2>/dev/null && echo "FOUND: {hash}" || echo "MISSING: {hash}"
 ```
 
 **3. Append result to SUMMARY.md:** `## Self-Check: PASSED` or `## Self-Check: FAILED` with missing items listed.
@@ -754,7 +767,14 @@ Do NOT skip. Do NOT proceed to state updates if self-check fails.
 </self_check>
 
 <state_updates>
-After SUMMARY.md, update STATE.md using `gsd-tools query` state handlers (named flags):
+After SUMMARY.md, update ROADMAP.md progress FIRST, then STATE.md. The ROADMAP write is the step that can decline (`missing_phase_details`), and a decline stops the plan before any STATE.md write, so STATE.md never advances past a plan the ROADMAP did not record:
+
+```bash
+# Update ROADMAP.md progress for this phase (plan counts, status). A decline stops here, before STATE.md moves.
+PROGRESS=$(gsd_run query roadmap.update-plan-progress "${PHASE_NUMBER}") && REASON=$(jq -er '.reason//""' <<<"$PROGRESS") && [ "$REASON" != missing_phase_details ] || { echo "ERROR: ROADMAP update-plan-progress did not complete for ${PHASE_NUMBER}-${PLAN} (missing_phase_details decline, failed query, or jq not installed). STOP: skip this plan's completion steps." >&2; exit 1; }
+```
+
+Then update STATE.md using `gsd-tools query` state handlers (named flags):
 
 ```bash
 # Advance plan counter (handles edge cases automatically)
@@ -769,8 +789,10 @@ gsd_run query state.record-metric \
   --tasks "${TASK_COUNT}" --files "${FILE_COUNT}"
 
 # Add decisions (extract from SUMMARY.md key-decisions)
+# --phase is required here: without it the verb falls back to STATE.md's global
+# pointer, which misattributes decisions when plans execute out of pointer order (#4763).
 for decision in "${DECISIONS[@]}"; do
-  gsd_run query state.add-decision --summary "${decision}"
+  gsd_run query state.add-decision --phase "${PHASE}" --summary "${decision}"
 done
 
 # Update session info (stopped-at, resume-file; timestamp set automatically)
@@ -779,9 +801,6 @@ gsd_run query state.record-session \
 ```
 
 ```bash
-# Update ROADMAP.md progress for this phase (plan counts, status)
-gsd_run query roadmap.update-plan-progress "${PHASE_NUMBER}"
-
 # Mark completed requirements from PLAN.md frontmatter
 # Extract the `requirements` array from the plan's frontmatter, then mark each complete
 gsd_run query requirements.mark-complete ${REQ_IDS}

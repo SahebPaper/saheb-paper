@@ -38,11 +38,12 @@ const stateContract = require("./state-contract.cjs");
 const { publishStateContract } = stateContract;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const phaseIdMod = require("./phase-id.cjs");
-const { normalizePhaseName, matchPhaseDirs, PHASE_NUMBER_TOKEN_SOURCE, isSentinelPhaseId, isSentinelPhaseDir } = phaseIdMod;
+const { isSentinelPhaseId, isSentinelPhaseDir, buildPhaseHeadingScanRegex, PHASE_HEADING_BASELINE } = phaseIdMod;
 const pattern_cjs_1 = require("./pattern.cjs");
+const milestone_release_map_cjs_1 = require("./milestone-release-map.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const roadmapParserMod = require("./roadmap-parser.cjs");
-const { getMilestonePhaseFilter, extractCurrentMilestone, getMilestoneInfo, sliceMilestoneWindow, } = roadmapParserMod;
+const { getMilestonePhaseFilter, extractCurrentMilestone, getMilestoneInfo, sliceMilestoneWindow, classifyMilestoneScalar, readStateMilestoneScalar, sameMilestoneVersion, } = roadmapParserMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planningScopeMod = require("./planning-scope.cjs");
 const { SCOPE } = planningScopeMod;
@@ -54,7 +55,7 @@ const planScanMod = require("./plan-scan.cjs");
 const { scanPhasePlans } = planScanMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-locator.cjs is an export= CommonJS module
 const phaseLocatorMod = require("./phase-locator.cjs");
-const { listMilestonePhaseDirs } = phaseLocatorMod;
+const { phaseDirectoryOptions, listMilestonePhaseDirs, resolvePhaseDirectoryLookup, matchPhaseDirsForLookup } = phaseLocatorMod;
 const { planningPaths, resolvePhaseIdConvention } = planningWorkspace;
 const { extractFrontmatter } = frontmatterMod;
 // ADR-3408 §8.3 / #3469: `writeStateMd` gets sync and NO preservation — the
@@ -63,7 +64,7 @@ const { extractFrontmatter } = frontmatterMod;
 // divergence signal). Routed through the single write-seam composition
 // (`syncAndPreserveStateMd`) instead, under `withStateLock` — see
 // `cmdMilestoneComplete`'s own STATE.md-update block for the full rationale.
-const { syncAndPreserveStateMd, withStateLock, readModifyWriteStateMd } = stateMod;
+const { syncAndPreserveStateMd, withStateLock, readModifyWriteStateMd, assertVerificationReportsReadable } = stateMod;
 // #2288 security: a milestone version label becomes a filesystem directory
 // component (`milestones/<label>-phases/`) into which phase directories are
 // MOVED. Any label used as a path segment must be a safe version token —
@@ -72,43 +73,6 @@ const { syncAndPreserveStateMd, withStateLock, readModifyWriteStateMd } = stateM
 // the caller-supplied `--archive-version` override and the STATE.md-derived
 // live-read value, so a crafted value cannot escape `.planning/milestones/`.
 const ARCHIVE_VERSION_LABEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-/**
- * Scope an `updateTableCell` call to the `## Traceability` (or
- * `## Traceability Status`) heading's own section — up to the next H1/H2
- * heading — instead of handing it the WHOLE REQUIREMENTS.md content.
- *
- * F1 (#2245 review, BLOCKER): `updateTableCell` binds to the FIRST GFM table
- * found in whatever text it is given. The shipped requirements template
- * (gsd-core/templates/requirements.md) puts an `## Out of Scope` table
- * (`| Feature | Reason |`, no `Status` column) BEFORE `## Traceability` — so
- * an unscoped whole-file call targets the Out-of-Scope table instead, fails
- * with `{ok:false, reason:'unknown column: Status'}`, and the real
- * Traceability row is never flipped, while the checkbox surface still flips
- * and the command reports success (the #2140 silent-divergence class one
- * level deeper). Mirrors phase.cts's `editProgressHeadingSlice` scoping of
- * `## Progress` writes to that heading's own slice.
- *
- * Falls back to running `updateTableCell` against the whole `text` when no
- * `## Traceability` heading exists — matching the previous (unscoped)
- * behaviour for a REQUIREMENTS.md whose traceability table sits under some
- * other heading, or with no heading at all (never worse than before this fix).
- */
-function updateTraceabilityCell(text, match, column, newValue) {
-    const headingMatch = text.match(/^##[ \t]+Traceability(?:[ \t]+Status)?\b/im);
-    if (!headingMatch || headingMatch.index === undefined) {
-        return (0, markdown_table_cjs_1.updateTableCell)(text, match, column, newValue);
-    }
-    const headingOffset = headingMatch.index;
-    const before = text.slice(0, headingOffset);
-    const fromHeading = text.slice(headingOffset);
-    const nextHeadingOffset = fromHeading.search(/\n#{1,2}[ \t]/);
-    const scoped = nextHeadingOffset >= 0 ? fromHeading.slice(0, nextHeadingOffset) : fromHeading;
-    const after = nextHeadingOffset >= 0 ? fromHeading.slice(nextHeadingOffset) : '';
-    const result = (0, markdown_table_cjs_1.updateTableCell)(scoped, match, column, newValue);
-    if (!result.ok)
-        return result;
-    return { ok: true, value: before + result.value + after };
-}
 function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
     if (!reqIdsRaw || reqIdsRaw.length === 0) {
         error('requirement IDs required. Usage: requirements mark-complete REQ-01,REQ-02 or REQ-01 REQ-02');
@@ -186,7 +150,7 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
         // Complete" gate is folded into the newValue callback so one
         // updateTableCell call both probes the current value and writes.
         let tableHit = false;
-        const tableUpdate = updateTraceabilityCell(reqContent, rowMatch, 'Status', (current) => {
+        const tableUpdate = (0, markdown_table_cjs_1.updateTraceabilityCell)(reqContent, rowMatch, 'Status', (current) => {
             // #2788: accept `Gaps Found` as a forward input too — `revert-phase` (the
             // documented gaps_found response) leaves a row stranded at Gaps Found with
             // no inverse; a genuinely-satisfied requirement must be able to reach
@@ -229,7 +193,7 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
         // that genuinely exists. Probe via a no-op updateTableCell write (its own
         // tolerant scan) instead of findTableWithColumns (whole-table parse gate).
         let currentStatusCell = '';
-        const statusProbe = updateTraceabilityCell(reqContent, rowMatch, 'Status', (current) => {
+        const statusProbe = (0, markdown_table_cjs_1.updateTraceabilityCell)(reqContent, rowMatch, 'Status', (current) => {
             currentStatusCell = current;
             return current;
         });
@@ -261,7 +225,9 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
         // Surface traceability drift: checkbox reconciled (this run or before) but the
         // table has no row for this ID. This is what makes a partial reconcile
         // distinguishable from a full one (#2140).
-        if (hasTable && doneCheckbox && !hasRow) {
+        // #5844: a row in a table with no Status column is still a row; only the
+        // Status write is impossible there, so existence is read directly.
+        if (hasTable && doneCheckbox && !hasRow && !(0, markdown_table_cjs_1.traceabilityRowExists)(reqContent, reqId)) {
             tableUnmatched.push(reqId);
         }
     }
@@ -433,7 +399,7 @@ function cmdRequirementsRevertPhase(cwd, reqIdsRaw, raw) {
         // "only flip Pending -> Complete" gate, in reverse).
         const rowMatch = (row) => (Object.values(row)[0] ?? '').trim().toLowerCase() === reqId.toLowerCase();
         let tableHit = false;
-        const tableUpdate = updateTraceabilityCell(reqContent, rowMatch, 'Status', (current) => {
+        const tableUpdate = (0, markdown_table_cjs_1.updateTraceabilityCell)(reqContent, rowMatch, 'Status', (current) => {
             if (/^complete$/i.test(current.trim())) {
                 tableHit = true;
                 return ' Gaps Found ';
@@ -524,6 +490,41 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     const phasesDir = planningPaths(cwd).phases;
     const today = clock_cjs_1.realClock.localToday();
     const milestoneName = options.name || version;
+    // #5706 (epic #3628): validate the caller-supplied release map BEFORE any
+    // read-for-decision or write below, so a bad map leaves the tree untouched
+    // (no archive directory, no MILESTONES.md or STATE.md change). An archived
+    // map is a recorded value: a differing map for an already-archived version is
+    // refused rather than silently overwritten; an identical one is left as is.
+    let releaseMap = null;
+    let releaseMapFile = null;
+    let releaseMapNeedsWrite = false;
+    if (typeof options.releaseMap === 'string') {
+        const loaded = (0, milestone_release_map_cjs_1.loadReleaseMapFile)(node_path_1.default.resolve(cwd, options.releaseMap));
+        if (!loaded.ok) {
+            error(`milestone complete: invalid --release-map — nothing has been changed.\n${loaded.errors.map((e) => `  - ${e}`).join('\n')}`);
+        }
+        else {
+            releaseMap = loaded.map;
+            releaseMapFile = (0, milestone_release_map_cjs_1.releaseMapArchivePath)(archiveDir, version);
+            const serialized = (0, milestone_release_map_cjs_1.serializeReleaseMapArchive)(version, releaseMap);
+            let existingText = null;
+            try {
+                existingText = node_fs_1.default.readFileSync(releaseMapFile, 'utf-8');
+            }
+            catch (e) {
+                if (e.code !== 'ENOENT') {
+                    error(`milestone complete: ${node_path_1.default.basename(releaseMapFile)} already exists and cannot be read — nothing has been changed.`);
+                }
+            }
+            if (existingText !== null && existingText !== serialized) {
+                error(`milestone complete: ${node_path_1.default.basename(releaseMapFile)} already exists with a different release map; the archived map is a recorded value and is not overwritten — nothing has been changed.`);
+            }
+            releaseMapNeedsWrite = existingText === null;
+        }
+    }
+    const releaseMapReport = releaseMap && releaseMapFile
+        ? { path: node_path_1.default.relative(cwd, releaseMapFile).split(node_path_1.default.sep).join('/'), entries: releaseMap.length }
+        : null;
     // ADR-3408 §8.5 / #3469: "liberal but visible" — when the write-seam
     // composition's preservation stage restores a curated frontmatter value
     // over a disagreeing freshly-derived one, that divergence is surfaced
@@ -549,7 +550,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     // `platformEnsureDir(archiveDir)` below — a refused run (scope not COMPLETE,
     // no --force) must be a true no-op on disk, and creating the archive
     // directory first left an empty directory behind even on refusal.
-    const isDirInMilestone = getMilestonePhaseFilter(cwd, version);
+    const isDirInMilestone = getMilestonePhaseFilter(cwd, version, undefined, undefined, phaseDirectoryOptions(cwd));
     if (isDirInMilestone.missingExplicitVersion) {
         error(`no phases found for milestone ${version} in ROADMAP.md`);
     }
@@ -574,6 +575,10 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
             `entries, even though the ROADMAP has phase entries elsewhere), so phase scoping ` +
             `cannot be trusted for this destructive operation. Re-run with --force to override.`);
     }
+    // #2761/#4304: resolve once for every phase-directory consumer in this
+    // command. The matcher opts in only for bracket; the milestone enumerator
+    // retains the full resolved value it already accepted.
+    const phaseConvention = resolvePhaseIdConvention(cwd);
     // Guard: prevent marking complete when ROADMAP still lists phases that have
     // no directory on disk (disk_status: no_directory). This catches the case
     // where the active milestone was erroneously marked complete before phases
@@ -600,15 +605,15 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
             try {
                 const stateRaw = node_fs_1.default.existsSync(statePath) ? node_fs_1.default.readFileSync(statePath, 'utf-8') : null;
                 if (stateRaw) {
-                    const milestoneMatch = stateRaw.match(/^milestone:\s*(.+)/m);
-                    if (milestoneMatch)
-                        stateVersion = milestoneMatch[1].trim();
+                    // One owner for the STATE `milestone:` scalar (#5726): quoted, null and
+                    // empty values and a body `milestone:` line are not drift.
+                    stateVersion = classifyMilestoneScalar(readStateMilestoneScalar(stateRaw)).version;
                 }
             }
             catch {
                 /* skip — stateVersion stays null, scan still runs */
             }
-            if (stateVersion !== null && stateVersion !== version) {
+            if (stateVersion !== null && !sameMilestoneVersion(stateVersion, version)) {
                 // #2946: emit a WARNING so the suspicious STATE mismatch is visible
                 // rather than silently disarming the guard. Plain-text diagnostic on
                 // stderr, matching the existing [gsd-tools] WARNING convention
@@ -642,8 +647,21 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
             // windows converge to the same value regardless of which version drove
             // the lookup.
             const scopedContent = sliceMilestoneWindow(roadmapContent, version) ?? extractCurrentMilestone(roadmapContent, cwd);
-            // #1729: `(?:\s*\([^)\n]{0,200}\))?` tolerates a pre-colon ( ) tag (literal mirror of OPTIONAL_PHASE_TAG_SOURCE).
-            const phasePattern = new RegExp(`#{2,4}\\s*Phase\\s+(${PHASE_NUMBER_TOKEN_SOURCE})(?:\\s*\\([^)\\n]{0,200}\\))?\\s*:\\s*([^\\n]+)`, 'gi');
+            // #1729: `(?:\s*\([^)\n]{0,200}\))?` tolerates a pre-colon ( ) tag, owned
+            // by buildPhaseHeadingScanRegex (phase-id.cts) so this guard also
+            // recognizes bracket-convention headings instead of hand-rolling a
+            // literal `Phase\s+`.
+            // #4984 fix: resolved ONCE and threaded into BOTH the heading scan and
+            // the disk-side matchPhaseDirs check below — the heading scan alone
+            // recognizing `[GSD.02] 01:` and extracting the bare phase-number token
+            // "01" is only half the fix. Without also passing this convention to
+            // matchPhaseDirs, its bracket-qualified match arm never fires, "01"
+            // matches no bracket directory name ("GSD.02-01-setup"), and every
+            // properly-scaffolded bracket phase reads as disk_status: 'no_directory'
+            // — turning a real bracket project's own phases into false "ROADMAP
+            // lists N unstarted phase(s)" failures on `milestone complete`.
+            const directoryContext = phaseDirectoryOptions(cwd, undefined, scopedContent);
+            const { regex: phasePattern, phaseNumGroup } = buildPhaseHeadingScanRegex(PHASE_HEADING_BASELINE.ANY_BRACKET, phaseConvention, directoryContext);
             const noDirectoryPhases = [];
             let pm;
             const phaseDirEntries = (() => {
@@ -658,7 +676,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
                 }
             })();
             while ((pm = phasePattern.exec(scopedContent)) !== null) {
-                const phaseNum = pm[1];
+                const phaseNum = pm[phaseNumGroup];
                 // Phase 0 (pre-milestone) and Phase 999 (backlog) are sentinels, not
                 // real phases — they legitimately have no directory and must not block
                 // milestone completion. Mirrors the engine-wide sentinel convention
@@ -667,12 +685,14 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
                 // #3185: canonical sentinel predicate (SENTINEL_RANGES [0,999]) — this local check already covered both 0 and 999; now delegates to the single canonical owner.
                 if (isSentinelPhaseId(phaseNum))
                     continue;
-                const normalized = normalizePhaseName(phaseNum);
+                const lookup = resolvePhaseDirectoryLookup(cwd, phaseNum, undefined, directoryContext);
                 // A phase has disk_status: 'no_directory' when no phase directory
                 // with a matching token exists on disk. Use the same matchPhaseDirs
                 // owner that roadmap.analyze uses to avoid false positives on decimal
-                // (2.1) and letter-suffix (12A) phase IDs. (#2528)
-                const hasDirectory = matchPhaseDirs(phaseDirEntries, normalized).matches.length > 0;
+                // (2.1) and letter-suffix (12A) phase IDs. (#2528) Under #4304 the
+                // current checkout's bracket convention and migration-window legacy
+                // fallback are both owned by the shared lookup adapter.
+                const hasDirectory = matchPhaseDirsForLookup(phaseDirEntries, lookup, undefined, directoryContext).matches.length > 0;
                 if (!hasDirectory) {
                     noDirectoryPhases.push(phaseNum);
                 }
@@ -702,7 +722,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     let totalPlans = 0;
     let totalTasks = 0;
     const accomplishments = [];
-    // #2761 (round-11 BLOCKER): resolved ONCE, ambiently (no explicit `ws` —
+    // #2761: resolved ONCE above, ambiently (no explicit `ws` —
     // this function has none of its own and already resolves everything else
     // off `cwd` via planningPaths(cwd), matching the ambient-workstream
     // contract `resolvePhaseIdConvention`/`planningDir` share), and threaded
@@ -717,7 +737,6 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     // the silent-inherit path without changing behavior for `null` /
     // `milestone-prefixed` projects, whose resolved convention is the same
     // value `undefined` would have lazily produced anyway.
-    const phaseConvention = resolvePhaseIdConvention(cwd);
     // #3597 (ADR-3180 Decision 2): SINGLE resolution of "which phase
     // directories belong to the current milestone" AND the SCOPE discriminator
     // that resolution came from — shared verbatim by the read-only stats loop
@@ -826,7 +845,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
         // never disagree with what a real run actually archives. Absent
         // --archive-quick this stays `[]` and nothing on disk is touched either
         // way (dry-run always returns before any mutation below).
-        const quickDirsToArchive = options.archiveQuick ? listQuickTaskDirsForArchive(cwd) : [];
+        const quickDirsToArchive = options.archiveQuick ? listQuickTaskDirsForArchive(cwd).map((d) => d.name) : [];
         const dryRunResult = {
             dry_run: true,
             version,
@@ -847,6 +866,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
                 phases_archive_skipped: phasesArchiveSkippedForScope,
                 phases_archive_skip_reason: phasesArchiveSkipReason,
                 quick: quickDirsToArchive,
+                ...(releaseMapReport ? { release_map: { target: releaseMapReport.path, entries: releaseMapReport.entries } } : {}),
             },
             would_update: {
                 milestones_md: node_path_1.default.relative(cwd, milestonesPath).split(node_path_1.default.sep).join('/'),
@@ -856,6 +876,15 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
         output(dryRunResult, raw);
         return;
     }
+    // #5118 (no write before the error): the STATE.md update further down
+    // rebuilds the frontmatter from every phase's report and throws on a
+    // `status` outside the closed set — AFTER the archive directory, the
+    // archived ROADMAP/REQUIREMENTS copies, MILESTONES.md and the moved audit
+    // and quick-task files. Validate first, so the refusal leaves the tree
+    // untouched.
+    if (node_fs_1.default.existsSync(statePath)) {
+        assertVerificationReportsReadable((0, shell_command_projection_cjs_1.platformReadSync)(statePath) || '', cwd);
+    }
     // Ensure archive directory exists. Deliberately placed AFTER the dry-run
     // early return and every refusal/guard above (missingExplicitVersion, the
     // scope refusal, the unstarted-phase guard) — #3184 review finding: this
@@ -863,6 +892,10 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     // archive directory behind. Reaching this point means the run is
     // committed to mutating.
     (0, shell_command_projection_cjs_1.platformEnsureDir)(archiveDir);
+    // #5706: archive the validated release map by recorded value.
+    if (releaseMap && releaseMapFile && releaseMapNeedsWrite) {
+        (0, shell_command_projection_cjs_1.platformWriteSync)(releaseMapFile, (0, milestone_release_map_cjs_1.serializeReleaseMapArchive)(version, releaseMap));
+    }
     // Archive ROADMAP.md
     if (node_fs_1.default.existsSync(roadmapPath)) {
         const roadmapContent = node_fs_1.default.readFileSync(roadmapPath, 'utf-8');
@@ -887,7 +920,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
     }
     // Create/append MILESTONES.md entry
     const accomplishmentsList = accomplishments.map((a) => `- ${a}`).join('\n');
-    const milestoneEntry = `## ${version} ${milestoneName} (Shipped: ${today})\n\n**Phases completed:** ${phaseCount} phases, ${totalPlans} plans, ${totalTasks} tasks\n\n**Key accomplishments:**\n${accomplishmentsList || '- (none recorded)'}\n\n---\n\n`;
+    const milestoneEntry = `## ${version} ${milestoneName} (Shipped: ${today})\n\n**Phases completed:** ${phaseCount} phases, ${totalPlans} plans, ${totalTasks} tasks\n\n**Key accomplishments:**\n${accomplishmentsList || '- (none recorded)'}\n\n${releaseMap ? `${(0, milestone_release_map_cjs_1.renderReleaseMapMarkdown)(releaseMap)}\n` : ''}---\n\n`;
     // #3685: mirror requirementsUpdated's diff-tracking contract — the result
     // below used to report `milestones_updated: true` hardcoded, never
     // consulting whether the MILESTONES.md write actually changed anything.
@@ -1144,6 +1177,7 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
         milestones_updated: milestonesUpdated,
         state_updated: stateUpdated,
         preservation_warnings: preservationWarnings,
+        ...(releaseMapReport ? { release_map: releaseMapReport } : {}),
     };
     output(result, raw);
     // #3227 (design doc §40 row 26 / "Not-corruption" rule): a refreshed
@@ -1482,6 +1516,16 @@ function writeQuickArchiveReadme(archiveQuickDir) {
  * written three times, and only the real-run copy applied `requireSafePath`,
  * so a dry-run preview could list a directory the real run would silently
  * skip).
+ *
+ * Returns the proven `ContainedPath` alongside each entry's bare `name`
+ * (`no-unconfined-path-join`'s `discardedContainmentResult` arm — a bare
+ * statement call to `requireSafePath` throws away the exact answer it just
+ * computed). The two dry-run previews only need `name` for display;
+ * `archiveQuickTaskDirectories` deliberately does NOT reuse `abs` for its
+ * rename — it re-derives and re-validates independently as TOCTOU
+ * defense-in-depth (see its own comment), so `abs` exists here only to make
+ * this function's own discard explicit, not to be trusted downstream as a
+ * stale-safe proof.
  */
 function listQuickTaskDirsForArchive(cwd) {
     const planningBase = planningPaths(cwd).planning;
@@ -1494,19 +1538,20 @@ function listQuickTaskDirsForArchive(cwd) {
         // .planning/quick absent or unreadable — nothing to select.
         return [];
     }
-    const names = [];
+    const results = [];
     for (const entry of sourceEntries) {
         if (!entry.isDirectory())
             continue; // excludes symlinks too — see MAJOR 3 note above
+        let abs;
         try {
-            (0, security_cjs_1.requireSafePath)(node_path_1.default.join(quickDir, entry.name), planningBase, 'quick task dir', { allowAbsolute: true });
+            abs = (0, security_cjs_1.requireSafePath)(node_path_1.default.join(quickDir, entry.name), planningBase, 'quick task dir', security_cjs_1.PathAcceptance.AbsoluteInsideRoot);
         }
         catch {
             continue; // symlink/escape attempt — never a candidate, in preview OR real run
         }
-        names.push(entry.name);
+        results.push({ name: entry.name, abs });
     }
-    return names.sort();
+    return results.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 /**
  * #2142: move each DIRECTORY entry under `.planning/quick/` into
@@ -1555,7 +1600,7 @@ function archiveQuickTaskDirectories(cwd, version) {
     // #2142 MAJOR 5 (review): dirNames is the SAME selection
     // `listQuickTaskDirsForArchive` hands to both dry-run previews — this is
     // the real run, so it cannot disagree with what a preview reported.
-    const dirNames = listQuickTaskDirsForArchive(cwd);
+    const dirNames = listQuickTaskDirsForArchive(cwd).map((d) => d.name);
     if (dirNames.length === 0) {
         // Boundary 0 (#2142): zero (safe) directory entries (empty dir, only
         // stray files, or every entry excluded by the selection rule) must not
@@ -1576,7 +1621,7 @@ function archiveQuickTaskDirectories(cwd, version) {
                 // rename are two separate filesystem observations, and an entry
                 // that was a safe real directory at selection time could in theory
                 // be swapped for a symlink before this loop reaches it.
-                safeSrc = (0, security_cjs_1.requireSafePath)(src, planningBase, 'quick task dir', { allowAbsolute: true });
+                safeSrc = (0, security_cjs_1.requireSafePath)(src, planningBase, 'quick task dir', security_cjs_1.PathAcceptance.AbsoluteInsideRoot);
             }
             catch {
                 continue; // symlink/escape attempt — skip, not archived
@@ -1669,7 +1714,7 @@ function cmdQuickArchive(cwd, version, options, raw) {
     // `cmdMilestoneComplete`'s own dry-run preview and the real
     // `archiveQuickTaskDirectories` both use, so all three can never disagree.
     if (options.dryRun) {
-        const quickDirsToArchive = listQuickTaskDirsForArchive(cwd);
+        const quickDirsToArchive = listQuickTaskDirsForArchive(cwd).map((d) => d.name);
         output({
             dry_run: true,
             version,
@@ -1677,6 +1722,15 @@ function cmdQuickArchive(cwd, version, options, raw) {
             archive_dir: toPosixRel(node_path_1.default.join(planningBase, 'milestones', `${version}-quick`)),
         }, raw);
         return;
+    }
+    // #5118 (no write before the error): the STATE.md reset below goes through
+    // `readModifyWriteStateMd`, whose frontmatter rebuild reads every phase's
+    // report and throws on a `status` outside the closed set — AFTER the quick
+    // task directories have been MOVED. Validate first, so the refusal leaves the
+    // tree untouched. Gated on there being anything to archive: a run that would
+    // move nothing never reaches that rebuild.
+    if (node_fs_1.default.existsSync(statePath) && listQuickTaskDirsForArchive(cwd).length > 0) {
+        assertVerificationReportsReadable(node_fs_1.default.readFileSync(statePath, 'utf-8'), cwd);
     }
     const quickArchiveResult = archiveQuickTaskDirectories(cwd, version);
     const warnings = [];

@@ -19,12 +19,17 @@ Read all files referenced by the invoking prompt's execution_context before star
 Parse arguments and load project state:
 
 ```bash
-_GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.agents/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; elif _gsd_at "${CLAUDE_CONFIG_DIR:-.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${HERMES_HOME:-$HOME/.hermes}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEX_HOME:-$HOME/.codex}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/gsd-core/bin/${_GSD_SHIM_NAME}" "${COPILOT_CONFIG_DIR:-$HOME/.copilot}/gsd-core/bin/${_GSD_SHIM_NAME}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}/gsd-core/bin/${_GSD_SHIM_NAME}" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}/gsd-core/bin/${_GSD_SHIM_NAME}" "${TRAE_CONFIG_DIR:-$HOME/.trae}/gsd-core/bin/${_GSD_SHIM_NAME}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CLINE_CONFIG_DIR:-$HOME/.cline}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GROK_AGENTS_HOME:-$HOME/.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}/gsd-core/bin/${_GSD_SHIM_NAME}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/gsd-core/bin/${_GSD_SHIM_NAME}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and gsd_run is not on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; case "$(gsd_run runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') GSD_IDENTITY_STATUS=ok;; esac; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
+IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END_f7d479bfcb836ff25c28f667995e4bd4' || true
+$ARGUMENTS
+GSD_ARGS_END_f7d479bfcb836ff25c28f667995e4bd4
+GSD_ARGS=${GSD_ARGS%$'\n'}
+_GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; _gsd_id_ok() { case "$("$1" runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') return 0;; *) return 1;; esac; }; _gsd_homes() { set -- "${CLAUDE_CONFIG_DIR:-.agents}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}" "$HOME/.gemini/antigravity-ide" "$HOME/.gemini/antigravity-cli" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}" "${CLINE_CONFIG_DIR:-$HOME/.cline}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}" "${CODEX_HOME:-$HOME/.codex}" "${COPILOT_CONFIG_DIR:-${COPILOT_HOME:-$HOME/.copilot}}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}" "${HERMES_HOME:-$HOME/.hermes}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}" "${KIMI_CONFIG_DIR:-$HOME/.config/agents}" "$HOME/.agents" "${KIMI_CODE_HOME:-$HOME/.kimi-code}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}" "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}" "${TRAE_CONFIG_DIR:-$HOME/.trae}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}" "${ZCODE_CONFIG_DIR:-$HOME/.zcode}" "${GROK_AGENTS_HOME:-$HOME/.agents}"; for _h; do _gsd_at "$_h/gsd-core/bin/${_GSD_SHIM_NAME}" && return 0; done; return 1; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.agents/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif _gsd_homes; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; [ -n "$_G" ] && _gsd_id_ok "$_G"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and no identity-proving gsd_run is on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; _gsd_id_ok gsd_run && GSD_IDENTITY_STATUS=ok; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
 PHASE_ARG="${1}"
-INIT=$(gsd_run query init.phase-op "${PHASE_ARG}")
+GSD_WS=$(echo " $GSD_ARGS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
+INIT=$(gsd_run query init.phase-op ${GSD_WS:+--ws=${GSD_WS##* }} "${PHASE_ARG}")
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
-AGENT_SKILLS_FIXER=$(gsd_run query agent-skills gsd-code-fixer)
-AGENT_SKILLS_REVIEWER=$(gsd_run query agent-skills gsd-code-reviewer)
+AGENT_SKILLS_FIXER=$(gsd_run query agent-skills gsd-code-fixer ${GSD_WS:+--ws=${GSD_WS##* }})
+AGENT_SKILLS_REVIEWER=$(gsd_run query agent-skills gsd-code-reviewer ${GSD_WS:+--ws=${GSD_WS##* }})
 # #2072: resolve the routed models so model_overrides / models.<phaseType> are honored
 # (gsd-code-reviewer → "verification", gsd-code-fixer → "execution"); thread them below.
 REVIEWER_MODEL=$(gsd_run query resolve-model gsd-code-reviewer --raw)
@@ -35,9 +40,10 @@ Parse from init JSON: `phase_found`, `phase_dir`, `phase_number`, `phase_name`, 
 
 **Input sanitization (defense-in-depth):**
 ```bash
-# Validate PADDED_PHASE contains only digits and optional dot (e.g., "02", "03.1")
-if ! [[ "$PADDED_PHASE" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-  echo "Error: Invalid phase number format: '${PADDED_PHASE}'. Expected digits (e.g., 02, 03.1)."
+# Validate PADDED_PHASE matches the canonical phase-number grammar (src/phase-id.cts): digits,
+# an optional single uppercase letter, then dotted segments (e.g., "02", "03.1", "23.1.2", "12A")
+if ! [[ "$PADDED_PHASE" =~ ^[0-9]+[A-Z]?(\.[0-9]+)*$ ]]; then
+  echo "Error: Invalid phase number format: '${PADDED_PHASE}'. Expected digits with an optional letter suffix (e.g., 02, 03.1, 23.1.2, 12A)."
   # Exit workflow
 fi
 ```
@@ -80,21 +86,19 @@ FIX_REPORT_PATH="${PHASE_DIR}/${PADDED_PHASE}-REVIEW-FIX.md"
 </step>
 
 <step name="check_config_gate">
-Check if code review is active via the capability registry:
+Check if code review is active via `workflow.code_review` (the capability's on/off toggle — independent of `workflow.code_review_point`, the loop-point selector; a manual invocation must work regardless of which automatic point is currently configured):
 
 ```bash
-EXECUTE_POST_HOOKS_JSON=$(gsd_run loop render-hooks execute:post --raw)
+CODE_REVIEW_ENABLED=$(gsd_run query config-get workflow.code_review --raw 2>/dev/null || echo "true")
 ```
 
-Resolve active step hooks from `EXECUTE_POST_HOOKS_JSON` where `kind == "step"` and `ref.skill == "code-review"`.
-
-If no active code-review step hook exists:
+If `CODE_REVIEW_ENABLED` is not `"true"`:
 ```
 Code review fix skipped (code-review capability inactive)
 ```
 Exit workflow.
 
-Default is active through the Capability Registry schema — only skip when the registry resolves no active code-review step hook. This check runs AFTER phase validation so invalid phase errors are shown first.
+Default is active (`workflow.code_review` schema default is `true`) — only skip when explicitly disabled. This check runs AFTER phase validation so invalid phase errors are shown first.
 
 Note: This reuses the code-review capability activation rather than introducing a separate code-review-fix capability. Rationale: fixes are meaningless without review, so a single activation boundary makes sense. If independent control is needed later, a separate key can be added in v2.
 </step>
@@ -258,12 +262,38 @@ if [ "$AUTO_MODE" = "true" ]; then
   # Total fix passes = MAX_ITERATIONS. Loop uses -lt (not -le) intentionally.
   ITERATION=1
   MAX_ITERATIONS=3
-  # #3190: track whether the loop converged (re-review came back clean) vs
-  # degraded (hit the cap). Convergence determines whether the .iterN.md backups
-  # are spent scratch (cleaned below) or retained for post-mortem analysis.
-  CONVERGED=false
+  # #3190's convergence-vs-degradation distinction still governs whether the .iterN.md backups are
+  # spent scratch or a post-mortem trail — but the removal moved to `cleanup_iteration_backups`,
+  # after `record_disposition` has read them, so nothing in THIS loop consumes the flag any more.
+  # It is re-derived there from the final REVIEW.md's status, which is exactly the condition the
+  # `break` below fires on. A variable set here and read nowhere would just be a decoy.
 
-  while [ $ITERATION -lt $MAX_ITERATIONS ]; do
+  # #4100: the loop used to stop only on a re-review returning `status: clean`. A review whose
+  # remaining findings are all OUTSIDE the fix scope (Info, or necessity findings without --all)
+  # never reaches clean, so the loop re-spawned the fixer with nothing to fix until the cap and then
+  # printed the degradation warning over a run with no work left. The fixer is the scope authority:
+  # its REVIEW-FIX.md `findings_in_scope` is read strictly — only a frontmatter value of 0 proves
+  # zero scope; a missing report or an unusable value keeps the old behaviour.
+  _gsd_fix_scope_empty() {
+    [ -f "$1" ] || return 1
+    _gsd_n=$(FIX_REPORT_PATH="$1" node -e "
+      const fs = require('fs');
+      try {
+        const content = fs.readFileSync(process.env.FIX_REPORT_PATH, 'utf-8');
+        const m = content.replace(/\r\n/g, '\n').match(/^---\n([\s\S]*?)\n---/);
+        const v = m && m[1].match(/^findings_in_scope:[ \t]*([0-9]+)[ \t]*$/m);
+        process.stdout.write(v ? String(Number(v[1])) : '');
+      } catch (e) {}
+    " 2>/dev/null || true)
+    [ "$_gsd_n" = "0" ]
+  }
+  NO_SCOPE_LEFT=false
+  if _gsd_fix_scope_empty "${FIX_REPORT_PATH}"; then
+    NO_SCOPE_LEFT=true
+    echo "No findings in fix scope (${FIX_SCOPE}) — skipping the re-review loop. Out-of-scope findings remain in ${REVIEW_PATH}."
+  fi
+
+  while [ "$NO_SCOPE_LEFT" = false ] && [ $ITERATION -lt $MAX_ITERATIONS ]; do
     ITERATION=$((ITERATION + 1))
     
     echo ""
@@ -321,7 +351,8 @@ ${AGENT_SKILLS_REVIEWER}")
     " 2>/dev/null)
     
     if [ "$NEW_STATUS" = "clean" ]; then
-      CONVERGED=true
+      # Convergence: the re-review came back clean. This leaves REVIEW.md at `status: clean`, which
+      # is what `cleanup_iteration_backups` re-derives the decision from.
       echo ""
       echo "✓ All issues resolved after iteration ${ITERATION}."
       break
@@ -353,30 +384,52 @@ ${AGENT_SKILLS_FIXER}")
       echo "Warning: Iteration ${ITERATION} fixer failed to produce fix report. Stopping auto-loop."
       break
     fi
+    if _gsd_fix_scope_empty "${FIX_REPORT_PATH}"; then
+      NO_SCOPE_LEFT=true
+      echo ""
+      echo "✓ No in-scope findings remain after iteration ${ITERATION} (scope: ${FIX_SCOPE}). Out-of-scope findings remain in ${REVIEW_PATH}."
+      break
+    fi
   done
   
-  # After loop completes
-  if [ $ITERATION -ge $MAX_ITERATIONS ]; then
-    echo ""
-    echo "⚠ Reached maximum iterations (${MAX_ITERATIONS}). Remaining issues documented in REVIEW-FIX.md."
+  # After loop completes. The iteration COUNTER alone does not distinguish degradation from success:
+  # a loop that converges on the final iteration exits with ITERATION == MAX_ITERATIONS and printed
+  # "Reached maximum iterations. Remaining issues documented in REVIEW-FIX.md" over a run in which
+  # every finding was fixed — telling the operator the opposite of what happened, on the one path
+  # where the cap and convergence coincide. Convergence is re-derived from the review the loop left
+  # behind, the same signal cleanup_iteration_backups reads, so the two cannot disagree.
+  if [ "$NO_SCOPE_LEFT" = false ] && [ $ITERATION -ge $MAX_ITERATIONS ]; then
+    LOOP_END_STATUS=$(REVIEW_PATH="${REVIEW_PATH}" node -e "
+      const fs = require('fs');
+      try {
+        const content = fs.readFileSync(process.env.REVIEW_PATH, 'utf-8');
+        const match = content.replace(/\r\n/g, '\n').match(/^---\n([\s\S]*?)\n---/);
+        console.log(match && /status:\s*(\S+)/.test(match[1]) ? match[1].match(/status:\s*(\S+)/)[1] : 'unknown');
+      } catch (e) { console.log('unknown'); }
+    " 2>/dev/null)
+    if [ "$LOOP_END_STATUS" = "clean" ]; then
+      # SILENT on convergence, deliberately. The loop's own break already printed "All issues
+      # resolved after iteration N" on its way out, and reaching the cap does not make that less
+      # true — adding a second success line here printed both, which is noise the first cut shipped.
+      # What this branch exists for is to NOT print the degradation warning; saying nothing is the
+      # whole behaviour.
+      :
+    else
+      echo ""
+      echo "⚠ Reached maximum iterations (${MAX_ITERATIONS}). Remaining issues documented in REVIEW-FIX.md."
+    fi
   fi
 
-  # #3190: on convergence the .iterN.md backups are spent scratch — their
-  # stated purpose is post-mortem analysis "if iterations degrade", and
-  # convergence means no degradation. Remove them so the phase directory is
-  # clean (no dirty REVIEW.md or backup files after the run). They are RETAINED
-  # when the loop degraded (hit MAX_ITERATIONS / fixer failure) so the
-  # post-mortem trail survives. Backup CREATION (cp … .iterN.md) is unchanged.
-  if [ "$CONVERGED" = "true" ]; then
-    rm -f "${REVIEW_PATH%.md}.iter"*.md "${FIX_REPORT_PATH%.md}.iter"*.md 2>/dev/null || true
-  fi
+  # #3190's cleanup of the .iterN.md backups now runs in `cleanup_iteration_backups`, AFTER
+  # `record_disposition` — see that step for why. Removing them here deleted the only record of
+  # what the earlier iterations fixed before anything had read it.
 fi
 ```
 
 Key design decisions for --auto (addresses ALL review HIGH concerns):
 1. **Re-review scope**: Uses REVIEW_FILES_ARRAY from original REVIEW.md frontmatter, falling back to full phase scope. Scope is NOT lost between iterations. Uses portable while-read loop (bash 3.2+ compatible, handles spaces in paths).
 2. **Artifact semantics**: REVIEW.md is overwritten by each re-review (latest review state). REVIEW-FIX.md is overwritten by each fixer iteration (latest fix state with iteration count). There is ONE final version of each artifact, not per-iteration copies.
-   Backup files (.iterN.md) preserve history for post-mortem analysis if iterations degrade. On successful convergence (#3190) the backups are spent scratch and removed; on degradation (hit MAX_ITERATIONS / fixer failure) they are retained for post-mortem.
+   Backup files (.iterN.md) preserve history for post-mortem analysis if iterations degrade. On successful convergence (#3190) the backups are spent scratch and removed; on degradation (hit MAX_ITERATIONS / fixer failure) they are retained for post-mortem. The removal happens in `cleanup_iteration_backups`, after `record_disposition` has read them — they are the only surviving record of what an earlier iteration fixed, since this artifact keeps one final version rather than per-iteration copies.
 3. **Commit timing**: Fix commits happen per-finding inside the agent. REVIEW-FIX.md is NOT committed until step 7 (after ALL iterations complete). Only ONE docs commit, not one per iteration. In --auto that single commit also stages the converged REVIEW.md alongside REVIEW-FIX.md (#3190), so the two committed artifacts agree — the initial code-review commit held iteration-1 REVIEW.md content, and the --auto re-review loop overwrote it each iteration.
 </step>
 
@@ -424,6 +477,74 @@ fi
 ```
 
 This commit happens ONCE at the end of the workflow, after all iterations (if --auto) complete. Not per-iteration.
+</step>
+
+<step name="record_disposition">
+**Reconcile the per-finding disposition ledger, now that REVIEW-FIX.md exists.** Read and execute
+`gsd-core/workflows/execute-phase/steps/code-review-disposition.md`. It consumes `PHASE_DIR` and
+`PHASE_NUMBER` and derives everything else, and it is advisory throughout: it never blocks.
+
+This is the step's second and final call site, and without it REQ-REVIEW-10 is unreachable in every
+shipped path. `execute-phase.md`'s `code_review_gate` runs the same step immediately after review,
+where `<NN>-REVIEW-FIX.md` cannot yet exist — the gate invokes review with neither `--fix` nor
+`--auto` — so every row it writes is `open` by construction. The reconciliation logic that turns
+those rows into `fixed` / `skipped` is reachable only once a fix report is on disk, which is here.
+Wired anywhere earlier and it reads a report that has not been written; wired into `code-review.md`
+instead, it is unreachable — that workflow delegates through `code-review/steps/dispatch-fix.md`,
+which exits the workflow after invoking this one, so there is no point in it that is after
+REVIEW-FIX.md exists. Placing it here also covers a direct invocation of this workflow, which a
+wiring in `code-review.md` would miss.
+
+Placed AFTER `commit_fix_report` deliberately: the fix report must be on disk and committed before
+the ledger claims anything about it, and the step's own reconciliation reads
+`${PHASE_DIR}/${PADDED_PHASE}-REVIEW-FIX.md` directly.
+
+Safe to run twice. The step is idempotent — a re-render that changes nothing reports `unchanged` and
+rewrites no file — so a phase that reaches the gate and then a fix run ends with one ledger reflecting
+both, not two competing ones.
+</step>
+
+<step name="cleanup_iteration_backups">
+Only runs if AUTO_MODE is true. If AUTO_MODE is false, skip this step entirely.
+
+**Removes the `.iterN.md` scratch — deliberately AFTER `record_disposition`, not at the end of the
+loop.** #3190's rule is unchanged: on convergence the backups are spent scratch and go; on degradation
+they are retained for post-mortem. What changed is the timing, and it was load-bearing. This workflow
+keeps ONE final version of `REVIEW.md` and `REVIEW-FIX.md` rather than per-iteration copies, so the
+backups are the only surviving record of what an earlier iteration fixed — and the re-review drops a
+finding once it is fixed, so the final review does not carry it either. Deleting them inside the loop
+meant the disposition ledger reached a converged `--auto` run with every early fix already erased, and
+recorded those findings as `open (not in the current review)`: indistinguishable from never triaged,
+which is the one distinction #3829 exists to make.
+
+Convergence is re-derived here rather than carried. Shell state does not survive the loop's fence, so
+a flag set there would be gone by this step — and once nothing in the loop consumed it, keeping it
+would have left a variable set in one place and read in none. The loop breaks on exactly one
+condition that counts as convergence, a re-review returning clean, and that leaves `REVIEW.md` at
+`status: clean`: the final review's status IS the converged case. Its other stop, nothing left in
+fix scope (#4100), leaves out-of-scope findings in a non-clean review, so the backups are kept. Hitting `MAX_ITERATIONS` leaves the last re-review non-clean,
+and the backups are kept.
+
+```bash
+if [ "$AUTO_MODE" = "true" ]; then
+  FINAL_STATUS=$(REVIEW_PATH="${REVIEW_PATH}" node -e "
+    const fs = require('fs');
+    try {
+      const content = fs.readFileSync(process.env.REVIEW_PATH, 'utf-8');
+      const match = content.replace(/\r\n/g, '\n').match(/^---\n([\s\S]*?)\n---/);
+      console.log(match && /status:\s*(\S+)/.test(match[1]) ? match[1].match(/status:\s*(\S+)/)[1] : 'unknown');
+    } catch (e) { console.log('unknown'); }
+  " 2>/dev/null)
+  # Anything but a proven-clean final review RETAINS the backups. An unreadable or unparseable
+  # review is not evidence of convergence, and retaining costs a few scratch files where deleting
+  # costs the post-mortem trail the retention rule exists for.
+  if [ "$FINAL_STATUS" = "clean" ]; then
+    rm -f "${REVIEW_PATH%.md}.iter"*.md "${FIX_REPORT_PATH%.md}.iter"*.md 2>/dev/null || true
+  else
+    echo "Iteration backups retained (final review status: ${FINAL_STATUS}) — post-mortem trail."
+  fi
+fi
+```
 </step>
 
 <step name="present_results">
@@ -495,7 +616,16 @@ echo ""
 
 If status is "all_fixed":
 ```bash
-if [ "$FIX_STATUS" = "all_fixed" ]; then
+if [ "${FINDINGS_IN_SCOPE:-}" = "0" ]; then
+  # #4100: a vacuous all_fixed (nothing was in scope) must not claim the review is resolved.
+  echo "○ No findings were in fix scope (${FIX_SCOPE}). Out-of-scope findings (Info, and necessity unless --all) remain in ${REVIEW_PATH}."
+  echo ""
+  if [ "${FIX_SCOPE}" != "all" ]; then
+    echo "Next step:"
+    echo "  /gsd-code-review ${PHASE_NUMBER} --fix --all  — Include them in the fix scope"
+    echo ""
+  fi
+elif [ "$FIX_STATUS" = "all_fixed" ]; then
   echo "✓ All issues resolved."
   echo ""
   echo "Full report: ${FIX_REPORT_PATH}"
@@ -534,7 +664,7 @@ echo "════════════════════════�
 
 <success_criteria>
 - [ ] Phase validated before config gate check
-- [ ] Capability gate checked (execute:post code-review hook)
+- [ ] Capability gate checked (`workflow.code_review` config key)
 - [ ] REVIEW.md existence verified (error if missing)
 - [ ] REVIEW.md status checked (skip if clean/skipped)
 - [ ] Agent spawned with correct config (review_path, fix_scope, fix_report_path)

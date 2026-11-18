@@ -35,6 +35,8 @@ const node_fs_1 = __importDefault(require("node:fs"));
 const node_os_1 = __importDefault(require("node:os"));
 const node_path_1 = __importDefault(require("node:path"));
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
+const runtime_name_policy_cjs_1 = require("./runtime-name-policy.cjs");
+const args_terminator_cjs_1 = require("./args-terminator.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const installProfiles = require("./install-profiles.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -61,6 +63,18 @@ const runtimeArtifactInstallPlan = require("./runtime-artifact-install-plan.cjs"
 const retiredArtifactCleanup = require("./retired-artifact-cleanup.cjs");
 const { assertDestWithinConfigHome } = runtimeArtifactInstallPlan;
 const SURFACE_FILE_NAME = '.gsd-surface.json';
+const INSTALL_MANIFEST_FILE_NAME = 'gsd-file-manifest.json';
+/** Read only the installer-owned relative-include style, failing closed. */
+function readRelativeIncludePrefix(runtimeConfigDir) {
+    try {
+        const parsed = JSON.parse(node_fs_1.default.readFileSync(node_path_1.default.join(runtimeConfigDir, INSTALL_MANIFEST_FILE_NAME), 'utf8'));
+        const prefix = parsed?.['relativeIncludePrefix'];
+        return typeof prefix === 'string' ? prefix : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
 /**
  * Read the surface state from a runtime config directory.
  *
@@ -309,6 +323,14 @@ function applySurface(runtimeConfigDir, layout, manifest, clusterMap, registry, 
     if (node_path_1.default.resolve(runtimeConfigDir) !== node_path_1.default.resolve(layout.configDir)) {
         throw new TypeError('applySurface runtimeConfigDir must match layout.configDir');
     }
+    // #5637: re-staged commands and skills keep the typed-text terminator nonce the install wrote,
+    // when it wrote one; this process is not an installer, so nothing armed it.
+    // A directory with no nonce (an install from before this change) is re-staged canonical, and a
+    // nonce armed earlier in this process for another directory is not carried over.
+    if ((0, args_terminator_cjs_1.readInstalledNonce)(layout.configDir) !== null)
+        (0, args_terminator_cjs_1.armArgsNonce)(layout.configDir, true);
+    else
+        (0, args_terminator_cjs_1.disarmArgsNonce)();
     // #3712: the dest selection below prefers `kind.home` over layout.configDir and
     // then hands it to the destructive _syncGsdDir, so surface apply is a third
     // escape route into the developer's real home alongside install/uninstall.
@@ -339,9 +361,13 @@ function applySurface(runtimeConfigDir, layout, manifest, clusterMap, registry, 
     // then projects the defaulted value to the boolean `_computePathPrefix`'s
     // existing `isGlobal: boolean` API requires.
     const _isGlobal = (0, install_scope_cjs_1.isGlobalScope)(layout.scope ?? 'global');
-    const _isOpencode = layout.runtime === 'opencode';
+    const _isOpencode = (0, runtime_name_policy_cjs_1.hostBehaviorsFor)(layout.runtime).opencodePathPrefix === true;
     const _isWindowsHost = (opts?.platform ?? process.platform) === 'win32';
-    const _pathPrefix = runtimeArtifactConversion._computePathPrefix({ isGlobal: _isGlobal, isOpencode: _isOpencode, isWindowsHost: _isWindowsHost, resolvedTarget: _resolvedTarget, homeDir: _homeDir });
+    // #4377: style is an install-time fact, not a process environment setting.
+    // A later gsd-tools surface apply runs in another process, so it must reuse
+    // the persisted, root-relative prefix the installer actually emitted.
+    const _relativeIncludePrefix = readRelativeIncludePrefix(runtimeConfigDir);
+    const _pathPrefix = runtimeArtifactConversion._computePathPrefix({ isGlobal: _isGlobal, isOpencode: _isOpencode, isWindowsHost: _isWindowsHost, resolvedTarget: _resolvedTarget, homeDir: _homeDir, projectRelative: !_isGlobal && typeof _relativeIncludePrefix === 'string', projectRelativePath: _relativeIncludePrefix, localDirName: runtimeArtifactConversion._localIncludeDirName(layout.runtime) });
     const _attribution = opts?.resolveAttribution ? opts.resolveAttribution(layout.runtime) : undefined;
     // #2875 Part 2 (row I1): layout.configDir is this call's install root.
     const agentCtx = { runtime: layout.runtime, pathPrefix: _pathPrefix, attribution: _attribution, targetDir: layout.configDir };
@@ -364,14 +390,25 @@ function applySurface(runtimeConfigDir, layout, manifest, clusterMap, registry, 
     try {
         for (const kind of layout.kinds) {
             let staged;
-            if (kind.kind === 'agents') {
+            // #4211: kimi-agents is an AGENT kind — kimiAgentsKind.stage() forwards
+            // agentCtx into stageAgentsForRuntimeWithConverter exactly as agentsKind
+            // does, and createRuntimeArtifactInstallPlan hands every kind the
+            // context. Staging it bare here dropped the path-prefix rewrites and the
+            // attribution trailer from Kimi's generated subagents, and (under an
+            // unmodified `full` profile) staged only the skill-referenced subset the
+            // install path stages with `skills: '*'`.
+            if (kind.kind === 'agents' || kind.kind === 'kimi-agents') {
                 const agentProfile = _isUnmodifiedFull ? { ...resolved, skills: '*' } : resolved;
                 staged = kind.stage(agentProfile, agentCtx);
             }
             else {
                 staged = kind.stage(resolved);
             }
-            if (kind.kind === 'skills') {
+            // #4211: kimi-agents takes the skill-body rewrite too —
+            // createRuntimeArtifactInstallPlan routes `skills` and `kimi-agents`
+            // through rewriteStagedSkillBodies together, so omitting it here left
+            // Kimi's surface-materialized prompts with unrewritten paths.
+            if (kind.kind === 'skills' || kind.kind === 'kimi-agents') {
                 runtimeArtifactConversion.rewriteStagedSkillBodies(staged, {
                     runtime: layout.runtime,
                     configDir: layout.configDir,
@@ -389,13 +426,10 @@ function applySurface(runtimeConfigDir, layout, manifest, clusterMap, registry, 
                     tempDirsToClean.push(rewritten);
                 }
             }
-            // #2911: honor kind.home as a FALLBACK-preferred override (e.g. Codex
-            // skills -> $HOME/.agents), never a blanket replacement — kinds without
-            // a `home` must keep resolving against layout.configDir. This must stay
-            // in lockstep with _copyStaged's root selection in src/install-engine.cts;
-            // the parity test in tests/runtime-artifact-layout-surface.test.cjs
-            // enforces that the two writers never diverge again.
-            const dest = assertDestWithinConfigHome(kind.home ?? layout.configDir, kind.destSubpath);
+            // Share the install-root owner with _copyStaged and the install/uninstall
+            // plans. The positive-path writer parity test includes applySurface.
+            const installRoot = runtimeArtifactInstallPlan.resolveRuntimeArtifactInstallRoot(layout.configDir, kind);
+            const dest = assertDestWithinConfigHome(installRoot, kind.destSubpath);
             stagedKinds.push({ kind, staged, dest });
         }
         // Do not mutate installed artifacts until every kind has staged
@@ -572,6 +606,53 @@ function _syncGsdDir(stagedDir, destDir, kind, manifest, runtime) {
     // (no agentFileExtension declared) keep the staged filename verbatim.
     const _agentExt = runtime ? runtimeArtifactConversion.agentFileExtensionFor(runtime) : undefined;
     const isRenamedAgents = !!_agentExt && kindName === 'agents';
+    if (kindName === 'kimi-agents') {
+        // #4211: Kimi's managed tree is `gsd.yaml` + `gsd.md` + `subagents/gsd-*.{yaml,md}`
+        // (runtime-artifact-layout.cts kimiAgentsKind), and install copies it
+        // RECURSIVELY (_copyStaged in src/install-engine.cts). Surface apply fell
+        // through to the flat command/agent branch below, which reads only `*.md`
+        // at the top level: the YAML half and the whole subagents/ subtree were
+        // dropped, and `gsd.md` was written as `gsdgsd.md` (the flat branch
+        // re-applies kind.prefix to a name that already carries it). A surface
+        // change could therefore corrupt Kimi's installed artifacts while still
+        // reporting success.
+        node_fs_1.default.cpSync(stagedDir, destDir, { recursive: true });
+        // Prune GSD-owned files the new surface no longer stages, with exactly the
+        // ownership rule install's _removeGsdEntries applies to this kind: the two
+        // root files, and `gsd-`-prefixed .yaml/.md under subagents/. Everything
+        // else in the directory is user-owned and is preserved.
+        const _rootStaged = new Set(node_fs_1.default.readdirSync(stagedDir));
+        for (const fileName of ['gsd.yaml', 'gsd.md']) {
+            if (!_rootStaged.has(fileName)) {
+                try {
+                    node_fs_1.default.rmSync(node_path_1.default.join(destDir, fileName), { force: true });
+                }
+                catch { /* ignore */ }
+            }
+        }
+        const _stagedSubagentsDir = node_path_1.default.join(stagedDir, 'subagents');
+        const _destSubagentsDir = node_path_1.default.join(destDir, 'subagents');
+        const _stagedSubagents = node_fs_1.default.existsSync(_stagedSubagentsDir)
+            ? new Set(node_fs_1.default.readdirSync(_stagedSubagentsDir))
+            : new Set();
+        if (node_fs_1.default.existsSync(_destSubagentsDir)) {
+            for (const entry of node_fs_1.default.readdirSync(_destSubagentsDir, { withFileTypes: true })) {
+                if (!entry.isFile())
+                    continue;
+                if (!entry.name.startsWith('gsd-'))
+                    continue;
+                if (!entry.name.endsWith('.yaml') && !entry.name.endsWith('.md'))
+                    continue;
+                if (_stagedSubagents.has(entry.name))
+                    continue;
+                try {
+                    node_fs_1.default.rmSync(node_path_1.default.join(_destSubagentsDir, entry.name), { force: true });
+                }
+                catch { /* ignore */ }
+            }
+        }
+        return;
+    }
     if (kindName === 'skills') {
         // Skills kind: work with directories, not files.
         // Each staged entry is a directory named ${prefix}${stem}.

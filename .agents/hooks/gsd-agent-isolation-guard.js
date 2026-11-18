@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// gsd-hook-version: 1.13.0
+// gsd-hook-version: 1.21.0
 // GSD Agent Isolation Dispatch Guard — PreToolUse hook (#3045)
 //
 // Problem: `gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md`
@@ -60,12 +60,21 @@
 
 'use strict';
 
+// #5183: Node's on-disk compile cache, so later runs reuse V8's compiled code
+// for unchanged modules. Only as the entry (a test require() is unaffected),
+// skipped under V8 coverage, optional (Bun stubs it), and never fatal.
+// NODE_DISABLE_COMPILE_CACHE (any value) turns it off.
+if (require.main === module && !process.env.NODE_V8_COVERAGE) {
+  try { require('node:module').enableCompileCache?.(); } catch { /* optimization only */ }
+}
+
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { readSentinel, VALID_ISOLATION, extractDispatchIdentifiers, sentinelAppliesToDispatch } = require('./lib/isolation-sentinel.js');
-const { REASON_CODE } = require('./lib/isolation-deny-reason.js');
+const { readSentinel, VALID_ISOLATION, extractDispatchIdentifiers, sentinelAppliesToDispatch, agedNoneGovernsDispatch, buildSentinelDiscard } = require('./lib/isolation-sentinel.js');
+const { REASON_CODE, describeSentinelDiscard } = require('./lib/isolation-deny-reason.js');
 const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
+const { readConfigFileBounded } = require('./lib/config-read.js');
 
 // Required at module top, alongside the other ./lib requires — NOT behind
 // ensureRuntimeBuild() below. Terminating on a parse/timeout failure must
@@ -200,7 +209,7 @@ function resolveRuntimeIdentity(cwd, configPath, resolveRuntimeNameFromCandidate
   // A throw here (corrupt JSON, EISDIR, permission error) propagates to the
   // caller's catch as a resolution failure — this function only decides
   // "confident vs not", never resolution failure.
-  const raw = fs.readFileSync(configPath, 'utf-8');
+  const raw = readConfigFileBounded(configPath, { required: true });
   const parsed = JSON.parse(raw);
   if (parsed && typeof parsed === 'object' && 'runtime' in parsed) {
     const configRuntime = resolveRuntimeNameFromCandidates(parsed.runtime);
@@ -219,7 +228,9 @@ function resolveRuntimeIdentity(cwd, configPath, resolveRuntimeNameFromCandidate
   // never a resolution failure (this function only ever throws for the
   // config.json read above, which the caller's catch already handles).
   try {
-    const defaultsPath = path.join(os.homedir(), '.gsd', 'defaults.json');
+    // #5017: the store root is GSD_HOME when set and non-blank, else the home
+    // directory — the config loader's rule (src/runtime-homes.cts resolveGsdHome).
+    const defaultsPath = path.join(process.env.GSD_HOME || os.homedir(), '.gsd', 'defaults.json');
     const defaultsRaw = fs.readFileSync(defaultsPath, 'utf-8');
     const defaultsParsed = JSON.parse(defaultsRaw);
     if (defaultsParsed && typeof defaultsParsed === 'object' && 'runtime' in defaultsParsed) {
@@ -321,7 +332,7 @@ function resolveRegistryIsolation(cwd, configPath) {
     }
     if (!ladderAnswered) {
       try {
-        const raw = fs.readFileSync(configPath, 'utf-8');
+        const raw = readConfigFileBounded(configPath, { required: true });
         const parsedCfg = JSON.parse(raw);
         if (parsedCfg && typeof parsedCfg === 'object' && parsedCfg.workflow &&
             typeof parsedCfg.workflow === 'object' && parsedCfg.workflow.use_worktrees === false) {
@@ -335,6 +346,30 @@ function resolveRegistryIsolation(cwd, configPath) {
       }
     }
     if (!useWorktrees) isolation = 'none';
+  }
+
+  // #4734: a harness worktree can never be created in a directory that is not
+  // a git repository (or a repository with no commits) — git's definitive
+  // exit-128 answer on `rev-parse HEAD`. Demanding the isolation flag there
+  // blocked every flag-less dispatch the moment the sentinel went stale, on a
+  // root where no worktree can exist. Degrade to 'none' exactly like the
+  // use_worktrees opt-out above; the classification is owned by
+  // `classifyGitHead` (worktree-base-ref.cjs) — the same single owner the
+  // base-check's degrade decision uses — and ambiguous or failed resolutions
+  // keep the conservative (enforce) default, matching that check's own
+  // fail-closed treatment of the same classes.
+  if (isolation === 'harness-worktree') {
+    try {
+      ensureRuntimeBuild();
+      const { classifyGitHead } = require('../gsd-core/bin/lib/worktree-base-ref.cjs');
+      if (classifyGitHead({ cwd }).status === 'definitive-absence') {
+        isolation = 'none';
+      }
+    } catch {
+      // Unbuilt or unreadable runtime library — keep the conservative
+      // (enforce) default rather than silently disabling the guard, same
+      // posture as the ladder fallback above.
+    }
   }
 
   return { isolation, harnessFlag };
@@ -385,16 +420,20 @@ function resolveIsolationState(cwd, { clock = Date, dispatchIds = null } = {}) {
     projectExists = false;
   }
   if (!projectExists) {
-    return { gsdProject: false, isolation: null, harnessFlag: null, error: null };
+    return { gsdProject: false, isolation: null, harnessFlag: null, error: null, sentinelDiscarded: null };
   }
 
-  const sentinel = readSentinel(cwd, { clock });
-  if (sentinel.present && !sentinel.stale && sentinelAppliesToDispatch(sentinel, dispatchIds)) {
+  const sentinel = readSentinel(cwd, { clock, dispatchIds });
+  // Hoisted so the "sentinel was present/fresh but did not apply" case below
+  // (#4594 row 15 — Postel's-Law finding) can distinguish itself from
+  // "absent"/"stale" without re-deriving applicability.
+  const applies = sentinelAppliesToDispatch(sentinel, dispatchIds);
+  if (sentinel.present && !sentinel.stale && applies) {
     if (sentinel.isolation !== 'harness-worktree') {
-      return { gsdProject: true, isolation: sentinel.isolation, harnessFlag: null, error: null };
+      return { gsdProject: true, isolation: sentinel.isolation, harnessFlag: null, error: null, sentinelDiscarded: null };
     }
     if (sentinel.harnessFlag) {
-      return { gsdProject: true, isolation: 'harness-worktree', harnessFlag: sentinel.harnessFlag, error: null };
+      return { gsdProject: true, isolation: 'harness-worktree', harnessFlag: sentinel.harnessFlag, error: null, sentinelDiscarded: null };
     }
     // #3045 BLOCKER 2 fix: the sentinel already PROVED this dispatch requires
     // isolation (it resolved harness-worktree) but carries no usable flag —
@@ -423,18 +462,37 @@ function resolveIsolationState(cwd, { clock = Date, dispatchIds = null } = {}) {
         'dispatch-isolation sentinel resolved "harness-worktree" but recorded no harness_flag — ' +
         'cannot verify what parameter the dispatch must carry.'
       ),
+      sentinelDiscarded: null,
     };
+  }
+
+  // #5479: a recorded sequential degrade (`none`) for THIS dispatch's phase keeps governing it after the
+  // trust window. Without this, an executor that ran longer than SENTINEL_STALE_MS made the next
+  // flag-less dispatch of the same phase fall back to the registry capability ("this host CAN
+  // isolate") and be denied for a degrade the workflow legitimately recorded. The predicate only
+  // loosens toward `none`, only for the phase the dispatch itself names, never for a future-dated
+  // record (see agedNoneGovernsDispatch).
+  if (sentinel.present && sentinel.stale && agedNoneGovernsDispatch(sentinel, dispatchIds, { clock })) {
+    return { gsdProject: true, isolation: 'none', harnessFlag: null, error: null, sentinelDiscarded: null };
   }
 
   // Sentinel absent, stale, or does not apply to this dispatch (F2 mismatch):
   // conservative fallback (#3045 finding — must still cover fail-closed case
   // (a): a project that opted out of worktrees entirely via
   // workflow.use_worktrees).
+  //
+  // #4594 row 15: a PRESENT, FRESH sentinel that simply does not apply to
+  // THIS dispatch (identifiers disagree) is a distinct case from "absent" or
+  // "stale" — record what was discarded so evaluateDispatch can name it in a
+  // block reason instead of silently falling through to a registry-resolution
+  // message that never mentions the sentinel existed.
+  const sentinelDiscarded = buildSentinelDiscard(sentinel, dispatchIds);
+
   try {
     const { isolation, harnessFlag } = resolveRegistryIsolation(cwd, configPath);
-    return { gsdProject: true, isolation, harnessFlag, error: null };
+    return { gsdProject: true, isolation, harnessFlag, error: null, sentinelDiscarded };
   } catch (err) {
-    return { gsdProject: true, isolation: null, harnessFlag: null, error: err };
+    return { gsdProject: true, isolation: null, harnessFlag: null, error: err, sentinelDiscarded };
   }
 }
 
@@ -464,10 +522,16 @@ function evaluateDispatch(data, { clock = Date } = {}) {
   }
 
   const cwd = data.cwd || process.cwd();
-  // #3045 SECURITY F2: best-effort plan/phase extraction from this
-  // dispatch's own description text, so a fresh sentinel that disagrees
-  // with THIS dispatch is treated as inapplicable rather than trusted.
-  const dispatchIds = extractDispatchIdentifiers(toolInput.description);
+  // #3045 SECURITY F2 / #4594: best-effort plan/phase extraction from this
+  // dispatch's own text, so a fresh sentinel that disagrees with THIS
+  // dispatch is treated as inapplicable rather than trusted. PROMPT FIRST:
+  // `description` is short, model-authored free text that only carries usable
+  // identity when the model happens to reproduce the dispatch template
+  // verbatim, while the canonical `[gsd:dispatch phase="…" plan="…"]` marker
+  // (or, failing that, the prose fallback) lives in the prompt body itself —
+  // `description` is kept only as a fallback for a marker/prose match that
+  // exists solely in it.
+  const dispatchIds = extractDispatchIdentifiers(toolInput.prompt, toolInput.description);
   const state = resolveIsolationState(cwd, { clock, dispatchIds });
 
   if (!state.gsdProject) return { action: 'allow' };
@@ -493,7 +557,8 @@ function evaluateDispatch(data, { clock = Date } = {}) {
         `required — a guard that cannot verify must not answer "safe" (#3050). Retry once the ` +
         `project configuration is readable.`;
     const reasonCode = isBuildFailure ? REASON_CODE.RUNTIME_BUILD_FAILED : REASON_CODE.CONFIG_UNREADABLE;
-    return { action: 'block', reason, reasonCode };
+    const fullReason = state.sentinelDiscarded ? reason + describeSentinelDiscard(state.sentinelDiscarded) : reason;
+    return { action: 'block', reason: fullReason, reasonCode, sentinelDiscarded: state.sentinelDiscarded };
   }
 
   if (state.isolation !== 'harness-worktree') return { action: 'allow' };
@@ -503,13 +568,14 @@ function evaluateDispatch(data, { clock = Date } = {}) {
 
   if (toolInput[parsed.param] === parsed.value) return { action: 'allow' };
 
-  const reason =
+  let reason =
     `Agent isolation guard: this project's dispatch isolation resolves to "harness-worktree", ` +
     `but the Agent() dispatch for subagent_type="${subagentType}" is missing ` +
     `${parsed.param}="${parsed.value}". Add ${parsed.param}="${parsed.value}" to the Agent() ` +
     `call so the executor runs in an isolated worktree instead of the primary checkout ` +
     `(gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md).`;
-  return { action: 'block', reason, reasonCode: REASON_CODE.HARNESS_FLAG_MISSING };
+  if (state.sentinelDiscarded) reason += describeSentinelDiscard(state.sentinelDiscarded);
+  return { action: 'block', reason, reasonCode: REASON_CODE.HARNESS_FLAG_MISSING, sentinelDiscarded: state.sentinelDiscarded };
 }
 
 /* istanbul ignore next -- stdin adapter, exercised via spawnSync in tests */
@@ -524,7 +590,12 @@ function main() {
       const data = JSON.parse(input);
       const decision = evaluateDispatch(data);
       if (decision.action === 'block') {
-        const out = { decision: 'block', reason: decision.reason, reason_code: decision.reasonCode };
+        const out = {
+          decision: 'block',
+          reason: decision.reason,
+          reason_code: decision.reasonCode,
+          sentinel_discarded: decision.sentinelDiscarded ?? null,
+        };
         // Kimi feeds stderr (not stdout) back to the model on exit 2.
         deny(out, decision.reason);
       }

@@ -29,6 +29,7 @@ const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs")
 const runtime_homes_cjs_1 = require("./runtime-homes.cjs");
 const runtime_slash_cjs_1 = require("./runtime-slash.cjs");
 const runtime_name_policy_cjs_1 = require("./runtime-name-policy.cjs");
+const frontmatter_fence_cjs_1 = require("./frontmatter-fence.cjs");
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DIMENSION_KEYS = [
     'communication_style', 'decision_speed', 'explanation_depth',
@@ -203,6 +204,7 @@ function buildClaudeMdWorkflowEnforcement(runtime) {
         'Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.',
         '',
         'Use these entry points:',
+        `- \`${String((0, runtime_slash_cjs_1.formatGsdSlash)('fast', runtime))}\` for a trivial task inline, with no subagents and no PLAN.md`,
         `- \`${String((0, runtime_slash_cjs_1.formatGsdSlash)('quick', runtime))}\` for small fixes, doc updates, and ad-hoc tasks`,
         `- \`${String((0, runtime_slash_cjs_1.formatGsdSlash)('debug', runtime))}\` for investigation and bug fixing`,
         `- \`${String((0, runtime_slash_cjs_1.formatGsdSlash)('execute-phase', runtime))}\` for planned phase work`,
@@ -477,10 +479,11 @@ function generateSkillsSection(cwd) {
  */
 function extractSkillFrontmatter(content) {
     const result = { name: '', description: '' };
-    const fmMatch = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
-    if (!fmMatch)
+    // The block is the one the one fence owner (`locateFrontmatterFence`) finds.
+    const fence = (0, frontmatter_fence_cjs_1.locateFrontmatterFence)(content);
+    if (!fence?.closed)
         return result;
-    const fmBlock = fmMatch[1];
+    const fmBlock = content.slice(fence.openEnd, fence.bodyEnd);
     const lines = fmBlock.split('\n');
     let currentKey = '';
     for (const line of lines) {
@@ -676,7 +679,7 @@ function cmdWriteProfile(cwd, options, raw) {
         outputPath = node_path_1.default.join(cwd, outputPath);
     }
     (0, shell_command_projection_cjs_1.platformEnsureDir)(node_path_1.default.dirname(outputPath));
-    (0, shell_command_projection_cjs_1.platformWriteSync)(outputPath, template);
+    (0, shell_command_projection_cjs_1.platformWriteSync)(outputPath, template, { allowSpecialTarget: Boolean(options.output) });
     const result = {
         profile_path: outputPath,
         dimensions_scored: dimensionsScored,
@@ -840,7 +843,7 @@ function cmdGenerateDevPreferences(cwd, options, raw) {
         outputPath = node_path_1.default.join(cwd, outputPath);
     }
     (0, shell_command_projection_cjs_1.platformEnsureDir)(node_path_1.default.dirname(outputPath));
-    (0, shell_command_projection_cjs_1.platformWriteSync)(outputPath, template);
+    (0, shell_command_projection_cjs_1.platformWriteSync)(outputPath, template, { allowSpecialTarget: Boolean(options.output) });
     const result = {
         command_path: outputPath,
         command_name: (0, runtime_slash_cjs_1.formatGsdSlash)('dev-preferences', (0, runtime_slash_cjs_1.resolveRuntime)(cwd)),
@@ -967,6 +970,9 @@ function cmdGenerateClaudeProfile(cwd, options, raw) {
         targetPath = node_path_1.default.isAbsolute(configClaudeMdPath) ? configClaudeMdPath : node_path_1.default.join(cwd, configClaudeMdPath);
     }
     let action;
+    // Only a path the user typed after --output may be a device or pipe (/dev/stdout); the
+    // global and config-derived targets keep refusing special files (#5759).
+    const userChosenTarget = !options.global && Boolean(options.output);
     let existingContent = (0, shell_command_projection_cjs_1.platformReadSync)(targetPath);
     if (existingContent !== null) {
         const startMarker = '<!-- GSD:profile-start -->';
@@ -983,11 +989,11 @@ function cmdGenerateClaudeProfile(cwd, options, raw) {
             existingContent = existingContent.trimEnd() + '\n\n' + sectionContent + '\n';
             action = 'appended';
         }
-        (0, shell_command_projection_cjs_1.platformWriteSync)(targetPath, existingContent);
+        (0, shell_command_projection_cjs_1.platformWriteSync)(targetPath, existingContent, { allowSpecialTarget: userChosenTarget });
     }
     else {
         (0, shell_command_projection_cjs_1.platformEnsureDir)(node_path_1.default.dirname(targetPath));
-        (0, shell_command_projection_cjs_1.platformWriteSync)(targetPath, sectionContent + '\n');
+        (0, shell_command_projection_cjs_1.platformWriteSync)(targetPath, sectionContent + '\n', { allowSpecialTarget: userChosenTarget });
         action = 'created';
     }
     const result = {
@@ -1097,7 +1103,7 @@ function cmdGenerateClaudeMd(cwd, options, raw) {
         existingContent = sections.join('\n\n') + '\n';
         action = 'created';
         (0, shell_command_projection_cjs_1.platformEnsureDir)(node_path_1.default.dirname(outputPath));
-        (0, shell_command_projection_cjs_1.platformWriteSync)(outputPath, existingContent);
+        (0, shell_command_projection_cjs_1.platformWriteSync)(outputPath, existingContent, { allowSpecialTarget: Boolean(options.output) });
     }
     else if (!/<!-- GSD:[a-z]+-start/.test(existingContent) && !options.force) {
         // #1098: the target instruction file already exists and contains NO GSD
@@ -1155,7 +1161,7 @@ function cmdGenerateClaudeMd(cwd, options, raw) {
         if (!options.auto && fileContent.indexOf('<!-- GSD:profile-start') === -1) {
             fileContent = fileContent.trimEnd() + '\n\n' + buildClaudeMdProfilePlaceholder((0, runtime_slash_cjs_1.resolveRuntime)(cwd)) + '\n';
         }
-        (0, shell_command_projection_cjs_1.platformWriteSync)(outputPath, fileContent);
+        (0, shell_command_projection_cjs_1.platformWriteSync)(outputPath, fileContent, { allowSpecialTarget: Boolean(options.output) });
     }
     const finalContent = (0, shell_command_projection_cjs_1.platformReadSync)(outputPath);
     let profileStatus;

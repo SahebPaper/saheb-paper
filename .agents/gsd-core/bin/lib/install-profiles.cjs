@@ -27,12 +27,15 @@ const node_os_1 = __importDefault(require("node:os"));
 const installFsAdapter = require("./install-fs-adapter.cjs");
 const { installFs, mkInstallTempDir } = installFsAdapter;
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
+const frontmatter_fence_cjs_1 = require("./frontmatter-fence.cjs");
 // #2322: reuse the existing pure path-containment seam (ADR-1239 Phase C-2)
 // instead of hand-rolling a new traversal check for capability skill stems.
 const external_descriptor_trust_cjs_1 = require("./external-descriptor-trust.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- capability-ledger.cjs is an export= CommonJS module
+const capabilityLedger = require("./capability-ledger.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const conversionModule = require("./runtime-artifact-conversion.cjs");
-const { applyAgentPathRewrites: _applyAgentPathRewrites, processAttribution: _processAttribution, normalizeAgentBodyForRuntime: _normalizeAgentBodyForRuntime, readGsdCommandNames: _readGsdCommandNames, deriveAgentName: _deriveAgentName, applyAgentFrontmatterExtensions: _applyAgentFrontmatterExtensions, appendAgentTools: _appendAgentTools, } = conversionModule;
+const { applyAgentPathRewrites: _applyAgentPathRewrites, processAttribution: _processAttribution, normalizeAgentBodyForRuntime: _normalizeAgentBodyForRuntime, readGsdCommandNames: _readGsdCommandNames, deriveAgentName: _deriveAgentName, applyAgentFrontmatterExtensions: _applyAgentFrontmatterExtensions, appendAgentTools: _appendAgentTools, _shieldAgentConverterPrefix, } = conversionModule;
 // #2995 (epic #1671 Phase 6.4): agent bodies join the fragment model. Markers are
 // stripped at emit BEFORE any path rewrite or converter runs, so a `.agents/` ->
 // `.windsurf/` regex can never reach inside a marker attribute and corrupt it —
@@ -95,13 +98,15 @@ const PROFILES = Object.freeze({
  * Returns string[] — empty array if no requires: field.
  *
  * No external YAML parser dependency — hand-parse the single line
- * since GSD enforces flow-style arrays for requires:.
+ * since GSD enforces flow-style arrays for requires:. The block is the one the
+ * one fence owner (`locateFrontmatterFence`) finds — a `---` pair later in the
+ * body (a thematic break, a YAML example) is never frontmatter.
  */
 function parseRequires(content) {
-    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/m);
-    if (!fmMatch)
+    const fence = (0, frontmatter_fence_cjs_1.locateFrontmatterFence)(content);
+    if (!fence?.closed)
         return [];
-    const fm = fmMatch[1];
+    const fm = content.slice(fence.openEnd, fence.bodyEnd);
     const line = fm.match(/^requires:\s*(.+)$/m);
     if (!line)
         return [];
@@ -297,7 +302,7 @@ function _capabilitySkillsForMode(mode, registry) {
 /**
  * Resolve a profile (or composed profiles) to a typed result object.
  */
-function resolveProfile({ modes, manifest, _profilesOverride, registry } = {}) {
+function resolveProfile({ modes, manifest, _profilesOverride, registry, agentManifest } = {}) {
     const profiles = _profilesOverride || PROFILES;
     const activeModes = (modes && modes.length > 0) ? modes : ['full'];
     const normalizedModes = activeModes
@@ -332,10 +337,13 @@ function resolveProfile({ modes, manifest, _profilesOverride, registry } = {}) {
     }
     // Derive agents: union of all agent names referenced in the body text of
     // every skill in unionSkills. Agent names are stored in the manifest under
-    // _calls_agents_<stem> keys (populated by loadSkillsManifest).
+    // _calls_agents_<stem> keys (populated by loadSkillsManifest). #5503: read from
+    // `agentManifest` when given, so a profile that skips the skill closure still
+    // stages the agents its own skills spawn.
+    const agentMan = agentManifest || man;
     const unionAgents = new Set();
     for (const skillStem of unionSkills) {
-        const agentRefs = man.get(`_calls_agents_${skillStem}`) || [];
+        const agentRefs = agentMan.get(`_calls_agents_${skillStem}`) || [];
         for (const agentStem of agentRefs) {
             unionAgents.add(agentStem);
         }
@@ -740,9 +748,14 @@ function readInstalledCapabilitySkill(stem, registry) {
         return null;
     const skillPath = node_path_1.default.join(capDir, relSkillPath);
     try {
-        if (!node_fs_1.default.statSync(skillPath).isFile())
+        // statSync follows symlinks; isPathConfined is lexical and cannot see one.
+        // Refuse to read through a link so an outside file's content cannot be
+        // installed as a capability skill (epic #4636).
+        if (node_fs_1.default.lstatSync(skillPath).isSymbolicLink())
             return null;
-        return { capId, content: node_fs_1.default.readFileSync(skillPath, 'utf8') };
+        // #5121: the bounded regular-file read — a FIFO/device/oversized SKILL.md is skipped like a missing one.
+        const content = capabilityLedger.readSkillFile(skillPath);
+        return content === null ? null : { capId, content };
     }
     catch {
         return null; // missing / unreadable / corrupt entry -> skip
@@ -858,6 +871,15 @@ function stageSkillsForRuntimeAsSkills(srcCommandsDir, resolvedProfile, converte
                 if (!(0, external_descriptor_trust_cjs_1.isPathConfined)(skillName, stageDir))
                     continue; // defense-in-depth
                 const destDir = node_path_1.default.join(stageDir, skillName);
+                // isPathConfined is lexical and cannot see a symlink. mkdirSync({recursive:true})
+                // does NOT throw when destDir already exists as a symlink to a directory, so a
+                // pre-planted link would redirect the SKILL.md write outside `stageDir`. Refuse
+                // to write through a link (epic #4636; mirrors retired-artifact-cleanup.cts:77).
+                try {
+                    if (installFs().lstatSync(destDir).isSymbolicLink())
+                        continue;
+                }
+                catch { /* ENOENT: not created yet — the normal case */ }
                 installFs().mkdirSync(destDir, { recursive: true });
                 installFs().writeFileSync(node_path_1.default.join(destDir, 'SKILL.md'), found.content);
                 // #2322 HIGH-3: persist the capability-owned marker so a later prune
@@ -921,7 +943,7 @@ function stageSkillsForRuntimeAsSkills(srcCommandsDir, resolvedProfile, converte
  * @param isGlobal        install scope passed through to the converter
  * @param agentCtx        optional cross-cutting context (ADR-1235 §1)
  */
-function stageAgentsForRuntimeWithConverter(srcAgentsDir, resolvedProfile, converter, isGlobal = false, agentCtx) {
+function stageAgentsForRuntimeWithConverter(srcAgentsDir, resolvedProfile, converter, isGlobal = false, agentCtx, excludeSuffixes) {
     if (!installFs().existsSync(srcAgentsDir))
         return srcAgentsDir;
     const stageDir = mkInstallTempDir('gsd-profile-runtime-agents-');
@@ -957,6 +979,8 @@ function stageAgentsForRuntimeWithConverter(srcAgentsDir, resolvedProfile, conve
                 continue;
             if (!entry.name.endsWith('.md'))
                 continue;
+            if (excludeSuffixes && excludeSuffixes.some((s) => entry.name.endsWith(s)))
+                continue;
             // For tiered profiles, gate by agent stem (full filename without extension).
             if (resolvedProfile.skills !== '*') {
                 const stem = entry.name.slice(0, -3);
@@ -987,7 +1011,9 @@ function stageAgentsForRuntimeWithConverter(srcAgentsDir, resolvedProfile, conve
                 // Step 3: validated canonical grants, before host conversion.
                 content = _appendAgentTools(content, grants);
                 // Step 4: converter (runtime-specific frontmatter/body transform)
-                content = converter(content, isGlobal, { agentName });
+                // #5715: the converter runs after the prefix pass above; shield the emitted prefix
+                // from it, except where the runtime declares no path rewrite (nothing was emitted).
+                content = _shieldAgentConverterPrefix(content, agentCtx.runtime, agentCtx.pathPrefix, (shielded) => converter(shielded, isGlobal, { agentName, pathPrefix: agentCtx.pathPrefix }));
                 // Step 5: frontmatter extensions (effort/disallowedTools; no-op unless
                 // the runtime declares hostBehaviors.agentFrontmatterExtensions)
                 content = _applyAgentFrontmatterExtensions(content, { runtime: agentCtx.runtime, agentName, targetDir: agentCtx.targetDir });

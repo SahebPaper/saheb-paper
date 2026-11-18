@@ -46,7 +46,7 @@ const healthDiagnosticMod = require("../health-diagnostic-types.cjs");
 const { SEVERITY, adviseRemedy } = healthDiagnosticMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const phaseIdMod = require("../phase-id.cjs");
-const { getMilestoneFromPhaseId, matchPhaseDirs, normalizePhaseName, extractPhaseToken, PHASE_NUMBER_TOKEN_SOURCE } = phaseIdMod;
+const { getMilestoneFromPhaseId, matchPhaseDirs, phaseLookupQuery, extractPhaseToken, PHASE_NUMBER_TOKEN_SOURCE } = phaseIdMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- the single owner of the persisted status vocabulary
 const stateDocumentMod = require("../state-document.cjs");
 const { normalizeStateStatus } = stateDocumentMod;
@@ -158,6 +158,17 @@ const RULE_W002 = {
         const normalizedValid = normalizePhaseTokenSet(validPhases);
         const sortedValid = [...validPhases].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         const diagnostics = [];
+        // #4257: the valid set above is WORKSTREAM-scoped by construction (every
+        // source field is read from `planningPaths(cwd)`'s base, which resolves
+        // under `.planning/workstreams/<active-ws>/`), and per-workstream phase
+        // numbering is deliberate — so under a workstream the message must NAME
+        // that scope rather than make an unqualified project-wide claim (a
+        // reference to a phase declared only in a SIBLING workstream reads as
+        // "undeclared" against this list; that is the scope speaking, not drift).
+        // Root scope (`workstream === null`, flat or root-planning projects)
+        // keeps the byte-identical message — no clause is appended when none
+        // applies.
+        const scopeClause = snapshot.workstream ? ` in workstream ${snapshot.workstream}` : '';
         for (const ref of snapshot.statePhaseTokens.value) {
             const dotIdx = ref.indexOf('.');
             const head = dotIdx === -1 ? ref : ref.slice(0, dotIdx);
@@ -168,7 +179,7 @@ const RULE_W002 = {
             diagnostics.push({
                 code: 'W002',
                 severity: SEVERITY.WARNING,
-                message: `STATE.md references phase ${ref}, but only phases ${sortedValid.join(', ')} are declared`,
+                message: `STATE.md references phase ${ref}, but only phases ${sortedValid.join(', ')} are declared${scopeClause}`,
                 remedy: adviseRemedy('Review STATE.md manually before changing it; /gsd-health --repair will not overwrite an existing STATE.md for phase mismatches'),
             });
         }
@@ -321,8 +332,8 @@ const RULE_W026 = {
         // field's own doc comment on `PlanningSnapshot` for why
         // `roadmapDeclaredPhases`'s `milestone` attribution is the wrong fit).
         const unstarted = [];
+        const directoryContext = snapshot.directoryContext ?? phaseIdMod.phaseDirectoryContext(snapshot.config.value ?? {}, '', snapshot.currentMilestoneRoadmapPhaseIds.value);
         for (const phaseId of snapshot.currentMilestoneRoadmapPhaseIds.value) {
-            const normalized = normalizePhaseName(phaseId);
             // `allPhaseDirNames` — every directory under `phases/`, UNWINDOWED by
             // ROADMAP-declaration membership — mirrors the original's own
             // unwindowed `phaseDirNames2` (`verify.cts:2372-2382`, a direct
@@ -335,7 +346,7 @@ const RULE_W026 = {
             // moved the read onto the shared selector; the convention rides along,
             // since the selector's primary match IS the `phaseTokenMatches` call this
             // line used to make directly.
-            const hasDirectory = matchPhaseDirs(snapshot.allPhaseDirNames.value, normalized, snapshot.phaseIdConvention).matches.length > 0;
+            const hasDirectory = matchPhaseDirs(snapshot.allPhaseDirNames.value, phaseLookupQuery(phaseId, directoryContext), snapshot.phaseIdConvention, undefined, directoryContext).matches.length > 0;
             if (!hasDirectory)
                 unstarted.push(phaseId);
         }

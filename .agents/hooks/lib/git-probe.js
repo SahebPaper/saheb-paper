@@ -81,4 +81,36 @@ function reportIfUndetermined(hookName, probeLabel, result) {
   }
 }
 
-module.exports = { classifyGitProbe, reportIfUndetermined };
+// Per-probe budget for the git probes of BLOCKING guards. A probe that times
+// out fails OPEN (see reportIfUndetermined above), which is the same outcome
+// as the host killing the hook — so a budget sized to git's ~0.1s typical run
+// silently disables the gate on a starved host (a 2000ms budget was exceeded
+// on a loaded Windows runner, #5180). Worst case for a guard that runs up to
+// BLOCKING_GUARD_MAX_SEQUENTIAL_PROBES sequential probes:
+//   3 x 5000ms + ~500ms node start/kill/reap = ~15.5s,
+// inside the 120s host budget blocking guards are registered with (#3981).
+const BLOCKING_GUARD_PROBE_TIMEOUT_MS = 5000;
+const BLOCKING_GUARD_MAX_SEQUENTIAL_PROBES = 3;
+
+// #5548: repo-location vars git sets in hooks; inherited, they override the
+// probe's cwd/-C. Parity-tested copy of GIT_LOCATION_ENV_VARS in
+// src/shell-command-projection.cts (hooks ship standalone and cannot import it).
+const GIT_LOCATION_ENV_VARS = [
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE',
+  'GIT_IMPLICIT_WORK_TREE', 'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS',
+  'GIT_REPLACE_REF_BASE', 'GIT_PREFIX', 'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR',
+];
+
+/** `env` (default process.env) minus the repo-location vars (case-insensitive, for Windows). */
+function gitEnv(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !GIT_LOCATION_ENV_VARS.includes(k.toUpperCase())));
+}
+
+module.exports = {
+  GIT_LOCATION_ENV_VARS,
+  gitEnv,
+  classifyGitProbe,
+  reportIfUndetermined,
+  BLOCKING_GUARD_PROBE_TIMEOUT_MS,
+  BLOCKING_GUARD_MAX_SEQUENTIAL_PROBES,
+};

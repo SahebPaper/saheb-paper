@@ -11,6 +11,8 @@
  * ADR-457 build-at-publish: compiled by tsc to gsd-core/bin/lib/markdown-sectionizer.cjs.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.XML_DECISION_TAG_NAMES = void 0;
+exports.matchFenceDelimiter = matchFenceDelimiter;
 exports.stripFencedCode = stripFencedCode;
 exports.stripInlineCode = stripInlineCode;
 exports.scanInlineCodeSpans = scanInlineCodeSpans;
@@ -21,12 +23,44 @@ exports.collectSections = collectSections;
 exports.collectSection = collectSection;
 exports.iterateBullets = iterateBullets;
 exports.updateBullet = updateBullet;
+exports.updateHeading = updateHeading;
 exports.extractTaggedBlocks = extractTaggedBlocks;
+exports.extractTaggedBlockSpans = extractTaggedBlockSpans;
 exports.stripTaggedBlocks = stripTaggedBlocks;
+exports.editOutsideTaggedBlocks = editOutsideTaggedBlocks;
+exports.maskFences = maskFences;
+exports.editOutsideFences = editOutsideFences;
 exports.replaceSection = replaceSection;
 exports.withSection = withSection;
+exports.headingSliceRange = headingSliceRange;
+exports.editHeadingSlice = editHeadingSlice;
 exports.deleteSection = deleteSection;
+exports.extractXmlTagBodies = extractXmlTagBodies;
 const pattern_cjs_1 = require("./pattern.cjs");
+const FENCE_DELIMITER_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
+/**
+ * The single CommonMark fence-delimiter grammar: ≤3 spaces of indent, a run of
+ * ≥3 backticks or tildes, then trailing text. A trailing `\r` is stripped first
+ * (CRLF safety). Returns `null` when the line is not a delimiter line at all.
+ * `stripFencedCode`, `scanFencedBlocks`, `tokenizeHeadings` and the roadmap
+ * parser's comment/fence blanking all classify delimiter lines through this one
+ * matcher.
+ */
+function matchFenceDelimiter(line) {
+    const m = FENCE_DELIMITER_RE.exec(line.replace(/\r$/, ''));
+    if (m === null)
+        return null;
+    const char = m[2][0];
+    const len = m[2].length;
+    const trailing = m[3];
+    return {
+        char,
+        len,
+        trailing,
+        canOpen: !(char === '`' && trailing.includes('`')),
+        closes: (opener) => char === opener.char && len >= opener.len && /^\s*$/.test(trailing),
+    };
+}
 // ─── stripFencedCode ──────────────────────────────────────────────────────────
 /**
  * CommonMark-correct fenced-code-block stripper.
@@ -54,27 +88,20 @@ function stripFencedCode(content) {
     const lines = content.split('\n');
     const kept = [];
     let openFence = null;
-    // Matches: optional indent (≤3 spaces per CommonMark), fence run, optional info string
-    const delimRe = /^( {0,3})(`{3,}|~{3,})(.*)$/;
     for (const rawLine of lines) {
-        // Strip trailing \r for delimiter matching (CRLF safety)
-        const line = rawLine.replace(/\r$/, '');
-        const m = delimRe.exec(line);
+        const m = matchFenceDelimiter(rawLine);
         if (m) {
-            const char = m[2][0];
-            const len = m[2].length;
-            const trailing = m[3];
             if (openFence === null) {
                 // CommonMark §4.5: backtick fence info string must not contain a backtick.
                 // If it does, this line is NOT a valid fence opener (treat as ordinary content).
-                if (char === '`' && trailing.includes('`')) {
+                if (!m.canOpen) {
                     kept.push(rawLine);
                     continue;
                 }
                 // Opening delimiter — record fence state, drop this line
-                openFence = { char, len };
+                openFence = { char: m.char, len: m.len };
             }
-            else if (char === openFence.char && len >= openFence.len && /^\s*$/.test(trailing)) {
+            else if (m.closes(openFence)) {
                 // Closing delimiter (same char, sufficient length, no trailing content) — close and drop
                 openFence = null;
             }
@@ -205,9 +232,8 @@ function stripInlineCodeLine(line) {
  * different-info-string fence, a fence nested/indented inside another fence,
  * and a `~~~` fence are all classified exactly as `stripFencedCode` would.
  *
- * Tracked duplication (same status as `tokenizeHeadings`'s copy, see its
- * comment above): this is a second independent copy of the fence state
- * machine, pending a T-tier consolidation.
+ * Delimiter classification goes through `matchFenceDelimiter`, the one shared
+ * grammar (also used by `stripFencedCode` and `tokenizeHeadings`).
  *
  * Exported so `context-predicates.cts` can consume this seam directly for its
  * line-preserving fenced-line skip detection, instead of carrying a third
@@ -215,24 +241,19 @@ function stripInlineCodeLine(line) {
  * comment).
  */
 function scanFencedBlocks(lines) {
-    const delimRe = /^( {0,3})(`{3,}|~{3,})(.*)$/;
     const blocks = [];
     let open = null;
     for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].replace(/\r$/, '');
-        const m = delimRe.exec(line);
+        const m = matchFenceDelimiter(lines[i]);
         if (!m)
             continue;
-        const char = m[2][0];
-        const len = m[2].length;
-        const trailing = m[3];
         if (open === null) {
             // CommonMark §4.5: backtick fence info string must not contain a backtick.
-            if (char === '`' && trailing.includes('`'))
+            if (!m.canOpen)
                 continue; // not a valid opener — ordinary content
-            open = { char, len, infoString: trailing.trim(), openLineIdx: i };
+            open = { char: m.char, len: m.len, infoString: m.trailing.trim(), openLineIdx: i };
         }
-        else if (char === open.char && len >= open.len && /^\s*$/.test(trailing)) {
+        else if (m.closes(open)) {
             blocks.push({
                 char: open.char,
                 len: open.len,
@@ -311,30 +332,26 @@ function tokenizeHeadings(content) {
     const tokens = [];
     // We re-run the fence state machine to know which lines are "kept", so we
     // can map line index in original to whether it survived.
-    const delimRe = /^( {0,3})(`{3,}|~{3,})(.*)$/;
     let openFence = null;
     // Accumulate character offset as we iterate lines
     let charOffset = 0;
     for (let i = 0; i < originalLines.length; i++) {
         const rawLine = originalLines[i];
         const line = rawLine.replace(/\r$/, '');
-        const dm = delimRe.exec(line);
+        const dm = matchFenceDelimiter(rawLine);
         if (dm) {
-            const char = dm[2][0];
-            const len = dm[2].length;
-            const trailing = dm[3];
             if (openFence === null) {
                 // CommonMark §4.5: backtick fence info string must not contain a backtick.
-                if (char === '`' && trailing.includes('`')) {
+                if (!dm.canOpen) {
                     // Not a valid fence opener — check for heading on this line (will fall through)
                 }
                 else {
-                    openFence = { char, len };
+                    openFence = { char: dm.char, len: dm.len };
                     charOffset += rawLine.length + 1;
                     continue;
                 }
             }
-            else if (char === openFence.char && len >= openFence.len && /^\s*$/.test(trailing)) {
+            else if (dm.closes(openFence)) {
                 openFence = null;
                 charOffset += rawLine.length + 1;
                 continue;
@@ -722,13 +739,47 @@ function updateBullet(content, match, transform) {
                     bulletText = nm[2];
             }
         }
-        if (bulletText !== null && match(bulletText, rawLine)) {
+        if (bulletText !== null && match(bulletText, rawLine, i)) {
             const newLine = transform(rawLine);
             if (typeof newLine !== 'string')
                 return content;
             return content.slice(0, offset) + newLine + content.slice(offset + rawLine.length);
         }
         offset += rawLine.length + 1;
+    }
+    return content;
+}
+// ─── updateHeading ────────────────────────────────────────────────────────────
+/**
+ * Rewrite the physical line of the FIRST ATX heading (outside fenced code)
+ * accepted by `match` — the heading analogue of `updateBullet` (ADR-5057 §6,
+ * Phase 13, #5217). Heading discovery is `tokenizeHeadings`' (the one fence
+ * state machine for headings); this function adds only the splice.
+ *
+ * `rawLine` (second argument to `match`, the only argument to `transform`) is
+ * the UNMODIFIED physical line between `\n` separators, so on a CRLF document
+ * its trailing `\r` is included and every untouched byte — including every
+ * other line's own terminator — is copied from `content` verbatim. `lineIndex`
+ * is the 0-based physical line index, the same indexing as
+ * `content.split('\n')`, so a caller holding a pre-computed line-indexed plan
+ * can disambiguate two headings with identical text.
+ *
+ * Bounded no-op: no accepted heading, or `transform` returning a non-string,
+ * returns `content` unchanged.
+ */
+function updateHeading(content, match, transform) {
+    if (typeof content !== 'string' || content.length === 0)
+        return content;
+    for (const heading of tokenizeHeadings(content)) {
+        const newlineAt = content.indexOf('\n', heading.offset);
+        const lineEnd = newlineAt === -1 ? content.length : newlineAt;
+        const rawLine = content.slice(heading.offset, lineEnd);
+        if (!match(heading, rawLine, heading.line - 1))
+            continue;
+        const newLine = transform(rawLine);
+        if (typeof newLine !== 'string')
+            return content;
+        return content.slice(0, heading.offset) + newLine + content.slice(lineEnd);
     }
     return content;
 }
@@ -777,6 +828,28 @@ function extractTaggedBlocks(content, tagName, allowAttributes = false) {
     return results;
 }
 /**
+ * Offset spans of the bodies `extractTaggedBlocks` returns (#4309): same
+ * pattern, same blocks, but each body is reported as `{ start, end }` into
+ * `content` so a caller can test whether an arbitrary offset lies inside a
+ * block (and dedupe nested blocks) without re-harvesting the text.
+ * `content.slice(span.start, span.end)` equals the matching extracted body.
+ */
+function extractTaggedBlockSpans(content, tagName, allowAttributes = false) {
+    if (typeof content !== 'string' || content.length === 0)
+        return [];
+    if (typeof tagName !== 'string' || tagName.length === 0)
+        return [];
+    const closeLength = `</${tagName}>`.length;
+    const pattern = taggedBlockPattern(tagName, 'g', allowAttributes);
+    const spans = [];
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+        const end = match.index + match[0].length - closeLength;
+        spans.push({ start: end - match[1].length, end });
+    }
+    return spans;
+}
+/**
  * Build the single, ReDoS-safe `<tag>…</tag>` block regex shared by
  * `extractTaggedBlocks` (extract bodies) and `stripTaggedBlocks` (remove blocks).
  *
@@ -812,6 +885,116 @@ function stripTaggedBlocks(content, tagName, allowAttributes = false, caseSensit
     if (typeof tagName !== 'string' || tagName.length === 0)
         return content;
     return content.replace(taggedBlockPattern(tagName, caseSensitive ? 'g' : 'gi', allowAttributes), '');
+}
+/**
+ * Run `edit` over `content` with every `<tagName>…</tagName>` block hidden from
+ * it, then put the blocks back byte-for-byte (#5543). The blocks are swapped for
+ * one-line placeholder comments, so `edit` sees the rest of the document in its
+ * original order and cannot touch, or be captured by, a block's contents.
+ *
+ * Same hardened block pattern as `stripTaggedBlocks` (exact `<tag>` opener, so
+ * `<details open>` stays visible to `edit`). If `edit` returns a non-string, or
+ * drops a placeholder, the original `content` is returned unchanged rather than
+ * a document with a block missing.
+ *
+ * Nested blocks are NOT supported, exactly as for `extractTaggedBlocks` and
+ * `stripTaggedBlocks`: the first `</tag>` closes the block. Every ROADMAP reader
+ * that strips shipped milestones shares that grammar, so this writer sees the
+ * same blocks those readers do.
+ */
+function editOutsideTaggedBlocks(content, tagName, edit, allowAttributes = false, caseSensitive = false) {
+    if (typeof content !== 'string' || content.length === 0)
+        return content;
+    if (typeof tagName !== 'string' || tagName.length === 0)
+        return edit(content);
+    const blocks = [];
+    let nonce = 0;
+    while (content.includes(`<!-- gsd-masked-${tagName}-${nonce}-`))
+        nonce += 1;
+    const placeholder = (i) => `<!-- gsd-masked-${tagName}-${nonce}-${i} -->`;
+    const masked = content.replace(taggedBlockPattern(tagName, caseSensitive ? 'g' : 'gi', allowAttributes), (block) => {
+        blocks.push(block);
+        return placeholder(blocks.length - 1);
+    });
+    if (blocks.length === 0)
+        return edit(content);
+    const edited = edit(masked);
+    if (typeof edited !== 'string')
+        return content;
+    let restored = edited;
+    for (let i = 0; i < blocks.length; i++) {
+        const marker = placeholder(i);
+        const at = restored.indexOf(marker);
+        if (at === -1 || restored.indexOf(marker, at + marker.length) !== -1)
+            return content;
+        restored = restored.slice(0, at) + blocks[i] + restored.slice(at + marker.length);
+    }
+    return restored;
+}
+/**
+ * Hide every fenced code block from a line-oriented edit. State-transition writers locate their
+ * target with `/^Field:.*$/m`-style patterns; those match a fenced EXAMPLE of the field as readily
+ * as the live line, so the example got the new value and the live line stayed stale. Masking each
+ * block to a single `<!-- gsd-masked-fence-… -->` line lets the same pattern see only live lines;
+ * `restore` splices the blocks back byte-for-byte (CRLF included — the original line text is kept).
+ * The fence grammar is `scanFencedBlocks`' (the one every reader here uses), and an unterminated
+ * fence masks to the end of the content, as `stripFencedCode` treats it.
+ */
+function maskFences(content) {
+    const identity = { masked: content, restore: (edited) => edited };
+    if (typeof content !== 'string' || content.length === 0)
+        return identity;
+    const lines = content.split('\n');
+    const blocks = scanFencedBlocks(lines);
+    if (blocks.length === 0)
+        return identity;
+    let nonce = 0;
+    while (content.includes(`<!-- gsd-masked-fence-${nonce}-`))
+        nonce += 1;
+    const placeholder = (i) => `<!-- gsd-masked-fence-${nonce}-${i} -->`;
+    const kept = [];
+    const originals = [];
+    let cursor = 0;
+    for (const block of blocks) {
+        const end = block.closeLineIdx === -1 ? lines.length - 1 : block.closeLineIdx;
+        for (; cursor < block.openLineIdx; cursor++)
+            kept.push(lines[cursor]);
+        originals.push(lines.slice(block.openLineIdx, end + 1).join('\n'));
+        kept.push(placeholder(originals.length - 1));
+        cursor = end + 1;
+    }
+    for (; cursor < lines.length; cursor++)
+        kept.push(lines[cursor]);
+    return {
+        masked: kept.join('\n'),
+        restore(edited) {
+            if (typeof edited !== 'string')
+                return null;
+            let restored = edited;
+            for (let i = 0; i < originals.length; i++) {
+                const marker = placeholder(i);
+                const at = restored.indexOf(marker);
+                if (at === -1 || restored.indexOf(marker, at + marker.length) !== -1)
+                    return null;
+                restored = restored.slice(0, at) + originals[i] + restored.slice(at + marker.length);
+            }
+            return restored;
+        },
+    };
+}
+/**
+ * Run `edit` over `content` with every fenced code block hidden from it (see `maskFences`).
+ * Content without a fence is edited as given. An edit that returns a non-string, or that loses a
+ * placeholder, returns the original content unchanged.
+ */
+function editOutsideFences(content, edit) {
+    if (typeof content !== 'string' || content.length === 0)
+        return content;
+    const mask = maskFences(content);
+    const edited = edit(mask.masked);
+    if (typeof edited !== 'string')
+        return content;
+    return mask.restore(edited) ?? content;
 }
 // ─── replaceSection ───────────────────────────────────────────────────────────
 /**
@@ -885,6 +1068,29 @@ function withSection(content, target, edit, opts = {}) {
         return content;
     return replaceSection(content, section, newBody);
 }
+/**
+ * Range of the slice that starts at `headings[index]` and runs to the next
+ * heading of level <= `maxLevel` (fence-aware: `headings` comes from
+ * `tokenizeHeadings`). Unlike `collectSection` it keeps the heading line and
+ * every trailing byte, so a caller that edits the slice can splice it back
+ * byte-exact (#5762).
+ */
+function headingSliceRange(content, headings, index, maxLevel = 2) {
+    const next = headings.slice(index + 1).find((h) => h.level <= maxLevel);
+    return { start: headings[index].offset, end: next ? next.offset : content.length };
+}
+/**
+ * Run `edit` on `content.slice(range.start, end)` and splice the result back,
+ * where `end` excludes the single newline that precedes the next heading — the
+ * slice the pre-owner writers cut with `search(/\n#{1,2}[ \t]/)` — so a row
+ * inserted at the end of a table keeps the blank line before that heading.
+ */
+function editHeadingSlice(content, range, edit) {
+    const end = range.end < content.length && range.end > range.start && content[range.end - 1] === '\n'
+        ? range.end - 1
+        : range.end;
+    return content.slice(0, range.start) + edit(content.slice(range.start, end)) + content.slice(end);
+}
 // ─── deleteSection ────────────────────────────────────────────────────────────
 /**
  * Delete an entire section — the matching heading line ITSELF plus its body —
@@ -915,6 +1121,8 @@ function withSection(content, target, edit, opts = {}) {
  * double-blank gap accumulates where the section used to sit. Content
  * elsewhere in the document is never touched.
  *
+ * `endOffset` adds an optional caller-owned maximum boundary. It never widens
+ * the heading-level range, and callers that omit it retain the legacy bytes.
  * Returns `content` unchanged when no heading matches `headingPredicate`
  * (bounded no-op, mirroring `withSection`'s miss behaviour).
  */
@@ -953,7 +1161,13 @@ function deleteSection(content, headingPredicate, opts = {}) {
     }
     const eofOffset = acc;
     const sectionStart = lineOffsets[target.line - 1]; // start of the target heading LINE itself
-    const sectionEnd = stopLine <= lines.length ? lineOffsets[stopLine - 1] : eofOffset;
+    const headingBoundedEnd = stopLine <= lines.length ? lineOffsets[stopLine - 1] : eofOffset;
+    const explicitEnd = typeof opts.endOffset === 'number' && Number.isFinite(opts.endOffset)
+        ? Math.max(0, Math.min(content.length, opts.endOffset))
+        : headingBoundedEnd;
+    const sectionEnd = Math.min(headingBoundedEnd, explicitEnd);
+    if (sectionEnd <= sectionStart)
+        return content;
     const before = content.slice(0, sectionStart);
     const after = content.slice(sectionEnd);
     // Collapse a resulting blank-line seam to at most one blank line (2 newlines).
@@ -961,6 +1175,43 @@ function deleteSection(content, headingPredicate, opts = {}) {
     // this never reaches into unrelated content elsewhere in the document.
     const collapsedBefore = before.replace(/(?:\r\n|\n){3,}$/, (m) => (m.includes('\r\n') ? '\r\n\r\n' : '\n\n'));
     return collapsedBefore + after;
+}
+// ─── extractXmlTagBodies ──────────────────────────────────────────────────────
+// #2372: scanned-tag set must match the planner-canonical surfaces where a D-NN citation
+// is meaningful. `<objective>`/`<tasks>`/`<task>`/`<action>` are the historical core. The
+// planner is also explicitly told (plan-phase.md) to cite decisions in `<read_first>`,
+// `<behavior>`, `<verify>`, `<acceptance_criteria>`, and `<done>` — those are scanned too,
+// so the decision-coverage gate does not report a false gap when a decision is cited in any of them.
+//
+// Implementation: per-tag matching, NOT a single wide alternation. A single alternation
+// like `<(?:a|b|c)>...<\/(?:a|b|c)>` halts the outer tag's body capture at any inner tag
+// in the set, dropping any citation in the outer tag's prefix prose — e.g.
+// `<action>per D-05 <verify>npm test</verify></action>` would lose D-05 because `<verify>`
+// halts the `<action>` body before the citation. Per-tag matching avoids this: each tag's
+// body terminates only at its OWN closing tag, so `<verify>` inside `<action>` is absorbed
+// into `<action>`'s body (D-05 caught) AND `<verify>` is matched separately on its own pass.
+// Each per-tag regex keeps the ReDoS-safe negative-lookahead tempering (#2128).
+exports.XML_DECISION_TAG_NAMES = ['objective', 'tasks', 'task', 'action', 'read_first', 'behavior', 'verify', 'acceptance_criteria', 'done'];
+function buildXmlDecisionTagRegex(tagName) {
+    // Per-tag: body tempering stops only at the SAME tag's reopening or closing — other
+    // scanned tags pass through as text into this body. Non-greedy `*?` to first close.
+    return new RegExp(`<${tagName}(?:\\s[^>]{0,1000})?>((?:(?!<${tagName}[\\s>])[\\s\\S])*?)<\\/${tagName}>`, 'gi');
+}
+/**
+ * The bodies of every planner-canonical XML tag (`XML_DECISION_TAG_NAMES`) in `text`,
+ * joined by `\n`. Each tag's body ends only at its OWN closing tag, so an inner scanned tag
+ * is absorbed into the outer body AND matched on its own pass.
+ */
+function extractXmlTagBodies(text) {
+    const parts = [];
+    for (const tagName of exports.XML_DECISION_TAG_NAMES) {
+        const re = buildXmlDecisionTagRegex(tagName);
+        for (const match of text.matchAll(re)) {
+            if (match[1])
+                parts.push(match[1]);
+        }
+    }
+    return parts.join('\n');
 }
 // Consumers: require('../gsd-core/bin/lib/markdown-sectionizer.cjs')
 // Named CJS exports are the canonical surface (ADR-457 .cts → .cjs build-at-publish).

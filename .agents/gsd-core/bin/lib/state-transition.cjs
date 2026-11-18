@@ -19,23 +19,37 @@ exports.STATE_MD_SECTIONS = exports.FRONTMATTER_BODY_SOURCE = exports.FIELD_CLAS
 exports.formatProgressMachineSegment = formatProgressMachineSegment;
 exports.stateReplaceProgressPercent = stateReplaceProgressPercent;
 exports.beginFrontmatterReassembly = beginFrontmatterReassembly;
+exports.isSessionScopedBodyField = isSessionScopedBodyField;
 exports.getFrontmatterBodySource = getFrontmatterBodySource;
 exports.frontmatterKeyForBodyField = frontmatterKeyForBodyField;
 exports.getFieldClassification = getFieldClassification;
 exports.getPreserveWhenUnchangedFields = getPreserveWhenUnchangedFields;
 exports.openStateTransaction = openStateTransaction;
 exports.rebuildStateTransaction = rebuildStateTransaction;
+exports.createStateWriteIntent = createStateWriteIntent;
 exports.applyPreserveWhenUnchanged = applyPreserveWhenUnchanged;
 exports.applyStatePreservation = applyStatePreservation;
 exports.transitionCore = transitionCore;
 exports.sliceCurrentPositionSection = sliceCurrentPositionSection;
+exports.readPlanPosition = readPlanPosition;
+exports.readRecordedPlanTotal = readRecordedPlanTotal;
+exports.isStatePastPhase = isStatePastPhase;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const frontmatter = require("./frontmatter.cjs");
 const state_document_cjs_1 = require("./state-document.cjs");
 const state_document_cjs_2 = require("./state-document.cjs");
 const markdown_sectionizer_cjs_1 = require("./markdown-sectionizer.cjs");
 const phase_lifecycle_cjs_1 = require("./phase-lifecycle.cjs");
+const roadmap_progress_cjs_1 = require("./roadmap-progress.cjs");
 const pattern_cjs_1 = require("./pattern.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-id.cjs is an export= CommonJS module
+const phaseIdMod = require("./phase-id.cjs");
+const { comparePhaseNum, parsePhaseFromProse } = phaseIdMod;
+// #4129: the completion-ratio kernel for the resync-arm ratchet's percent
+// (planning-scope's SCOPE — state-document's own dependency, no cycle here:
+// state-document never imports this module).
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const planningScopeMod = require("./planning-scope.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const stateMdSchemaMod = require("./state-md-schema.cjs");
 const { STATE_FIELD_SCHEMA } = stateMdSchemaMod;
@@ -44,12 +58,13 @@ function formatProgressMachineSegment(percent) {
     // ADR-3180 Decision 7: rounding and the 100 ceiling belong to the
     // completion-ratio kernel. The floor is added here because this helper is
     // also fed persisted frontmatter values (hand-editable, unlike the
-    // count-shaped entries into that kernel), and `'░'.repeat` throws on a
-    // negative count. Bar and printed percent use the clamped value so the two
-    // halves of the segment can never disagree.
+    // count-shaped entries into that kernel). Bar and printed percent use the
+    // clamped value so the two halves of the segment can never disagree.
+    // #4294: the CELL count is the render kernel's — `renderProgressBar` holds a
+    // sub-100 percent one cell short of full, so `[██████████]` beside `95%`
+    // cannot recur here as a seventh inline copy of the rounding.
     const clamped = Math.max(0, (0, phase_lifecycle_cjs_1.clampPercentFromFraction)(percent / 100));
-    const filled = Math.round(clamped / 10);
-    return `[${'█'.repeat(filled)}${'░'.repeat(10 - filled)}] ${clamped}%`;
+    return `[${(0, phase_lifecycle_cjs_1.renderProgressBar)(clamped, 10)}] ${clamped}%`;
 }
 // Consumers (a future STATE.md writer that bypasses all three reintroduces the
 // #4213 divergence class): `cmdStateUpdateProgress` and `syncCore`'s progress
@@ -60,11 +75,29 @@ function formatProgressMachineSegment(percent) {
 // `syncCore`'s call here.
 function stateReplaceProgressPercent(content, percent) {
     const body = stripFrontmatter(content);
-    // #2177: bold `**Progress:**` anywhere in the body wins outright; the plain
-    // `^Progress:` form is the fallback only when no bold line exists, so an
-    // earlier free-text line starting with `Progress:` cannot capture the
-    // rewrite ahead of the real status line.
-    const boldProgressPattern = /(\*\*Progress:\*\*[ \t]*)([^\r\n]*)/i;
+    // #2177: bold `**Progress:**` takes priority over the plain `^Progress:`
+    // form, so an earlier free-text line starting with `Progress:` cannot
+    // capture the rewrite ahead of the real status line.
+    //
+    // #4243 (follow-up to #4453, maintainer ruling 2026-09-07): the bold form
+    // is also ANCHORED to line start, with same-line leading whitespace only —
+    // the exact idiom #4453 applied to stateReplaceField's bold branch. The
+    // pre-fix pattern carried no `^` and no `m` flag, so a bold percent-ish
+    // label quoted MID-SENTENCE inside prose (an Accumulated Context bullet
+    // mentioning `**Progress:**`) captured the machine-segment rewrite and
+    // destroyed the rest of its line, silently, while the real Progress line
+    // stayed stale — every caller (cmdStateUpdateProgress, syncCore's percent
+    // arm, applyPostSyncPreservation) feeds the whole document. #2177's own
+    // recorded requirements are unaffected: the frontmatter is stripped before
+    // matching (its defect was the YAML `progress:` key shadowing the body
+    // line), the suffix-preserving machine-segment swap is untouched, and the
+    // bold-beats-plain priority now governs LINE-START forms. The leading class
+    // is `[ \t]*`, deliberately NOT `\s*` — `^\s*\*\*` can consume the newlines
+    // before the label into the match and drop them on rebuild (#4010's
+    // same-line confinement hazard). `$` is explicit-and-inert (`[^\r\n]*`
+    // never crosses line terminators) and documents that the match ends at
+    // end-of-line.
+    const boldProgressPattern = /^([ \t]*\*\*Progress:\*\*[ \t]*)([^\r\n]*)$/im;
     const plainProgressPattern = /^(Progress:[ \t]*)([^\r\n]*)/im;
     const pattern = boldProgressPattern.test(body)
         ? boldProgressPattern
@@ -222,6 +255,13 @@ exports.FRONTMATTER_BODY_SOURCE = Object.freeze(FRONTMATTER_BODY_SOURCE_KEY_ORDE
  */
 const SESSION_SCOPED_KEYS = new Set(['stopped_at', 'paused_at']);
 /**
+ * #4998 review: the `## Session` fields with no frontmatter key. `state-snapshot`
+ * reads them from the session section only, with fenced blocks blanked, so
+ * `state update` / `state patch` write them there too — never a fenced example
+ * above the live line, and never an archive section's copy.
+ */
+const SESSION_BODY_FIELDS = new Set(['resume file', 'last session', 'last date']);
+/**
  * The `(primary, fallback)` label pair for a session-scoped frontmatter KEY.
  */
 function sessionLabelsForKey(key) {
@@ -232,7 +272,8 @@ function sessionLabelsForKey(key) {
 }
 /**
  * The same pair, resolved from a BODY LABEL the caller named (`Stopped At`,
- * `Stopped at`, `Paused At`). `null` for anything else.
+ * `Stopped at`, `Paused At`, or a SESSION_BODY_FIELDS label as named). `null`
+ * for anything else.
  *
  * Deliberately does NOT accept a frontmatter key. An earlier cut resolved both
  * spellings through one function and used it for the write, which made
@@ -243,7 +284,13 @@ function sessionLabelsForKey(key) {
  */
 function sessionLabelsForBodyField(field) {
     const key = frontmatterKeyForBodyField(field);
-    return key === null ? null : sessionLabelsForKey(key);
+    if (key !== null)
+        return sessionLabelsForKey(key);
+    return SESSION_BODY_FIELDS.has(field.trim().toLowerCase()) ? { primary: field, fallback: null } : null;
+}
+/** #4998 review: whether `state update` / `state patch` write the body field `field` inside the session section. */
+function isSessionScopedBodyField(field) {
+    return sessionLabelsForBodyField(field) !== null;
 }
 /**
  * Would a session-scoped write actually land? Asks by attempting the real write
@@ -378,6 +425,62 @@ function rebuildStateTransaction(init) {
     return createStateTransaction('rebuild', init, 'rebuildStateTransaction');
 }
 /**
+ * Extend an existing StateTransaction into a StateWriteIntent. The base
+ * transaction is REQUIRED — an absent base is a construction failure, mirroring
+ * `createStateTransaction`'s ADR-3473 §8.6 posture (do not tolerate null). `scope`
+ * defaults to the conservative `'narrow'`; `assertions` defaults to none. Frozen
+ * so an intent, like a transaction, cannot be mutated after construction.
+ */
+function createStateWriteIntent(transaction, init = {}) {
+    if (transaction === null || typeof transaction !== 'object' || Array.isArray(transaction)) {
+        const err = new Error('createStateWriteIntent: a base StateTransaction is required (build it with ' +
+            'openStateTransaction / rebuildStateTransaction first). Per ADR-4629 §8.1, an absent ' +
+            'transaction is a construction failure — do not tolerate null.');
+        err.code = 'STATE_WRITE_INTENT_TRANSACTION_REQUIRED';
+        throw err;
+    }
+    // C2 (ADR-4629 §8.2): an unknown `requirement` is a construction error. §8.2
+    // judges only `'required'` assertions, so a mistyped value (`'Required'`)
+    // would otherwise be silently skipped: a fail-open verifier.
+    for (const a of init.assertions ?? []) {
+        if (a.requirement !== 'required' && a.requirement !== 'best-effort') {
+            const err = new Error(`createStateWriteIntent: assertion ${JSON.stringify(a.field)} has unknown requirement ` +
+                `${JSON.stringify(a.requirement)}; expected 'required' or 'best-effort' (ADR-4629 §8.1).`);
+            err.code = 'STATE_WRITE_INTENT_REQUIREMENT_INVALID';
+            throw err;
+        }
+    }
+    if (init.scope !== undefined && init.scope !== 'narrow' && init.scope !== 'broad') {
+        const err = new Error(`createStateWriteIntent: unknown scope ${JSON.stringify(init.scope)}; expected 'narrow' or 'broad' ` +
+            '(ADR-4629 §8.1).');
+        err.code = 'STATE_WRITE_INTENT_SCOPE_INVALID';
+        throw err;
+    }
+    // C2 (ADR-4629 §8.2): an unknown `target` is a construction error, never a
+    // silent fall-back to field semantics (a JS caller passing `'sections'`).
+    for (const a of init.assertions ?? []) {
+        if (a.target !== undefined && a.target !== 'field' && a.target !== 'section') {
+            const err = new Error(`createStateWriteIntent: assertion ${JSON.stringify(a.field)} has unknown target ` +
+                `${JSON.stringify(a.target)}; expected 'field' or 'section' (ADR-4629 §8.2).`);
+            err.code = 'STATE_WRITE_INTENT_TARGET_INVALID';
+            throw err;
+        }
+    }
+    // C2 (ADR-4629 §8.2): `target` / `value` are copied only when the caller set
+    // them, so a C1-shaped assertion stays exactly `{ field, requirement }`.
+    const assertions = Object.freeze((init.assertions ?? []).map((a) => Object.freeze({
+        field: a.field,
+        requirement: a.requirement,
+        ...(a.target !== undefined ? { target: a.target } : {}),
+        ...(a.value !== undefined ? { value: a.value } : {}),
+    })));
+    return Object.freeze({
+        ...transaction,
+        assertions,
+        scope: init.scope ?? 'narrow',
+    });
+}
+/**
  * ADR-3408 §8.2: an unenforced `preserve-when-unchanged` row throws. Both
  * ends of this invariant are gsd-core's own source — a declared row the
  * *caller code* forgot to wire via `bodyDeltas` — so it is a programming
@@ -509,6 +612,78 @@ function preservedValuesEqual(a, b) {
     return a === b;
 }
 /**
+ * #4129: the resync-arm progress merge. A resyncing write whose scan MEASURED
+ * something no longer wholesale-replaces the curated block — the declared
+ * `progress-ratchet` mergeStrategy ("completed_plans/completed_phases only ever
+ * ratchet UP toward the derived value (#2969)", state-md-schema.cts) now holds
+ * on the write path too, matching what the read path (`shouldPreserveExistingProgress`)
+ * has always enforced. Rules, mirroring the `deriveProgressKeys` branch above:
+ *
+ * - total_plans / total_phases always take the derived value (#2440 — totals
+ *   correct in BOTH directions).
+ * - completed_plans / completed_phases take the derived value only when it is
+ *   strictly GREATER (#2969's `>` not `>=`); else the curated value survives
+ *   (a hand-corrected or previously-correct counter can never be re-derived
+ *   downward — the #4129 clobber).
+ * - any other key keeps the curated value (the existing branch's convention).
+ * - percent is RECOMPUTED from the merged counters through the single kernel
+ *   (`computeProgressPercent`), because either side's stored percent was
+ *   computed against that side's counters and the merged block may mix them
+ *   (curated completed, derived totals). Recomputation runs ONLY when the
+ *   derived block itself carried a percent — an upstream withhold
+ *   (#1761 milestone-unbounded, #3217 scope) nulled percent deliberately and
+ *   this merge must not resurrect it.
+ *
+ * Frontmatter scalars arrive as STRINGS ("2", not 2), so every comparison
+ * coerces through `toFiniteNumber` — never a `typeof === 'number'` test
+ * (scanMeasuredSomething's own convention).
+ */
+function mergeResyncProgressRatchet(curatedRecord, derivedRecord) {
+    const merged = { ...derivedRecord };
+    for (const [key, value] of Object.entries(curatedRecord)) {
+        if (key === 'total_plans' || key === 'total_phases' || key === 'percent')
+            continue;
+        if (key === 'completed_plans' || key === 'completed_phases') {
+            const derivedNum = (0, state_document_cjs_2.toFiniteNumber)(derivedRecord[key]) ?? -Infinity;
+            const curatedNum = (0, state_document_cjs_2.toFiniteNumber)(value) ?? -Infinity;
+            // Ratchet up only (strictly greater, #2969); else keep curated.
+            if (derivedNum > curatedNum)
+                continue;
+            // Numerically EQUAL keeps the derived value VERBATIM. The two sides
+            // arrive in different scalar shapes (the re-parsed derived block
+            // carries string totals "2" while the curated snapshot carries numbers
+            // 2), and substituting the curated spelling over an equal derived one
+            // is a no-op in substance but a shape churn the §8.7 reporting loop
+            // would surface as a phantom `preserved-over-disagreeing-derived`
+            // warning (it diffs structurally). Only a curated counter that is
+            // STRICTLY greater replaces the derived value.
+            if (derivedNum === curatedNum)
+                continue;
+            merged[key] = value;
+        }
+        else {
+            merged[key] = value;
+        }
+    }
+    recomputeMergedProgressPercent(merged, derivedRecord);
+    return merged;
+}
+/**
+ * Make `merged.percent` the progress computation over the counters `merged` actually carries (#5619,
+ * #4129). Only when the derived side measured a percent: a derivation that withheld one (an incomplete
+ * scope, #1761/#3217) stays withheld, never invented. Same verbatim rule as the counters: assign only
+ * when the recomputed value numerically differs, so a string-spelled derived percent ("67") is not
+ * churned into a number-spelled 67 (phantom-divergence noise, not a change).
+ */
+function recomputeMergedProgressPercent(merged, derivedRecord) {
+    if ((0, state_document_cjs_2.toFiniteNumber)(derivedRecord.percent) === null)
+        return;
+    const recomputed = (0, state_document_cjs_2.computeProgressPercent)((0, state_document_cjs_2.toFiniteNumber)(merged.completed_plans), (0, state_document_cjs_2.toFiniteNumber)(merged.total_plans), (0, state_document_cjs_2.toFiniteNumber)(merged.completed_phases), (0, state_document_cjs_2.toFiniteNumber)(merged.total_phases), planningScopeMod.SCOPE.COMPLETE);
+    if (recomputed !== null && recomputed !== (0, state_document_cjs_2.toFiniteNumber)(merged.percent)) {
+        merged.percent = recomputed;
+    }
+}
+/**
  * Executor for `preservation: 'preserve-always'` (ADR-3408 §8.1). Only
  * `progress` carries this policy today. Preserves #3242/#1446/#2440/#2969
  * semantics byte-for-byte on every row the behavior table marks unchanged;
@@ -523,25 +698,39 @@ function applyPreserveAlways(field, cls, ctx) {
     const derived = ctx.postFm[field];
     const derivedMeasured = scanMeasuredSomething(cls, derived);
     const curatedMeasured = scanMeasuredSomething(cls, curated);
-    // On a resyncing write the fresh derivation is authoritative — UNLESS it
-    // measured nothing while the curated block did (#3756), AND the caller did
-    // not explicitly name a progress-affecting field this write. The
-    // unmeasured-scan guard exists to stop an INCIDENTAL resync (e.g. `state
-    // add-decision`, whose `resync` defaults true for reasons that have
-    // nothing to do with `progress`) from dropping a real curated block when a
-    // milestone-scoped disk scan measures nothing (#3756's archived-milestone
-    // case). It must not also block a write the user pointed AT `progress` on
-    // purpose: `preserve-always`'s own contract is "never overwrite unless the
-    // caller explicitly names this field" (FIELD_CLASSIFICATION doc comment),
-    // and `state update Progress` / `state patch Progress=...` are exactly
-    // that naming — the resync they trigger must win even when the disk scan
-    // it also drives (e.g. because there are no phase dirs at all) reads as
-    // "unmeasured" (tests/frontmatter.test.cjs: "state.update \"Progress\"
-    // resyncs progress frontmatter from the updated body", pre-existing, #3242).
-    if (ctx.resync && (derivedMeasured || !curatedMeasured || ctx.explicitProgressField))
+    // On a resyncing write the fresh derivation is authoritative in two cases
+    // (#3756 / ADR-3473 §8.6, unchanged): when the caller EXPLICITLY named a
+    // progress-affecting field (`preserve-always`'s contract is "never
+    // overwrite unless the caller explicitly names this field" — `state update
+    // Progress` is exactly that naming, pre-existing #3242 behavior), and when
+    // the derivation measured something the curated block did not (an
+    // unmeasured CURATED block is not worth protecting). The unmeasured-DERIVED
+    // guard also stands: an incidental resync (e.g. `state add-decision`, whose
+    // `resync` defaults true for reasons that have nothing to do with
+    // `progress`) that measured nothing must not drop a real curated block
+    // (#3756's archived-milestone case) — that falls through to the wholesale
+    // restore below.
+    //
+    // #4129 narrows the remaining arm. A resyncing write whose scan MEASURED
+    // something while the curated block is also real previously wholesale-
+    // replaced the curated block with the derived one — no monotonic guard, so
+    // any under-counting derivation (a stale-dated verification, #2348) silently
+    // reverted every hand-correction and every correct value an earlier write
+    // had persisted, while the read path (`shouldPreserveExistingProgress`)
+    // kept reporting the higher stored counters. That arm now falls through to
+    // `mergeResyncProgressRatchet` — the declared `progress-ratchet`
+    // mergeStrategy, finally enforced on the write path: totals derived both
+    // directions (#2440), completed counters up-only (#2969), percent
+    // recomputed from the merged counters.
+    if (ctx.resync && (ctx.explicitProgressField || (derivedMeasured && !curatedMeasured)))
         return;
     let next;
-    if (cls.mergeStrategy === 'progress-ratchet' && ctx.deriveProgressKeys && derived && derivedMeasured) {
+    if (cls.mergeStrategy === 'progress-ratchet' && ctx.resync && derived && derivedMeasured && curatedMeasured) {
+        // #4129 resync arm — see mergeResyncProgressRatchet's doc. Reached only
+        // after the early-out above, so curatedMeasured is guaranteed true here.
+        next = mergeResyncProgressRatchet(curated, (derived ?? {}));
+    }
+    else if (cls.mergeStrategy === 'progress-ratchet' && ctx.deriveProgressKeys && derived && derivedMeasured) {
         // #2440: total_plans and total_phases always take the derived (post-sync)
         // value even under !resync. This is used by cmdStatePlannedPhase where
         // total_plans must correct upward after plans are added. For body-only
@@ -558,18 +747,23 @@ function applyPreserveAlways(field, cls, ctx) {
             // completed after the plan count grew) — ratcheting UP only, never
             // deriving downward (preserves the #3242 curated-progress protection
             // for cases unrelated to plan-count growth, e.g. a deleted SUMMARY).
-            // percent also takes the derived value — the resync recomputed it from
-            // disk counts, and a stale curated percent would be incoherent against
-            // the ratcheted-up completed counts (e.g. 54/54 at 93%).
+            // percent is recomputed over the counters actually written (#5619): the
+            // disk-derived percent is only coherent with the DERIVED counters, and a
+            // stale curated percent would be incoherent against the ratcheted-up
+            // completed counts (e.g. 54/54 at 93%).
             const ratchetUpKeys = new Set(['completed_plans', 'completed_phases']);
             for (const [key, value] of Object.entries(curatedRecord)) {
                 if (key === 'total_plans' || key === 'total_phases' || key === 'percent')
                     continue;
                 if (ratchetUpKeys.has(key)) {
-                    const derivedNum = typeof derivedRecord[key] === 'number' ? derivedRecord[key] : -Infinity;
-                    const curatedNum = typeof value === 'number' ? value : -Infinity;
+                    // Frontmatter scalars arrive as STRINGS ("2", not 2): coerce through
+                    // `toFiniteNumber`, never a `typeof === 'number'` test (#5619 — that
+                    // test made both sides -Infinity and the ratchet unreachable).
+                    const derivedNum = (0, state_document_cjs_2.toFiniteNumber)(derivedRecord[key]) ?? -Infinity;
+                    const curatedNum = (0, state_document_cjs_2.toFiniteNumber)(value) ?? -Infinity;
                     // Take the derived value only when it ratchets up (strictly
-                    // greater — #2969's `>` not `>=`); else keep curated.
+                    // greater — #2969's `>` not `>=`); else keep curated, with its
+                    // spelling, on a tie too.
                     if (derivedNum > curatedNum)
                         continue;
                     merged[key] = value;
@@ -579,6 +773,7 @@ function applyPreserveAlways(field, cls, ctx) {
                 }
             }
         }
+        recomputeMergedProgressPercent(merged, derivedRecord);
         next = merged;
     }
     else {
@@ -715,7 +910,36 @@ exports.STATE_MD_SECTIONS = {
  * Phases 2–7 add cases for the remaining 9 intent kinds. A missing case is
  * a compile-time error (the function would not return on that path).
  */
+/**
+ * The transitions that rewrite single-line body fields (`Status:`, `Current focus:`, `Plan:` …) with
+ * plain line-anchored patterns. Those patterns match a fenced EXAMPLE of a field as readily as the
+ * live line (#5460), so these run over the document body with fenced blocks hidden.
+ * `milestone*`, `prune` and `rebuild` restructure sections or re-derive the document and are not
+ * field-by-field writers.
+ */
+const FENCE_MASKED_TRANSITIONS = new Set([
+    'beginPhase', 'advancePlan', 'completePhase', 'plannedPhase', 'patch', 'update', 'sync',
+]);
 function transitionCore(content, intent, deps) {
+    if (!FENCE_MASKED_TRANSITIONS.has(intent.kind))
+        return transitionCoreUnmasked(content, intent, deps);
+    // Only the body is masked: a fence opener inside a frontmatter block scalar must not swallow the
+    // closing `---` (the frontmatter is not where the live fields are written).
+    const body = stripFrontmatter(content);
+    if (!content.endsWith(body))
+        return transitionCoreUnmasked(content, intent, deps);
+    const prefix = content.slice(0, content.length - body.length);
+    const fenceMask = (0, markdown_sectionizer_cjs_1.maskFences)(body);
+    const result = transitionCoreUnmasked(prefix + fenceMask.masked, intent, deps);
+    const restored = fenceMask.restore(result.content);
+    // Cannot happen short of a writer bug (a transition dropped or duplicated a placeholder line); a
+    // refusal is the one outcome that cannot report a rewrite that did not land.
+    if (restored === null) {
+        throw new Error(`${intent.kind}: fenced code blocks could not be restored after the edit; refusing to write STATE.md`);
+    }
+    return { ...result, content: restored };
+}
+function transitionCoreUnmasked(content, intent, deps) {
     switch (intent.kind) {
         case 'beginPhase':
             return beginPhaseCore(content, intent, deps);
@@ -761,6 +985,8 @@ function transitionCore(content, intent, deps) {
  */
 function beginPhaseCore(content, intent, deps) {
     const updated = [];
+    // #4945: a re-entry whose earlier plans already have summaries starts at the first plan still to run.
+    const startPlan = intent.startPlan && intent.startPlan > 0 ? Math.floor(intent.startPlan) : 1;
     // #1255: body-field replacements operate on body only (frontmatter stripped),
     // not on the full content. The YAML `status:` key matches `^Status:\s*`
     // before the body pipe-table row if full content is passed.
@@ -816,23 +1042,40 @@ function beginPhaseCore(content, intent, deps) {
         if (intent.phaseName) {
             tryField('Current Phase Name', intent.phaseName);
         }
-        tryField('Current Plan', '1');
-        if (intent.planCount) {
+        tryField('Current Plan', String(startPlan));
+        if (intent.planCount != null) {
             tryField('Total Plans in Phase', String(intent.planCount));
         }
         // **Current focus:** body text line (#1104).
         const focusLabel = intent.phaseName
             ? `Phase ${intent.phaseNumber} — ${intent.phaseName}`
             : `Phase ${intent.phaseNumber}`;
-        const focusPattern = /(\*\*Current focus:\*\*\s*).*/i;
-        if (focusPattern.test(body)) {
-            body = body.replace(focusPattern, (_match, prefix) => `${prefix}${focusLabel}`);
+        // #4469: anchored to line start with same-line whitespace only, mirroring
+        // #4243/PR #4453's fix to stateReplaceField's bold branch. The pre-fix
+        // pattern carried no `^`/`m` and used `\s*` (crosses newlines), so a bold
+        // `**Current focus:**` quoted mid-sentence elsewhere in the body (e.g. an
+        // Accumulated Context bullet) matched first and had the rest of its line
+        // silently overwritten with the new focus label -- the same #4010
+        // data-loss class. `[ \t]*` (not `\s*`) avoids consuming the newlines
+        // before the label into the match; `$` documents the match ends at
+        // end-of-line (inert here since `.` never crosses line terminators
+        // without `/s`, which is not set).
+        const focusPattern = /^([ \t]*\*\*Current focus:\*\*[ \t]*)(.*)$/im;
+        const focusMatch = focusPattern.exec(body);
+        if (focusMatch) {
+            // #4945: a value an author wrapped onto further lines is replaced whole, so its tail is not
+            // left behind under the new value. The lines that count are the ones `state validate` already
+            // reports as a field's continuation (stops at a blank line, a heading, a list item, a table
+            // row, a fence or a sibling field). An empty first line has no value to continue.
+            const valueEnd = focusMatch.index + focusMatch[0].length;
+            const end = focusMatch[2].trim() === '' ? valueEnd : (0, state_document_cjs_2.fieldContinuationEnd)(body, valueEnd);
+            body = body.slice(0, focusMatch.index) + focusMatch[1] + focusLabel + body.slice(end);
             updated.push('Current focus');
         }
         // ## Current Position section mutation (#1104, #1365).
         // `locateCurrentPosition` (fence-aware, tokenizeHeadings-based) locates
         // the section; mirrors state.cts:2261-2324 byte-for-behaviour.
-        body = mutateCurrentPositionFirstTime(body, intent, today, updated);
+        body = mutateCurrentPositionFirstTime(body, { ...intent, startPlan }, today, updated);
     }
     else {
         // Resume path: only update Last activity timestamp in Current Position
@@ -924,7 +1167,9 @@ function mutateCurrentPositionFirstTime(body, intent, today, updated) {
     const span = locateCurrentPosition(body);
     if (span === null)
         return body;
-    let sectionBody = body.slice(span.start, span.end);
+    // #5460: the section's fenced examples are hidden while the live lines are rewritten.
+    const fenceMask = (0, markdown_sectionizer_cjs_1.maskFences)(body.slice(span.start, span.end));
+    let sectionBody = fenceMask.masked;
     // Phase line — inline first, then pipe-table fallback (#1257).
     const phaseLabel = `${intent.phaseNumber}${intent.phaseName ? ` (${intent.phaseName})` : ''} — EXECUTING`;
     if (/^Phase:/m.test(sectionBody)) {
@@ -936,7 +1181,7 @@ function mutateCurrentPositionFirstTime(body, intent, today, updated) {
             sectionBody = replaced;
     }
     // Plan line.
-    const planValue = `1 of ${intent.planCount || '?'}`;
+    const planValue = `${intent.startPlan} of ${intent.planCount ?? '?'}`;
     if (/^Plan:/m.test(sectionBody)) {
         sectionBody = sectionBody.replace(/^Plan:.*$/m, `Plan: ${planValue}`);
     }
@@ -966,8 +1211,11 @@ function mutateCurrentPositionFirstTime(body, intent, today, updated) {
         if (replaced !== null)
             sectionBody = replaced;
     }
+    const restored = fenceMask.restore(sectionBody);
+    if (restored === null)
+        return body;
     updated.push('Current Position');
-    return body.slice(0, span.start) + sectionBody + body.slice(span.end);
+    return body.slice(0, span.start) + restored + body.slice(span.end);
 }
 /**
  * Resume ## Current Position mutation: only update Last activity line
@@ -978,7 +1226,8 @@ function mutateCurrentPositionResume(body, intent, today, updated) {
     const span = locateCurrentPosition(body);
     if (span === null)
         return body;
-    let sectionBody = body.slice(span.start, span.end);
+    const fenceMask = (0, markdown_sectionizer_cjs_1.maskFences)(body.slice(span.start, span.end));
+    let sectionBody = fenceMask.masked;
     const resumeActivity = `Last activity: ${today} — Phase ${intent.phaseNumber} execution resumed (wave continue)`;
     if (/^Last activity:/im.test(sectionBody)) {
         sectionBody = sectionBody.replace(/^Last activity:.*$/im, resumeActivity);
@@ -993,7 +1242,10 @@ function mutateCurrentPositionResume(body, intent, today, updated) {
             updated.push('Last activity (resume)');
         }
     }
-    return body.slice(0, span.start) + sectionBody + body.slice(span.end);
+    const restored = fenceMask.restore(sectionBody);
+    if (restored === null)
+        return body;
+    return body.slice(0, span.start) + restored + body.slice(span.end);
 }
 const PLAN_SHAPE_N = /^(\d+)(?:\s.*)?$/;
 const PLAN_SHAPE_N_OF_M = /^(\d+)\s+of\s+(\d+)(?:\s.*)?$/;
@@ -1010,6 +1262,94 @@ const PLAN_SHAPE_N_OF_M = /^(\d+)\s+of\s+(\d+)(?:\s.*)?$/;
 function planNumberFrom(digits) {
     const n = Number(digits);
     return Number.isSafeInteger(n) ? n : null;
+}
+/**
+ * The one plan-position parse: legacy pair first, then the hybrid, then
+ * compound. `advancePlanCore` and `readPlanPosition` both consume it, so the
+ * precedence is decided in exactly one place (#5786).
+ *
+ * These branches decide ONE thing: which numbers the position is read from.
+ * They deliberately do not record which FIELD supplied them, because the
+ * advance write path writes every spelling back from its own raw text (#3791
+ * review round 6, B1/M1).
+ *
+ * Every branch reads its numbers out of an ANCHORED match's capture groups.
+ * Nothing here calls parseInt on a raw field value, so a value the grammar
+ * does not fully describe cannot half-parse into a plausible number.
+ */
+function parsePlanFields(content) {
+    const legacyPlan = (0, state_document_cjs_1.stateExtractField)(content, 'Current Plan');
+    const legacyTotal = (0, state_document_cjs_1.stateExtractField)(content, 'Total Plans in Phase');
+    const planField = (0, state_document_cjs_1.stateExtractField)(content, 'Plan');
+    const legacyNMatch = legacyPlan ? PLAN_SHAPE_N.exec(legacyPlan) : null;
+    const legacyNofMMatch = legacyPlan ? PLAN_SHAPE_N_OF_M.exec(legacyPlan) : null;
+    const totalNMatch = legacyTotal ? PLAN_SHAPE_N.exec(legacyTotal) : null;
+    const planNofMMatch = planField ? PLAN_SHAPE_N_OF_M.exec(planField) : null;
+    const planNMatch = planField ? PLAN_SHAPE_N.exec(planField) : null;
+    let current = null;
+    let total = null;
+    if (legacyPlan && legacyTotal && (legacyNMatch || legacyNofMMatch) && totalNMatch) {
+        // Legacy pair wins whenever both fields are present and both are readable,
+        // even if the Current Plan value also carries an "of M" — the explicit
+        // sibling field is the stated intent, so it supplies the total.
+        current = planNumberFrom((legacyNMatch ?? legacyNofMMatch)[1]);
+        total = planNumberFrom(totalNMatch[1]);
+    }
+    else if (legacyNofMMatch) {
+        // Hybrid: legacy field name, compound value, no readable Total Plans
+        // sibling. Written by hand (and by agents) often enough to be worth
+        // reading — #3784.
+        current = planNumberFrom(legacyNofMMatch[1]);
+        total = planNumberFrom(legacyNofMMatch[2]);
+    }
+    else if (planNofMMatch) {
+        current = planNumberFrom(planNofMMatch[1]);
+        total = planNumberFrom(planNofMMatch[2]);
+    }
+    // No branch for a bare `Plan: N` paired with a `Total Plans in Phase: M`
+    // sibling and no `Current Plan` at all (#3791 review round 6, M2). A revision
+    // of this PR accepted it; base did not (its `else if (planField)` arm had no
+    // `of M` match and errored via NaN), and it is out of #3784's scope, which is
+    // the hybrid `Current Plan: N of M`. It cannot be given the schema-row +
+    // forcing-test coupling the other shapes have, either: `Plan` is body-only,
+    // `buildStateFrontmatter` never reads it into frontmatter, so there is no
+    // `current_*` key to hang a row on. An accepted shape with no schema row and
+    // no forcing test is exactly the drift this diff is otherwise built to
+    // prevent, so the shape is refused and named in the error instead.
+    return { legacyPlan, planField, legacyNMatch, legacyNofMMatch, planNofMMatch, planNMatch, current, total };
+}
+/**
+ * Read the recorded plan position out of a STATE.md document through the one
+ * plan-position grammar, or `null` when no readable position is recorded
+ * (`Plan: 1 of ?`, `Total Plans in Phase: TBD`, no field at all). #5786.
+ */
+function readPlanPosition(content) {
+    const { current, total } = parsePlanFields(content);
+    return current === null || total === null ? null : { current, total };
+}
+/**
+ * The plan total a STATE.md document records, for the `init --validate`
+ * plan-count check: a readable `Total Plans in Phase` first, else the
+ * of-M total read straight from the plan fields: `Current Plan`'s of-M is
+ * tried first, then `Plan`'s, and convertibility is checked per field (an
+ * unconvertible `Current Plan` M falls through to `Plan`'s M), unlike
+ * `parsePlanFields`, which commits to the first matching field. The fallback
+ * does not go through the legacy pair, so an unconvertible `Total Plans in
+ * Phase` beside `Current Plan: N of M` still yields M. `null` when neither
+ * yields a convertible M. #5786.
+ */
+function readRecordedPlanTotal(content) {
+    // An explicit `Total Plans in Phase` wins over an `of M` in either plan field.
+    const raw = (0, state_document_cjs_1.stateExtractField)(content, 'Total Plans in Phase');
+    const match = raw ? PLAN_SHAPE_N.exec(raw) : null;
+    const t = match ? planNumberFrom(match[1]) : null;
+    if (t !== null)
+        return t;
+    const { legacyNofMMatch, planNofMMatch } = parsePlanFields(content);
+    const fromCurrentPlan = legacyNofMMatch ? planNumberFrom(legacyNofMMatch[2]) : null;
+    if (fromCurrentPlan !== null)
+        return fromCurrentPlan;
+    return planNofMMatch ? planNumberFrom(planNofMMatch[2]) : null;
 }
 /**
  * Advance the leading integer of a written plan value, preserving everything
@@ -1050,7 +1390,8 @@ function mutateCurrentPositionForAdvance(content, fields, statusDefaults, lastAc
     const span = locateCurrentPosition(content);
     if (span === null)
         return content;
-    let sectionBody = content.slice(span.start, span.end);
+    const fenceMask = (0, markdown_sectionizer_cjs_1.maskFences)(content.slice(span.start, span.end));
+    let sectionBody = fenceMask.masked;
     let mutated = false;
     // #3395: Phase is always replaced when a caller passes it — system-derived,
     // not executor-authored (same rule as Plan below). plannedPhaseCore uses
@@ -1163,7 +1504,10 @@ function mutateCurrentPositionForAdvance(content, fields, statusDefaults, lastAc
     }
     if (!mutated)
         return content;
-    return content.slice(0, span.start) + sectionBody + content.slice(span.end);
+    const restored = fenceMask.restore(sectionBody);
+    if (restored === null)
+        return content;
+    return content.slice(0, span.start) + restored + content.slice(span.end);
 }
 // ----------------------------------------------------------------------------
 // advancePlan — intent implementation (Phase 2)
@@ -1229,47 +1573,7 @@ function advancePlanCore(content, deps) {
     // `planSourceField`/`planRawValue` pair here and then wrote the OTHER
     // spelling from this one's numbers, which is precisely how a field ended up
     // holding a value nothing had derived for it.
-    const legacyPlan = (0, state_document_cjs_1.stateExtractField)(content, 'Current Plan');
-    const legacyTotal = (0, state_document_cjs_1.stateExtractField)(content, 'Total Plans in Phase');
-    const planField = (0, state_document_cjs_1.stateExtractField)(content, 'Plan');
-    // Every branch below reads its numbers out of an ANCHORED match's capture
-    // groups. Nothing here calls parseInt on a raw field value, so a value the
-    // grammar does not fully describe cannot half-parse into a plausible number.
-    const legacyNMatch = legacyPlan ? PLAN_SHAPE_N.exec(legacyPlan) : null;
-    const legacyNofMMatch = legacyPlan ? PLAN_SHAPE_N_OF_M.exec(legacyPlan) : null;
-    const totalNMatch = legacyTotal ? PLAN_SHAPE_N.exec(legacyTotal) : null;
-    const planNofMMatch = planField ? PLAN_SHAPE_N_OF_M.exec(planField) : null;
-    const planNMatch = planField ? PLAN_SHAPE_N.exec(planField) : null;
-    let parsedCurrent = null;
-    let parsedTotal = null;
-    if (legacyPlan && legacyTotal && (legacyNMatch || legacyNofMMatch) && totalNMatch) {
-        // Legacy pair wins whenever both fields are present and both are readable,
-        // even if the Current Plan value also carries an "of M" — the explicit
-        // sibling field is the stated intent, so it supplies the total.
-        parsedCurrent = planNumberFrom((legacyNMatch ?? legacyNofMMatch)[1]);
-        parsedTotal = planNumberFrom(totalNMatch[1]);
-    }
-    else if (legacyNofMMatch) {
-        // Hybrid: legacy field name, compound value, no readable Total Plans
-        // sibling. Written by hand (and by agents) often enough to be worth
-        // reading — #3784.
-        parsedCurrent = planNumberFrom(legacyNofMMatch[1]);
-        parsedTotal = planNumberFrom(legacyNofMMatch[2]);
-    }
-    else if (planNofMMatch) {
-        parsedCurrent = planNumberFrom(planNofMMatch[1]);
-        parsedTotal = planNumberFrom(planNofMMatch[2]);
-    }
-    // No branch for a bare `Plan: N` paired with a `Total Plans in Phase: M`
-    // sibling and no `Current Plan` at all (#3791 review round 6, M2). A revision
-    // of this PR accepted it; base did not (its `else if (planField)` arm had no
-    // `of M` match and errored via NaN), and it is out of #3784's scope, which is
-    // the hybrid `Current Plan: N of M`. It cannot be given the schema-row +
-    // forcing-test coupling the other shapes have, either: `Plan` is body-only,
-    // `buildStateFrontmatter` never reads it into frontmatter, so there is no
-    // `current_*` key to hang a row on. An accepted shape with no schema row and
-    // no forcing test is exactly the drift this diff is otherwise built to
-    // prevent, so the shape is refused and named in the error instead.
+    const { legacyPlan, planField, legacyNMatch, legacyNofMMatch, planNofMMatch, planNMatch, current: parsedCurrent, total: parsedTotal, } = parsePlanFields(content);
     if (parsedCurrent === null || parsedTotal === null) {
         return { content: reassemble(body), updated: [], data: { error: true } };
     }
@@ -1438,9 +1742,60 @@ function advancePlanCore(content, deps) {
         data: { advanced: true, previous_plan: currentPlan, current_plan: newPlan, total_plans: totalPlans },
     };
 }
-// ----------------------------------------------------------------------------
-// completePhase — intent implementation (Phase 3)
-// ----------------------------------------------------------------------------
+/**
+ * #4824: Status / Current Plan / Stopped-at wording for the phase a
+ * completion hands off to. The historical `Ready to plan` is only true for a
+ * phase with no plans; a phase that already has PLANs routes to execution,
+ * and one whose plans all have SUMMARYs awaits verification — never back to
+ * `/gsd-plan-phase`. Which phase is selected stays #4078's rule.
+ */
+function nextPhaseWording(disk) {
+    switch (disk?.status) {
+        case 'PLANNED':
+            return { status: 'Ready to execute', currentPlan: 'Not started', stoppedAt: 'ready to execute' };
+        case 'IN_PROGRESS':
+            return { status: 'Ready to execute', currentPlan: String(disk.summaryCount + 1), stoppedAt: 'ready to execute' };
+        case 'EXECUTED':
+        case 'NEEDS_REVIEW':
+            return {
+                status: 'Phase complete — ready for verification',
+                currentPlan: String(disk.planCount),
+                stoppedAt: 'ready to verify',
+            };
+        default:
+            return { status: 'Ready to plan', currentPlan: 'Not started', stoppedAt: 'ready to plan' };
+    }
+}
+/**
+ * #5165: is STATE.md already positioned PAST phase `phaseNum`? True when its
+ * current phase (frontmatter `current_phase`, else the body `Current Phase` /
+ * `Phase` field's leading phase token) compares greater than `phaseNum`.
+ * Re-completing a phase STATE has already moved past must not rewind the
+ * position; the caller combines this with "the phase is already complete in
+ * ROADMAP.md" so a first-time out-of-order completion (#2028) still
+ * transitions. An unparseable or absent current phase is "not past".
+ * #5676: under `milestone-prefixed` the id is the whole `M-NN` (`3-02`, not `3`); that read goes
+ * through `parsePhaseFromProse` (the #5626 grammar owner), so the two cannot drift.
+ */
+function isStatePastPhase(content, phaseNum, sourcePath, convention) {
+    const fm = extractFrontmatter(content, sourcePath);
+    const fromFm = fm['current_phase'];
+    let raw = typeof fromFm === 'string' || typeof fromFm === 'number' ? String(fromFm) : null;
+    if (raw === null || raw.trim() === '') {
+        const body = stripFrontmatter(content);
+        raw = (0, state_document_cjs_1.stateExtractField)(body, 'Current Phase') || (0, state_document_cjs_1.stateExtractField)(body, 'Phase') || null;
+    }
+    // `Phase 4` / `phase 4 of 9` name phase 4 as surely as `4 of 9` does.
+    let id = null;
+    if (raw !== null) {
+        id = convention === 'milestone-prefixed'
+            ? parsePhaseFromProse(raw, 'milestone-prefixed').phase
+            : (/^\s*(?:phase\s+)?(\d+(?:\.\d+)*)/i.exec(raw)?.[1] ?? null);
+    }
+    if (id === null)
+        return false;
+    return comparePhaseNum(id, String(phaseNum)) > 0;
+}
 /**
  * Apply a `completePhase` transition to STATE.md content.
  *
@@ -1448,7 +1803,9 @@ function advancePlanCore(content, deps) {
  * (phase.cts) onto the substrate. Owns the field-classification-governed body
  * mutations: Current Phase (preserving the `of total` shape and phase name),
  * Current Phase Name, Status (`All phases complete` on the last phase, else
- * `Ready to plan` per ADR-2207), Current Plan (`Not started`), Last Activity + Description,
+ * `Ready to plan` per ADR-2207 — or, #4824, the next phase's disk-derived
+ * wording when it is already planned or executed), Current Plan (`Not started`
+ * unless the next phase is in flight), Last Activity + Description,
  * and the Completed/Total Phases + Progress percent block (re-derived from the
  * roadmap via the injected `roadmapProvider`).
  *
@@ -1465,6 +1822,13 @@ function advancePlanCore(content, deps) {
 function completePhaseCore(content, intent, deps) {
     const updated = [];
     const today = deps.clock.localToday();
+    const nextWording = nextPhaseWording(intent.isLastPhase ? null : intent.nextPhaseDisk ?? null);
+    // #5165: the milestone the caller resolved (ROADMAP-bound identity first) wins;
+    // else the milestone STATE asserts. It scopes the roadmap-derived counters
+    // below to that milestone's Progress-table rows, the same milestone
+    // `phase complete` scopes its frontmatter progress to.
+    const currentMilestone = (0, roadmap_progress_cjs_1.milestoneVersionOf)(intent.milestone)
+        ?? (0, roadmap_progress_cjs_1.milestoneVersionOf)(extractFrontmatter(content, deps.sourcePath)['milestone']);
     // Consult the field-classification table for the frontmatter keys this
     // transition touches (same guard beginPhaseCore applies). A missing row is a
     // substrate defect — fail loudly rather than silently re-encoding policy.
@@ -1528,14 +1892,28 @@ function completePhaseCore(content, intent, deps) {
     // Status — `All phases complete` on the final phase (ADR-2207), otherwise
     // `Ready to plan`. Milestone termination (`<version> milestone complete`) is
     // owned solely by the milestone-close verb (milestoneCompleteCore).
-    const statusValue = intent.isLastPhase ? 'All phases complete' : 'Ready to plan';
+    const statusValue = intent.isLastPhase ? 'All phases complete' : nextWording.status;
     const statusAfter = (0, state_document_cjs_1.stateReplaceFieldWithFallback)(body, 'Status', null, statusValue);
     if (statusAfter !== body) {
         body = statusAfter;
         updated.push('Status');
     }
-    // Current Plan — reset for the next phase.
-    const planAfter = (0, state_document_cjs_1.stateReplaceFieldWithFallback)(body, 'Current Plan', 'Plan', 'Not started');
+    // Current Plan — reset for the next phase. #4823: when a Current Position
+    // section exists (the canonical layout, #2956 locator), the reset is scoped
+    // to it — the whole-body fallback 'Plan' run matched any hard-wrapped prose
+    // line starting with `plan:` anywhere in the document and rewrote it to
+    // 'Not started', silently destroying narrative. Legacy sectionless layouts
+    // (fields at top level, no section) keep the whole-body behavior unchanged:
+    // there is no section to scope to, and their fields are the intended
+    // targets.
+    let planAfter;
+    const positionScope = (0, state_document_cjs_1.stateCurrentPositionSlice)(body);
+    if (positionScope !== null) {
+        planAfter = (0, markdown_sectionizer_cjs_1.withSection)(body, (h) => (h.level === 2 || h.level === 3) && h.text.trim().toLowerCase() === 'current position', (sectionBody) => (0, state_document_cjs_1.stateReplaceFieldWithFallback)(sectionBody, 'Current Plan', 'Plan', nextWording.currentPlan), { levelBounded: true });
+    }
+    else {
+        planAfter = (0, state_document_cjs_1.stateReplaceFieldWithFallback)(body, 'Current Plan', 'Plan', nextWording.currentPlan);
+    }
     if (planAfter !== body) {
         body = planAfter;
         updated.push('Current Plan');
@@ -1578,7 +1956,7 @@ function completePhaseCore(content, intent, deps) {
     // milestone termination wording stays owned by milestoneCompleteCore.
     const stoppedAtLine = intent.isLastPhase
         ? `Phase ${intent.phaseNum} complete — all phases complete`
-        : `Phase ${intent.phaseNum} complete${intent.nextPhaseNum ? `, ready to plan Phase ${intent.nextPhaseNum}` : ''}`;
+        : `Phase ${intent.phaseNum} complete${intent.nextPhaseNum ? `, ${nextWording.stoppedAt} Phase ${intent.nextPhaseNum}` : ''}`;
     const stoppedAfter = (0, state_document_cjs_1.stateReplaceFieldInSession)(body, 'Stopped At', 'Stopped at', stoppedAtLine);
     if (stoppedAfter !== body) {
         body = stoppedAfter;
@@ -1589,15 +1967,27 @@ function completePhaseCore(content, intent, deps) {
     // Only runs when a Completed Phases field exists (the existing guard).
     const completedRaw = (0, state_document_cjs_1.stateExtractField)(body, 'Completed Phases');
     if (completedRaw !== null) {
-        let newCompleted = parseInt(completedRaw, 10);
+        const recordedCompleted = parseInt(completedRaw, 10);
+        let newCompleted = recordedCompleted;
         let derivedTotalPhases = null;
         const roadmapContent = deps.roadmapProvider ? deps.roadmapProvider() : null;
         if (roadmapContent) {
-            const derived = (0, phase_lifecycle_cjs_1.deriveProgressFromRoadmap)(roadmapContent);
-            if (derived.completedPhases !== null)
-                newCompleted = derived.completedPhases;
-            if (derived.totalPhases !== null)
-                derivedTotalPhases = derived.totalPhases;
+            const derived = (0, phase_lifecycle_cjs_1.deriveProgressFromRoadmap)(roadmapContent, currentMilestone);
+            // #4901: completed counters only ratchet up, like the frontmatter twin
+            // (applyAuthoritativeProgressSubkeys, completedOnlyRaise). A derivation
+            // that lands BELOW the recorded counter read a narrower scope than the
+            // counter spans (e.g. the first `## Progress` section of a multi-milestone
+            // roadmap), so its total is just as suspect: keep the recorded counter and
+            // fall back to the recorded Total Phases for the percent below.
+            const derivedLowered = derived.completedPhases !== null
+                && Number.isFinite(recordedCompleted)
+                && derived.completedPhases < recordedCompleted;
+            if (!derivedLowered) {
+                if (derived.completedPhases !== null)
+                    newCompleted = derived.completedPhases;
+                if (derived.totalPhases !== null)
+                    derivedTotalPhases = derived.totalPhases;
+            }
         }
         // #3057 B9: only mark 'Completed Phases' updated when the text actually
         // changed. `stateReplaceField` returns the full (re-)substituted content
@@ -1703,8 +2093,16 @@ function plannedPhaseCore(content, intent, deps) {
     // Phase is system-derived, always replaced (Knuth invariant does not apply);
     // Status / Last activity stay template-aware.
     const beforePos = body;
+    // #5369: with no --name the label reuses the curated frontmatter name (when it is a real one), so the
+    // body line and the frontmatter agree on it (the #3834 reassert keeps that name in frontmatter). A
+    // status fragment a pre-fix write left there is never copied back into the name slot.
+    const curatedName = existingFm['current_phase_name'];
+    const labelName = intent.phaseName
+        ?? (typeof curatedName === 'string' && curatedName.trim() !== '' && !phaseIdMod.isPlannedPhaseStatusPhrase(curatedName)
+            ? curatedName.trim()
+            : null);
     body = mutateCurrentPositionForAdvance(body, {
-        phase: `${intent.phaseNumber}${intent.phaseName ? ` (${intent.phaseName})` : ''} — READY TO EXECUTE`,
+        phase: `${intent.phaseNumber}${labelName ? ` (${labelName})` : ''} — READY TO EXECUTE`,
         status: 'Ready to execute',
         lastActivity: `${today} — Phase ${intent.phaseNumber} planning complete`,
     }, statusDefaults, lastActivityDefaults);
@@ -2025,7 +2423,20 @@ function patchCore(content, intent) {
         // `^field:` pattern — e.g. `status` matching both the frontmatter key
         // and a `Status:` body line). Frontmatter is only consulted when the
         // body has no match for this key.
-        const replaced = (0, state_document_cjs_1.stateReplaceField)(body, field, value);
+        // #4998: a session field is written the way `state update` writes it —
+        // inside the session section, never a fenced example there — so the
+        // patch agrees with the session readers the frontmatter sync uses.
+        const sessionWriteLabels = sessionLabelsForBodyField(field);
+        let replaced;
+        if (sessionWriteLabels) {
+            const inSession = (0, state_document_cjs_1.stateReplaceFieldInSession)(body, sessionWriteLabels.primary, sessionWriteLabels.fallback, value);
+            // Unchanged is a miss only when the field is absent: one already holding
+            // the value matched (#4488), as stateReplaceField reports it.
+            replaced = inSession !== body || sessionSourceExists(body, sessionWriteLabels) ? inSession : null;
+        }
+        else {
+            replaced = (0, state_document_cjs_1.stateReplaceField)(body, field, value);
+        }
         if (replaced !== null) {
             body = replaced;
             updated.push(field);
@@ -2091,10 +2502,10 @@ function updateCore(content, intent) {
     const sessionWriteLabels = sessionLabelsForBodyField(intent.field);
     let result;
     if (sessionWriteLabels) {
-        // Replace-only by contract: unchanged content means the field is not in the
-        // session section, which is a miss, not a write.
+        // Replace-only by contract: the session writer never inserts a missing field.
         const replaced = (0, state_document_cjs_1.stateReplaceFieldInSession)(body, sessionWriteLabels.primary, sessionWriteLabels.fallback, intent.value);
-        result = replaced === body ? null : replaced;
+        // A field already holding the value matched; unchanged with no field is the miss (#4488).
+        result = replaced !== body || sessionSourceExists(body, sessionWriteLabels) ? replaced : null;
     }
     else {
         result = (0, state_document_cjs_1.stateReplaceField)(body, intent.field, intent.value);

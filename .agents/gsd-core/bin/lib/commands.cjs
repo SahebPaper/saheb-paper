@@ -14,10 +14,17 @@ const node_path_1 = __importDefault(require("node:path"));
 const text_lines_cjs_1 = require("./text-lines.cjs");
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
 const pattern_cjs_1 = require("./pattern.cjs");
+const phase_entry_grammar_cjs_1 = require("./phase-entry-grammar.cjs");
+const install_manifest_record_cjs_1 = require("./install-manifest-record.cjs");
+const frontmatter_fence_cjs_1 = require("./frontmatter-fence.cjs");
 const security_cjs_1 = require("./security.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const ioMod = require("./io.cjs");
-const { output, error, ERROR_REASON } = ioMod;
+const { output, ERROR_REASON } = ioMod;
+// Explicitly annotated so TypeScript applies never-return control-flow narrowing.
+// See the identical note in check-command-router.cts: a destructured const carries no
+// type annotation, so TS will not narrow after `error(...)` without this.
+const error = ioMod.error;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const configLoaderMod = require("./config-loader.cjs");
 const { loadConfig, isGitIgnored } = configLoaderMod;
@@ -26,10 +33,13 @@ const coreUtilsMod = require("./core-utils.cjs");
 const { toPosixPath, generateSlugInternal, extractOneLinerFromBody } = coreUtilsMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const phaseIdMod = require("./phase-id.cjs");
-const { normalizePhaseName, comparePhaseNum, extractPhaseToken, PHASE_NUMBER_TOKEN_SOURCE, isSentinelPhaseId } = phaseIdMod;
+const { customPhaseQuery, customDirectoryOwner, isCustomPhaseId, normalizePhaseName, comparePhaseNum, extractPhaseToken, PHASE_NUMBER_TOKEN_SOURCE, isSentinelPhaseId, renderPhaseBranchName, parsePhaseId, renderPhaseId, phaseHeadingPrefixSrcFor, PHASE_HEADING_BASELINE, } = phaseIdMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const phaseIdDisplayMod = require("./phase-id-display.cjs");
+const { renderBracketMilestoneDisplay } = phaseIdDisplayMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const phaseLocatorMod = require("./phase-locator.cjs");
-const { getArchivedPhaseDirs, findPhaseInternal, listMilestonePhaseDirs } = phaseLocatorMod;
+const { phaseDirectoryOptions, getArchivedPhaseDirs, findPhaseInternal, listMilestonePhaseDirs } = phaseLocatorMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const roadmapParserMod = require("./roadmap-parser.cjs");
 const { extractCurrentMilestone, stripShippedMilestones: _stripShippedMilestones, getMilestoneInfo, getRoadmapPhaseInternal } = roadmapParserMod;
@@ -52,10 +62,10 @@ const codex_agent_toml_cjs_1 = require("./codex-agent-toml.cjs");
 const hostIntegrationMod = require("./host-integration.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planningWorkspace = require("./planning-workspace.cjs");
-const { planningDir, planningPaths } = planningWorkspace;
+const { planningDir, planningPaths, todosDir, resolvePhaseIdConvention } = planningWorkspace;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const frontmatter = require("./frontmatter.cjs");
-const { extractFrontmatter, agentScalarNeedsDoubleQuoting, escapeDoubleQuotedScalar } = frontmatter;
+const { extractFrontmatter, agentScalarNeedsDoubleQuoting, escapeDoubleQuotedScalar, FRONTMATTER_UNPARSEABLE } = frontmatter;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const modelProfiles = require("./model-profiles.cjs");
 const { MODEL_PROFILES, VALID_PHASE_TYPES } = modelProfiles;
@@ -65,96 +75,65 @@ const phase_lifecycle_cjs_1 = require("./phase-lifecycle.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planScanMod = require("./plan-scan.cjs");
 const { scanPhasePlans } = planScanMod;
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- verification.cjs is an export= CommonJS module
+// #5060: Phase Status Module — the single owner of "what state is phase P
+// in?" (ADR-5057 §1/§2). Replaces this file's own precedence ladder and
+// determinePhaseStatus derivation.
+const phase_status_cjs_1 = require("./phase-status.cjs");
+// #5118: an aggregate over a refused verification report fails through the owner.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const verificationMod = require("./verification.cjs");
-const { resolveVerificationFile } = verificationMod;
-// ─── Phase Status ─────────────────────────────────────────────────────────────
-/**
- * Phase-status precedence ladder — furthest-along wins (#2408).
- *
- * `cmdStats` builds `phasesByNumber` by scanning on-disk phase directories.
- * When two directories normalize to the same phase key (e.g. `05-real/` and
- * `05-real-stray/`), the status field must be folded by precedence rather
- * than overwritten last-write-wins — otherwise `/gsd-stats` reports whatever
- * directory `fs.readdirSync` happened to yield last, which is non-deterministic
- * across platforms and can silently call a `Complete` phase `Not Started`.
- */
-const PHASE_STATUS_PRECEDENCE = [
-    'Complete',
-    'Needs Review',
-    'Executed',
-    'In Progress',
-    'Planned',
-    'Not Started',
-    'Pending',
-];
-const PHASE_STATUS_RANK = new Map(PHASE_STATUS_PRECEDENCE.map((s, i) => [s, i]));
-/**
- * Fold two phase statuses by precedence — returns whichever is further along
- * the {@link PHASE_STATUS_PRECEDENCE} ladder. Unrecognized statuses fall behind
- * every recognized one (so a recognized status always wins over an unknown one;
- * two unrecognized statuses favor `a` for determinism).
- */
-function foldPhaseStatus(a, b) {
-    const ra = PHASE_STATUS_RANK.get(a);
-    const rb = PHASE_STATUS_RANK.get(b);
-    if (ra === undefined && rb === undefined)
-        return a;
-    if (ra === undefined)
-        return b;
-    if (rb === undefined)
-        return a;
-    // Lower rank = higher precedence (Complete=0 wins over Not Started=5).
-    return ra <= rb ? a : b;
-}
-/**
- * Determine phase status by checking plan/summary counts AND verification state.
- * Introduces "Executed" for phases with all summaries but no passing verification.
- */
-function determinePhaseStatus(plans, summaries, phaseDir, defaultPending) {
-    if (plans === 0)
-        return defaultPending;
-    if (summaries < plans && summaries > 0)
-        return 'In Progress';
-    if (summaries < plans)
-        return 'Planned';
-    // summaries >= plans — check verification
+const { failOnVerificationStatusError, firstStatusError } = verificationMod;
+/** The effort-sync line editors' fence reading: a block behind a preamble is still edited (#3706). */
+const EFFORT_SYNC_FENCE = Object.freeze({ allowPreamble: true });
+/** Prefer the the agent agents beside the running local install over the global home. */
+function claudeEffortAgentsDir(explicitDir) {
+    if (explicitDir)
+        return node_path_1.default.join(explicitDir, 'agents');
+    // Compiled commands.cjs lives at <configDir>/gsd-core/bin/lib. In a source
+    // checkout the same path leads to the repository root, where no install
+    // manifest exists; keep the existing global fallback in that case.
+    const configDir = node_path_1.default.resolve(__dirname, '..', '..', '..');
     try {
-        const files = node_fs_1.default.readdirSync(phaseDir);
-        // #3473 F2: routed through the shared resolver (readdir order is
-        // filesystem-dependent, so the prior hand-rolled `.find()` could pick
-        // either file when a phase held both a canonical report and an ad-hoc
-        // `-CORRECTION-VERIFICATION.md` worksheet — see #3357).
-        // #3492: pin selection to THIS phase's own token so a stray cross-phase
-        // or sentinel-numbered canonically-shaped file cannot outrank this
-        // phase's own (possibly non-canonical) report.
-        const phaseDirName = node_path_1.default.basename(phaseDir);
-        const phaseToken = extractPhaseToken(phaseDirName);
-        const verificationFile = resolveVerificationFile(files, { allowBare: true, phaseToken, phaseDirName });
-        if (verificationFile) {
-            const verificationFilePath = node_path_1.default.join(phaseDir, verificationFile);
-            const content = (0, shell_command_projection_cjs_1.platformReadSync)(verificationFilePath) || '';
-            // #1159 (Defect A): read ONLY the frontmatter `status` key to avoid false
-            // matches from historical body metadata such as `previous_status: gaps_found`.
-            // Full-text regexes like /status:\s*gaps_found/ match the substring inside
-            // `previous_status: gaps_found`, producing incorrect phase status labels.
-            const fm = extractFrontmatter(content, verificationFilePath);
-            // Normalise to lower-case to preserve the prior case-insensitive behaviour
-            // while reading only the frontmatter `status` key (not the full body text).
-            const fmStatus = typeof fm['status'] === 'string' ? fm['status'].trim().toLowerCase() : '';
-            if (fmStatus === 'passed')
-                return 'Complete';
-            if (fmStatus === 'human_needed')
-                return 'Needs Review';
-            if (fmStatus === 'gaps_found')
-                return 'Executed';
-            // Verification exists but unrecognized status — treat as executed
-            return 'Executed';
+        const manifestPath = node_path_1.default.join(configDir, 'gsd-file-manifest.json');
+        if (node_fs_1.default.lstatSync(manifestPath).isFile()) {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const migrations = require('./installer-migrations.cjs');
+            const manifest = migrations.readInstallManifest(configDir);
+            if (manifest.runtime === 'claude' && manifest.scope === 'local') {
+                return node_path_1.default.join(configDir, 'agents');
+            }
         }
     }
-    catch { /* directory read failed — fall through */ }
-    // No verification file — executed but not verified
-    return 'Executed';
+    catch { /* an absent or unreadable manifest retains the global fallback */ }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/unbound-method
+    const { getGlobalConfigDir } = require('./runtime-homes.cjs');
+    return node_path_1.default.join(getGlobalConfigDir('claude'), 'agents');
+}
+/**
+ * Project one canonical bracket directory onto its display identity and slug.
+ *
+ * The identity is deliberately obtained only through parsePhaseId/renderPhaseId;
+ * this helper owns no second bracket grammar. Callers invoke it only after the
+ * project's resolved convention is exactly `bracket`.
+ */
+function bracketPhaseDirProjection(dir) {
+    const id = parsePhaseId(dir);
+    const number = id.subphase ? `${id.phase}.${id.subphase}` : id.phase;
+    const identityPrefix = `${id.project}.${id.milestone}-${number}`;
+    const slug = dir.slice(identityPrefix.length).replace(/^-/, '');
+    return {
+        number,
+        display_id: renderPhaseId(id),
+        name: slug ? slug.replace(/-/g, ' ') : '',
+    };
+}
+function recoverBracketPhaseName(dir, phaseToken) {
+    const tokenBoundary = `-${phaseToken}`;
+    const tokenOffset = dir.indexOf(tokenBoundary);
+    if (tokenOffset === -1)
+        return '';
+    const afterToken = dir.slice(tokenOffset + tokenBoundary.length).replace(/^-/, '');
+    return afterToken ? afterToken.replace(/-/g, ' ') : '';
 }
 function cmdGenerateSlug(text, raw) {
     if (!text) {
@@ -186,7 +165,10 @@ function cmdCurrentTimestamp(format, raw) {
     output({ timestamp: result }, raw, result);
 }
 function cmdListTodos(cwd, area, raw) {
-    const pendingDir = node_path_1.default.join(planningDir(cwd), 'todos', 'pending');
+    // #4256: todos are root-scoped shared state — resolve via todosDir(cwd),
+    // never planningDir(cwd) (workstream-scoped), or the listing goes empty
+    // under a workstream.
+    const pendingDir = node_path_1.default.join(todosDir(cwd), 'pending');
     let count = 0;
     const todos = [];
     try {
@@ -231,25 +213,42 @@ function cmdListTodos(cwd, area, raw) {
  * validated with requireSafePath before reading. Read-only — never mutates.
  */
 /**
+ * Seed id grammars. `SEED-YYMMDD-xxx` (date + 3 base36 chars, the shape
+ * `.planning/quick/` uses) is what plant-seed has minted since #4378 removed
+ * the shared `wc -l` counter; `SEED-NNN` is the legacy counter form, which
+ * keeps parsing forever — existing seeds must never lose their identity.
+ *
+ * Known (theoretical, documented-not-fixed per #4378 review): a frontmatter-less
+ * legacy file whose counter is exactly 6 digits and whose slug opens with
+ * exactly 3 base36 chars parses as new-format. Requires a counter >= 100000 AND
+ * a missing frontmatter id; with frontmatter the legacy id always wins.
+ */
+const CANONICAL_SEED_ID_RE = /^SEED-(?:\d{6}-[a-z0-9]{3}|\d+)$/i;
+const SEED_ID_PREFIX_RE = /^(SEED-(?:\d{6}-[a-z0-9]{3}|\d+))/i;
+const SEED_SLUG_RE = /^SEED-(?:\d{6}-[a-z0-9]{3}|\d+)-(.+)$/i;
+/**
  * Derive the canonical `{ seed_id, slug }` from a seed filename stem and the
  * frontmatter `id:` value. Pure (no I/O) so it can be property-tested directly.
  *
- * seed_id: frontmatter `id:` when it matches `SEED-NNN`, else the numeric prefix
- * of the filename (`SEED-NNN-…`), else the whole stem. slug: the descriptive
- * remainder after `SEED-NNN-`, else the stem with a leading `SEED-` stripped.
- * `rawFmId` is `unknown` because frontmatter values are not guaranteed strings.
+ * seed_id: frontmatter `id:` when it matches a seed id grammar (`SEED-YYMMDD-xxx`
+ * or legacy `SEED-NNN`), else the id prefix of the filename (`SEED-…-<slug>`),
+ * else the whole stem. The prefix fallback must keep the FULL new-format id —
+ * truncating at the date gives every same-day seed the same id (#4378).
+ * slug: the descriptive remainder after the id, else the stem with a leading
+ * `SEED-` stripped. `rawFmId` is `unknown` because frontmatter values are not
+ * guaranteed strings.
  */
 function deriveSeedIdentity(stem, rawFmId) {
     const fmId = typeof rawFmId === 'string' ? rawFmId.trim() : '';
     let seedId;
-    if (/^SEED-\d+$/i.test(fmId)) {
+    if (CANONICAL_SEED_ID_RE.test(fmId)) {
         seedId = fmId;
     }
     else {
-        const numMatch = stem.match(/^(SEED-\d+)/i);
-        seedId = numMatch ? numMatch[1] : stem;
+        const prefixMatch = stem.match(SEED_ID_PREFIX_RE);
+        seedId = prefixMatch ? prefixMatch[1] : stem;
     }
-    const slugMatch = stem.match(/^SEED-\d+-(.+)$/i);
+    const slugMatch = stem.match(SEED_SLUG_RE);
     const slug = slugMatch ? slugMatch[1] : stem.replace(/^SEED-/i, '');
     return { seed_id: seedId, slug };
 }
@@ -282,7 +281,7 @@ function cmdListSeeds(cwd, statusFilter, raw) {
             continue;
         let safeFilePath;
         try {
-            safeFilePath = (0, security_cjs_1.requireSafePath)(node_path_1.default.join(seedsDir, entry.name), planDir, 'seed file', { allowAbsolute: true });
+            safeFilePath = (0, security_cjs_1.requireSafePath)(node_path_1.default.join(seedsDir, entry.name), planDir, 'seed file', security_cjs_1.PathAcceptance.AbsoluteInsideRoot);
         }
         catch {
             continue;
@@ -296,9 +295,11 @@ function cmdListSeeds(cwd, statusFilter, raw) {
         // sanitizeForDisplay is for output, not comparison.
         if (wantStatus && status !== wantStatus)
             continue;
-        // Canonical seed id is `SEED-NNN` (frontmatter `id:`, e.g. SEED-001). Fall
-        // back to the numeric prefix of the filename, then to the whole stem. The
-        // descriptive remainder of the filename (`SEED-NNN-<slug>.md`) is the slug.
+        // Canonical seed ids are `SEED-YYMMDD-xxx` (frontmatter `id:`, what
+        // plant-seed has minted since #4378) or legacy `SEED-NNN`; deriveSeedIdentity
+        // owns that grammar. Fall back to the id prefix of the filename, then to the
+        // whole stem. The descriptive remainder of the filename (`SEED-…-<slug>.md`)
+        // is the slug.
         const stem = node_path_1.default.basename(entry.name, '.md');
         const { seed_id: seedId, slug } = deriveSeedIdentity(stem, fm.id);
         let title = (0, security_cjs_1.sanitizeForDisplay)(fmStr(fm.title).slice(0, 100));
@@ -496,13 +497,10 @@ function cmdResolveExecution(cwd, agentType, raw, opts) {
     opts = opts || {};
     const config = loadConfig(cwd);
     const profile = config['model_profile'] || 'balanced';
-    // #2068: resolve the model per-attempt so dynamic_routing escalates the MODEL
-    // (heavy tier) alongside effort. Gated on an explicit --attempt exactly like the
-    // effort resolution below, so the two fields stay symmetric: with no --attempt
-    // the model comes from the classic profile path (unchanged for everyone,
-    // including dynamic_routing-enabled users who don't pass --attempt), and only an
-    // explicit attempt routes through the tier ladder. resolveModelForTier itself
-    // still falls back to resolveModelInternal when dynamic_routing is off.
+    // #2068: resolve the model per-attempt so dynamic_routing ESCALATES the MODEL
+    // (heavy tier) alongside effort. The FIRST-spawn tier now comes from
+    // resolveModelInternal's own dynamic_routing step (#4505), so the absent-attempt
+    // branch below reaches it too — this gate is only about escalation.
     let model = (opts.attempt !== undefined && opts.attempt !== null)
         ? resolveModelForTier(cwd, agentType, opts.attempt)
         : resolveModelInternal(cwd, agentType);
@@ -550,21 +548,19 @@ function cmdResolveExecution(cwd, agentType, raw, opts) {
     let effortEffective = effort;
     if (runtime === 'claude') {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/unbound-method
-            const { getGlobalConfigDir } = require('./runtime-homes.cjs');
-            const agentsDirEff = node_path_1.default.join(getGlobalConfigDir(runtime), 'agents');
-            const agentPath = node_path_1.default.join(agentsDirEff, `${agentType}.md`);
+            const agentsDirEff = claudeEffortAgentsDir();
             // agentType is an unvalidated CLI positional: keep the read inside the
             // agents dir so `../../x` cannot point it elsewhere (defense in depth —
-            // the reflected surface is only a frontmatter effort line).
-            if (!node_path_1.default.resolve(agentPath).startsWith(node_path_1.default.resolve(agentsDirEff) + node_path_1.default.sep)) {
-                throw new Error('agent path escapes the agents directory');
-            }
+            // the reflected surface is only a frontmatter effort line). Untrusted
+            // input feeding a real read → realpath family (ADR-4650 decision 6).
+            const agentPath = (0, security_cjs_1.assertWithinRoot)(`${agentType}.md`, agentsDirEff, 'agent file');
             const agentContent = node_fs_1.default.readFileSync(agentPath, 'utf8');
-            // eslint-disable-next-line local/no-unbounded-quantifier -- same lazy `*?` bounded by the `^---$/m` closing anchor as the sibling frontmatter regexes in this file
-            const fmMatchEff = /^---\r?\n([\s\S]*?)^---\r?$/m.exec(agentContent);
-            if (fmMatchEff) {
-                const effortLine = /^effort:[ \t]*(.+?)[ \t]*$/m.exec(fmMatchEff[1]);
+            // Byte-0 read: the runtime only honors a frontmatter block that opens at
+            // byte 0, so a block behind a preamble is not frontmatter to the loader
+            // and this reports what the installed agent will actually run at (#5105).
+            const fmSpanEff = agentFrontmatterSpan(agentContent);
+            if (fmSpanEff) {
+                const effortLine = /^effort:[ \t]*(.+?)[ \t]*$/m.exec(fmSpanEff.body);
                 if (effortLine) {
                     effortEffective = effortLine[1];
                     effortEffectiveSource = 'frontmatter';
@@ -652,32 +648,41 @@ function effortSurfaceForHost(cwd, host) {
     }
 }
 /**
+ * The leading frontmatter block of an installed agent file, as the one fence owner
+ * (`locateFrontmatterFence`) finds it: `body` is the text between the two fences (the last
+ * content line's line ending included), `bodyStart`/`closingStart` bound it, and `eol` is the
+ * opening fence's line ending. Null when the file has no closed block. By default a block that
+ * does not open at byte 0 is not one, exactly as the runtime that loads the agent reads it;
+ * the effort-sync line editors pass `EFFORT_SYNC_FENCE` to edit a block behind a preamble too
+ * (#3706 pinned that).
+ */
+function agentFrontmatterSpan(content, options) {
+    const fence = (0, frontmatter_fence_cjs_1.locateFrontmatterFence)(content, options);
+    if (!fence?.closed)
+        return null;
+    return { body: content.slice(fence.openEnd, fence.closingStart), bodyStart: fence.openEnd, closingStart: fence.closingStart, eol: fence.eol };
+}
+/**
  * #488 — Replace or inject the `<key>:` value in YAML frontmatter.
  * Unlike injectEffortFrontmatter (install.js), this overwrites an existing value.
  * #3706: key-parameterised so the same line-editor serves both claude's
- * `effort:` and OpenCode's `variant:`. #3706: all offsets (eol, openLen,
- * closingStart) are derived from the MATCHED BLOCK, not the start of the
- * file, and the existing-key replace is scoped to the frontmatter span only.
+ * `effort:` and OpenCode's `variant:`. #3706: all offsets (eol, bodyStart,
+ * closingStart) come from the block `agentFrontmatterSpan` found, and the
+ * existing-key replace is scoped to the frontmatter span only.
  */
 function setFrontmatterKeyLine(content, key, value) {
-    const fmRe = /^---\r?\n([\s\S]*?)^---\r?$/m;
-    const match = fmRe.exec(content);
-    if (!match)
+    const span = agentFrontmatterSpan(content, EFFORT_SYNC_FENCE);
+    if (!span)
         return content;
-    const fmBody = match[1];
+    const fmBody = span.body;
     // Both writers of these frontmatter keys — this sync path and the
     // install-side `frontmatterScalar` in runtime-artifact-conversion.cts —
     // now share one escaping rule: quote via `agentScalarNeedsDoubleQuoting` +
     // `escapeDoubleQuotedScalar` (both from frontmatter.cts) rather than each
     // interpolating `value` raw/differently.
     const renderedValue = agentScalarNeedsDoubleQuoting(value) ? `"${escapeDoubleQuotedScalar(value)}"` : value;
-    // EOL comes from the MATCHED BLOCK, not the start of the file. With a
-    // preamble the two can disagree, and on a CRLF document that misaligns every
-    // offset below by one byte and mangles the opening fence.
-    const eol = /^---\r\n/.test(match[0]) ? '\r\n' : '\n';
-    const openLen = 3 + eol.length;
-    const bodyStart = match.index + openLen;
-    const closingStart = bodyStart + fmBody.length;
+    // Every offset and the EOL come from the block the fence owner found (#3706).
+    const { eol, bodyStart, closingStart } = span;
     // #3706: key is now generic (not just the literal 'effort'/'variant'
     // callers happen to pass today) — escape it before interpolating into the
     // RegExp so a future caller can't have its key metacharacters reinterpreted.
@@ -713,19 +718,17 @@ function setFrontmatterKeyLine(content, key, value) {
  * codex-agent-toml strip discipline: targeted line removal, EOL-aware, every
  * other byte (comments, sibling keys, the body) untouched.
  * #3706: key-parameterised so the same line-editor serves both claude's
- * `effort:` and OpenCode's `variant:`. #3706: openLen is derived from the
- * MATCHED BLOCK, not the start of the file — a preamble on a CRLF document
- * would otherwise misalign every offset below.
+ * `effort:` and OpenCode's `variant:`. #3706: every offset comes from the
+ * block `agentFrontmatterSpan` found.
  */
 function removeFrontmatterKeyLine(content, key) {
     // Scoped to the FIRST frontmatter block (not a whole-file /m match): a
     // preamble or body line starting with `<key>:` (a fenced config example,
     // a thematic-break flanked fragment) must never be the line removed.
-    const fmRe = /^---\r?\n([\s\S]*?)^---\r?$/m;
-    const match = fmRe.exec(content);
-    if (!match)
+    const span = agentFrontmatterSpan(content, EFFORT_SYNC_FENCE);
+    if (!span)
         return content;
-    const fmBody = match[1];
+    const fmBody = span.body;
     // #3706: same generic-key escape as setFrontmatterKeyLine above.
     const lineRe = new RegExp(`^${(0, pattern_cjs_1.escapeRegex)(key)}:[ \\t]*.*\\r?\\n?`, 'm');
     if (!lineRe.test(fmBody))
@@ -740,12 +743,7 @@ function removeFrontmatterKeyLine(content, key) {
     // is removed in one pass.
     const stripAllRe = new RegExp(`^${(0, pattern_cjs_1.escapeRegex)(key)}:[ \\t]*.*\\r?\\n?`, 'gm');
     const strippedFm = fmBody.replace(stripAllRe, '');
-    // Same rule as setFrontmatterKeyLine: the EOL must come from the matched
-    // block, not the start of the file, or a preambled CRLF document misaligns.
-    const eol = /^---\r\n/.test(match[0]) ? '\r\n' : '\n';
-    const openLen = 3 + eol.length;
-    const closingStart = match.index + openLen + fmBody.length;
-    return content.slice(0, match.index + openLen) + strippedFm + content.slice(closingStart);
+    return content.slice(0, span.bodyStart) + strippedFm + content.slice(span.closingStart);
 }
 /** #488 — Replace or inject the `effort:` value in YAML frontmatter. */
 function setEffortFrontmatter(content, effortValue) {
@@ -790,8 +788,6 @@ function cmdEffortSync(cwd, raw, opts) {
         output({ synced: 0, skipped: 0, changes: [], dry_run: dryRun, reason: `runtime '${runtime}' does not use effort: frontmatter` }, raw, '');
         return;
     }
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/unbound-method
-    const { getGlobalConfigDir } = require('./runtime-homes.cjs');
     // Use install-time resolvers: they merge ~/.gsd/defaults.json with project config,
     // matching the exact logic used when agents were originally installed. #2071: these
     // live in the shipped sibling install-effort-resolver.cjs (extracted from the
@@ -799,7 +795,7 @@ function cmdEffortSync(cwd, raw, opts) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/unbound-method
     const { readGsdEffectiveEffortConfig, resolveInstallTimeEffort } = require('./install-effort-resolver.cjs');
     const effortCfg = readGsdEffectiveEffortConfig(cwd);
-    const agentsDir = node_path_1.default.join(opts.configDir || getGlobalConfigDir(runtime), 'agents');
+    const agentsDir = claudeEffortAgentsDir(opts.configDir);
     if (!node_fs_1.default.existsSync(agentsDir)) {
         output({ synced: 0, skipped: 0, changes: [], dry_run: dryRun, agents_dir: agentsDir, reason: 'agents directory not found' }, raw, '');
         return;
@@ -817,6 +813,10 @@ function cmdEffortSync(cwd, raw, opts) {
     }).sort(); // #3706: sorted like the codex and
     // opencode branches — readdir order is platform-dependent, so leaving it unsorted makes the
     // reported `changes` ordering differ across machines for identical inputs.
+    if (files.length === 0) {
+        output({ synced: 0, skipped: 0, changes: [], dry_run: dryRun, agents_dir: agentsDir, reason: 'no GSD agent files found' }, raw, '');
+        return;
+    }
     const changes = [];
     let synced = 0;
     let skipped = 0;
@@ -837,6 +837,7 @@ function cmdEffortSync(cwd, raw, opts) {
     // cmdEffortSyncCodex and cmdEffortSyncOpencode, so a fault mid-write can
     // never leave an agent file truncated or empty.
     let fileFailureCount = 0;
+    const rewrittenFiles = [];
     for (const file of files) {
         const agentName = file.replace(/\.md$/, '');
         const filePath = node_path_1.default.join(agentsDir, file);
@@ -854,6 +855,8 @@ function cmdEffortSync(cwd, raw, opts) {
             fileFailureCount++;
             continue;
         }
+        // #5683: hash BEFORE any rewrite — only a GSD-owned file gets re-recorded.
+        const preHash = (0, install_manifest_record_cjs_1.tryFileHash)(filePath);
         // Resolve using install-time logic: home defaults merged with project config.
         const universalEffort = resolveInstallTimeEffort(effortCfg, agentName);
         // #3533 (10d): 'inherit' means the key must NOT exist. An absent key is
@@ -861,7 +864,7 @@ function cmdEffortSync(cwd, raw, opts) {
         // drift and the sync re-added a hand-stripped key on every apply. A
         // present key under inherit is stripped, reported as {from, to: null}.
         if (universalEffort === 'inherit') {
-            const fmMatchInherit = /^---\r?\n([\s\S]*?)^---\r?$/m.exec(content);
+            const fmMatchInherit = agentFrontmatterSpan(content, EFFORT_SYNC_FENCE);
             if (!fmMatchInherit) {
                 skipped++;
                 continue;
@@ -872,12 +875,12 @@ function cmdEffortSync(cwd, raw, opts) {
             // from a null value alone is wrong here — it would leave an
             // unresolvable `effort: null` key on disk forever. Test presence with
             // its own regex, and only compare values once presence is known.
-            const effortPresentInherit = /^effort:/m.test(fmMatchInherit[1]);
+            const effortPresentInherit = /^effort:/m.test(fmMatchInherit.body);
             if (!effortPresentInherit) {
                 skipped++;
                 continue;
             }
-            const effortMatchInherit = /^effort:[ \t]*(.+?)[ \t]*$/m.exec(fmMatchInherit[1]);
+            const effortMatchInherit = /^effort:[ \t]*(.+?)[ \t]*$/m.exec(fmMatchInherit.body);
             // `effortPresentInherit` is guaranteed true here (checked above), so a
             // failed value match means the key is present with an EMPTY value —
             // report `''`, not `null`, so "present-but-empty" is never conflated
@@ -917,6 +920,7 @@ function cmdEffortSync(cwd, raw, opts) {
                     }
                     catch { /* non-fatal: proceed with default tmp-file mode */ }
                     (0, shell_command_projection_cjs_1.retryRenameSync)(tmpPathInherit, filePath);
+                    rewrittenFiles.push({ path: filePath, preHash });
                 }
                 catch {
                     try {
@@ -936,7 +940,7 @@ function cmdEffortSync(cwd, raw, opts) {
         // codex's 'ultra' rejection can produce a null value).
         const rendered = (0, model_catalog_cjs_1.renderEffortForRuntime)(runtime, universalEffort);
         const newEffortValue = rendered.value;
-        const fmMatch = /^---\r?\n([\s\S]*?)^---\r?$/m.exec(content);
+        const fmMatch = agentFrontmatterSpan(content, EFFORT_SYNC_FENCE);
         if (!fmMatch) {
             skipped++;
             continue;
@@ -949,8 +953,8 @@ function cmdEffortSync(cwd, raw, opts) {
         // never null on this path (guarded above), so an absent key already
         // yields `currentEffort === null !== newEffortValue` without consulting
         // presence separately.
-        const effortPresent = /^effort:/m.test(fmMatch[1]);
-        const effortMatch = /^effort:[ \t]*(.+?)[ \t]*$/m.exec(fmMatch[1]);
+        const effortPresent = /^effort:/m.test(fmMatch.body);
+        const effortMatch = /^effort:[ \t]*(.+?)[ \t]*$/m.exec(fmMatch.body);
         // `null` (key absent) and `''` (key present, value empty) are distinct
         // states `effortPresent` deliberately disambiguates — collapsing both to
         // `null` here would make the reported `from` lie about which case fired.
@@ -994,6 +998,7 @@ function cmdEffortSync(cwd, raw, opts) {
                 }
                 catch { /* non-fatal: proceed with default tmp-file mode */ }
                 (0, shell_command_projection_cjs_1.retryRenameSync)(tmpPathSet, filePath);
+                rewrittenFiles.push({ path: filePath, preHash });
             }
             catch {
                 try {
@@ -1008,6 +1013,9 @@ function cmdEffortSync(cwd, raw, opts) {
         changes.push({ agent: agentName, from: currentEffort, to: newEffortValue });
         synced++;
     }
+    // #5683: keep the install manifest in step with the agents just rewritten.
+    if (!dryRun)
+        (0, install_manifest_record_cjs_1.recordManifestFileHashes)(node_path_1.default.dirname(agentsDir), rewrittenFiles);
     output({ synced, skipped, changes, dry_run: dryRun, agents_dir: agentsDir }, raw, fileFailureCount > 0 ? 'failed' : synced > 0 ? 'changed' : 'ok');
 }
 /**
@@ -1050,6 +1058,7 @@ function cmdEffortSyncCodex(raw, dryRun, configDir) {
     const refused = [];
     const writeFailures = [];
     const readFailures = [];
+    const rewrittenFiles = [];
     let synced = 0;
     let skipped = 0;
     for (const file of files) {
@@ -1068,6 +1077,7 @@ function cmdEffortSyncCodex(raw, dryRun, configDir) {
             readFailures.push({ agent: agentName, file: filePath, error: err instanceof Error ? err.message : String(err) });
             continue;
         }
+        const preHash = (0, install_manifest_record_cjs_1.tryFileHash)(filePath); // #5683
         const parsed = (0, codex_agent_toml_cjs_1.parseCodexAgentToml)(content);
         if (!parsed.ok) {
             // Never partially rewritten (40-design.md, ADR-2313 reader/writer
@@ -1136,6 +1146,7 @@ function cmdEffortSyncCodex(raw, dryRun, configDir) {
                 }
                 catch { /* non-fatal: proceed with default tmp-file mode */ }
                 (0, shell_command_projection_cjs_1.retryRenameSync)(tmpPath, filePath);
+                rewrittenFiles.push({ path: filePath, preHash });
             }
             catch (err) {
                 // Reported, not thrown — the remaining agents still get processed.
@@ -1152,6 +1163,8 @@ function cmdEffortSyncCodex(raw, dryRun, configDir) {
         changes.push(...pendingChanges);
         synced++;
     }
+    if (!dryRun)
+        (0, install_manifest_record_cjs_1.recordManifestFileHashes)(node_path_1.default.dirname(agentsDir), rewrittenFiles);
     output({ synced, skipped, changes, dry_run: dryRun, agents_dir: agentsDir, refused, write_failures: writeFailures, read_failures: readFailures }, raw, writeFailures.length > 0 || readFailures.length > 0 ? 'failed' : synced > 0 ? 'changed' : 'ok');
 }
 /**
@@ -1200,6 +1213,7 @@ function cmdEffortSyncOpencode(cwd, raw, dryRun, configDir) {
     const changes = [];
     const writeFailures = [];
     const readFailures = [];
+    const rewrittenFiles = [];
     let synced = 0;
     let skipped = 0;
     for (const file of files) {
@@ -1218,12 +1232,13 @@ function cmdEffortSyncOpencode(cwd, raw, dryRun, configDir) {
             readFailures.push({ agent: agentName, file: filePath, error: err instanceof Error ? err.message : String(err) });
             continue;
         }
+        const preHash = (0, install_manifest_record_cjs_1.tryFileHash)(filePath); // #5683
         // `target === null` covers both "no effort configured" (inherit) and "a
         // level OpenCode does not accept" — both must produce NO `variant:` key,
         // exactly what install writes.
         const universal = effortCfg ? resolveInstallTimeEffort(effortCfg, agentName) : null;
         const target = universal ? clampEffortForHost('opencode', universal) : null;
-        const fmMatch = /^---\r?\n([\s\S]*?)^---\r?$/m.exec(content);
+        const fmMatch = agentFrontmatterSpan(content, EFFORT_SYNC_FENCE);
         if (!fmMatch) {
             skipped++;
             continue;
@@ -1235,25 +1250,45 @@ function cmdEffortSyncOpencode(cwd, raw, dryRun, configDir) {
         // null — it would leave an unresolvable `variant: null` key on disk
         // forever. Test presence with its own regex, and only compare values
         // once presence is known.
-        const variantPresent = /^variant:/m.test(fmMatch[1]);
-        const variantMatch = /^variant:[ \t]*(.+?)[ \t]*$/m.exec(fmMatch[1]);
+        // Native OpenCode 2.x form (ADR-5331 D5): the effort rides on the model reference as
+        // `provider/model#variant`, with no separate `variant:` key. When the agent's `model:` carries a
+        // `#` suffix that suffix IS the effort, so the sync edits the model instead of adding a second,
+        // conflicting `variant:` line.
+        const modelLineMatch = /^model:[ \t]*(.+?)[ \t]*$/m.exec(fmMatch.body);
+        const modelValue = modelLineMatch ? modelLineMatch[1].replace(/\r$/, '').replace(/^(["'])(.*)\1$/, '$2') : null;
+        const hashAt = modelValue === null ? -1 : modelValue.lastIndexOf('#');
+        let modelFormContent = null;
+        let modelFormFrom = null;
+        if (modelValue !== null && hashAt > 0) {
+            const base = modelValue.slice(0, hashAt);
+            modelFormFrom = modelValue.slice(hashAt + 1);
+            if (target !== null && modelFormFrom === target) {
+                skipped++;
+                continue;
+            }
+            modelFormContent = setFrontmatterKeyLine(content, 'model', target === null ? base : `${base}#${target}`);
+        }
+        const variantPresent = /^variant:/m.test(fmMatch.body);
+        const variantMatch = /^variant:[ \t]*(.+?)[ \t]*$/m.exec(fmMatch.body);
         // `null` (key absent) and `''` (key present, value empty) are distinct
         // states this code deliberately tracks via `variantPresent` above — a
         // reported `from` that collapses both to `null` would make "no key" and
         // "empty key" indistinguishable in the sync output, even though only one
         // of them actually has a `variant:` line to remove.
         const currentVariant = variantPresent ? (variantMatch ? variantMatch[1] : '') : null;
-        if (target === null) {
-            if (!variantPresent) {
+        if (modelFormContent === null) {
+            if (target === null) {
+                if (!variantPresent) {
+                    skipped++;
+                    continue;
+                }
+            }
+            else if (variantPresent && currentVariant === target) {
                 skipped++;
                 continue;
             }
         }
-        else if (variantPresent && currentVariant === target) {
-            skipped++;
-            continue;
-        }
-        changes.push({ agent: agentName, from: currentVariant, to: target });
+        changes.push({ agent: agentName, from: modelFormContent === null ? currentVariant : modelFormFrom, to: target });
         synced++;
         if (!dryRun) {
             // Atomic publish AND mode preservation, same discipline as
@@ -1281,7 +1316,7 @@ function cmdEffortSyncOpencode(cwd, raw, dryRun, configDir) {
             }
             catch { /* non-fatal: fall back to writing without an explicit mode */ }
             try {
-                node_fs_1.default.writeFileSync(tmpPath, target === null ? removeFrontmatterKeyLine(content, 'variant') : setFrontmatterKeyLine(content, 'variant', target), originalMode !== undefined ? { mode: originalMode } : undefined);
+                node_fs_1.default.writeFileSync(tmpPath, modelFormContent ?? (target === null ? removeFrontmatterKeyLine(content, 'variant') : setFrontmatterKeyLine(content, 'variant', target)), originalMode !== undefined ? { mode: originalMode } : undefined);
                 // Not redundant with the `mode` option above: `mode` only applies
                 // when the file is actually created (O_CREAT). A leftover tmp file
                 // from an earlier crashed run would be reused (truncated) at its OLD
@@ -1294,6 +1329,7 @@ function cmdEffortSyncOpencode(cwd, raw, dryRun, configDir) {
                 }
                 catch { /* non-fatal: proceed with default tmp-file mode */ }
                 (0, shell_command_projection_cjs_1.retryRenameSync)(tmpPath, filePath);
+                rewrittenFiles.push({ path: filePath, preHash });
             }
             catch (err) {
                 try {
@@ -1322,6 +1358,8 @@ function cmdEffortSyncOpencode(cwd, raw, dryRun, configDir) {
     // Making the exit code reflect failure would be a CLI-contract change
     // affecting all three cmdEffortSync* branches (claude, codex, opencode) and
     // is out of scope for this fix.
+    if (!dryRun)
+        (0, install_manifest_record_cjs_1.recordManifestFileHashes)(node_path_1.default.dirname(agentsDir), rewrittenFiles);
     output({ synced, skipped, changes, dry_run: dryRun, agents_dir: agentsDir, write_failures: writeFailures, read_failures: readFailures }, raw, writeFailures.length > 0 || readFailures.length > 0 ? 'failed' : synced > 0 ? 'changed' : 'ok');
 }
 /**
@@ -1357,19 +1395,33 @@ function detectPhaseNumberFromFiles(files) {
                 if (!phaseDir)
                     continue;
                 const token = extractPhaseToken(phaseDir);
-                // extractPhaseToken falls back to returning dirName unchanged when no
-                // numeric token is found. normalizePhaseName is the canonical arbiter
-                // of "is this a real phase token": it strips the project-code prefix
-                // and returns a zero-padded numeric form for a genuine phase token, or
-                // the input unchanged otherwise. Accept the token only when it
-                // normalizes to a numeric phase form (the single-owner rule shared by
-                // every other phase-token reader — see #2528).
-                const normalized = normalizePhaseName(token);
+                // normalizePhaseName is the canonical arbiter of "is this a real phase
+                // token": it strips the project-code prefix and returns a zero-padded
+                // numeric form for a genuine phase token, or the input unchanged
+                // otherwise. Accept the token whenever it normalizes to a numeric
+                // phase form (the single-owner rule shared by every other phase-token
+                // reader — see #2528).
+                //
+                // #4126 fix: this used to also require `token !== phaseDir`, on the
+                // assumption that extractPhaseToken returning its input unchanged
+                // always means "no numeric token found" (its no-match fallback).
+                // That assumption is false for a BARE phase directory with no slug
+                // remainder (e.g. `.planning/phases/01/`): extractPhaseToken correctly
+                // reads "01" as the token, which is simply identical to the directory
+                // name in that case — not a fallback. The stale equality check
+                // rejected every such directory, leaving `phaseNum` null and silently
+                // skipping the whole phase-branch block below (undetected because
+                // `phaseTokenShape.test(normalized)` already excludes genuine
+                // non-phase fallbacks — e.g. `docs`, `CK-docs` — on its own, since
+                // extractPhaseToken's real no-match fallback only fires for dirNames
+                // that do not start with a digit or short letter+digit prefix, which
+                // normalizePhaseName's leading-`\d+` requirement rejects regardless).
                 // Built from the single-owner PHASE_NUMBER_TOKEN_SOURCE (the canonical
                 // phase-number grammar — #2128 anti-divergence guard) so this read-side
                 // acceptance check cannot drift from every other phase-token reader.
+                const normalized = normalizePhaseName(token);
                 const phaseTokenShape = new RegExp(`^${PHASE_NUMBER_TOKEN_SOURCE}$`, 'i');
-                if (token !== phaseDir && phaseTokenShape.test(normalized)) {
+                if (phaseTokenShape.test(normalized)) {
                     return token;
                 }
             }
@@ -1442,7 +1494,363 @@ const COMMIT_DOCS_SKIP_REASON = {
     config: 'skipped_commit_docs_false',
     gitignore: 'skipped_gitignored',
 };
-function cmdCommit(cwd, message, files, raw, amend, noVerify) {
+// #4208 review: the declared-removal staging lifted out of cmdCommit, which was
+// already a critical-risk hotspot before this flag existed. Pure motion -- the
+// classification, canonicalisation and entry recording below are unchanged; only
+// the two accumulators are local names that the caller merges. `removedPathspec`
+// is what joins the commit's pathspec; `removedEntries` is what the caller's
+// rollback and its no-change exits restore from.
+function stageDeclaredRemovals(cwd, removedDeclared) {
+    const failures = [];
+    const removedPathspec = [];
+    // The empty blob under SHA-1 and SHA-256 object formats — intent-to-add's tell.
+    const EMPTY_BLOBS = new Set(['e69de29bb2d1d6434b8b29ae775ad8c2e48c5391', '473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813']);
+    // A PATH FROM THE INDEX IS NOT A PATHSPEC. `git rm`, `ls-files` and friends
+    // parse their operands as pathspecs, so a tracked file literally named
+    // `.planning/*.md` GLOBS when handed back to git: driven, `rm --cached` on it
+    // also removed `peer.md` and `stays.md`, and only the declared entry was
+    // recorded — so the rollback restored one of three and the other two rode out
+    // as undisclosed staged deletions. The magic-prefix twin is quieter still: a
+    // file named `:(literal)mine` has its prefix PARSED, so the rm matches nothing,
+    // exits 0, and the entry silently survives a removal this call then claims.
+    // `:(literal)` disables every other magic, including globbing, so the operand
+    // means the file it names.
+    const lit = (p) => `:(literal)${p}`;
+    const notARemoval = (e) => {
+        if (e.mode === '160000')
+            return 'a submodule gitlink, not a file';
+        if (e.tag === 'S')
+            return 'skip-worktree (sparse-checkout): absent by checkout, not removed';
+        if (e.tag === 'h')
+            return 'assume-unchanged: git does not consult its worktree state';
+        if (e.stage !== '0')
+            return 'an unmerged index entry';
+        if (e.tag !== 'H')
+            return `index state '${e.tag}'`;
+        return null;
+    };
+    const lstatState = (p) => {
+        try {
+            node_fs_1.default.lstatSync(p);
+            return 'present';
+        }
+        catch (e) {
+            const err = e;
+            return err.code === 'ENOENT' || err.code === 'ENOTDIR' ? 'absent' : err;
+        }
+    };
+    // `rev-parse -q --verify HEAD` exits 1 both for an unborn HEAD and for a
+    // spawn timeout (`execGit` collapses one to `exitCode: 1`). Only a probe that
+    // actually answered may downgrade the union to index-only; an unanswered one
+    // fails closed, because silently dropping the HEAD half re-opens the
+    // pre-staged-deletion omission this union exists to close.
+    let headExists = false;
+    let headProbeFailure = null;
+    if (removedDeclared.length > 0) {
+        const headProbe = (0, shell_command_projection_cjs_1.execGit)(['rev-parse', '-q', '--verify', 'HEAD'], { cwd });
+        if (headProbe.exitCode === 0) {
+            headExists = true;
+        }
+        else if ((0, shell_command_projection_cjs_1.isSpawnTimeout)(headProbe) || headProbe.error !== null) {
+            headProbeFailure = { error: headProbe.stderr || headProbe.stdout || 'HEAD probe failed', timed_out: (0, shell_command_projection_cjs_1.isSpawnTimeout)(headProbe) };
+        }
+    }
+    // Every index entry this call removes, recorded BEFORE the `rm --cached`
+    // so the rollback below can put it back exactly — mode and blob — with
+    // `update-index --cacheinfo`. `git reset -- <path>` cannot do that: it
+    // restores from HEAD, which does not exist on an unborn branch (so a root
+    // commit's failed call used to leave every earlier removal unstaged, in
+    // violation of the only-what-THIS-call-staged invariant above) and which
+    // is not what the index held when the caller had pre-staged a modified
+    // blob at that path. Recording the entry answers both without putting the
+    // path on the commit pathspec, where an unborn HEAD makes `git commit`
+    // refuse it (driven; see the union note above).
+    const removedEntries = [];
+    for (const entry of removedDeclared) {
+        if (headProbeFailure !== null) {
+            failures.push({ file: entry, ...headProbeFailure });
+            continue;
+        }
+        // `-v -s`: tag, mode, blob, stage and path per record — see notARemoval.
+        // `lit` here too: the caller's declared entry is a PATH, not a glob —
+        // that is `--files-removed`'s whole contract — and :(literal) still
+        // resolves a directory to its descendants (driven), so the directory form
+        // is unaffected while a file literally named `*.md` or `:(literal)x` means
+        // itself.
+        const listed = (0, shell_command_projection_cjs_1.execGit)(['ls-files', '-v', '-s', '-z', '--', lit(entry)], { cwd });
+        if (listed.exitCode !== 0) {
+            failures.push({
+                file: entry,
+                error: listed.stderr || listed.stdout,
+                timed_out: (0, shell_command_projection_cjs_1.isSpawnTimeout)(listed),
+            });
+            continue;
+        }
+        const indexed = new Map();
+        let unparseable = null;
+        for (const rec of listed.stdout.split('\0').filter(Boolean)) {
+            const m = /^(\S) (\d{6}) ([0-9a-f]+) ([0-3])\t([\s\S]+)$/.exec(rec);
+            if (m === null) {
+                unparseable = rec;
+                break;
+            }
+            indexed.set(m[5], { tag: m[1], mode: m[2], sha: m[3], stage: m[4] });
+        }
+        if (unparseable !== null) {
+            // A record this code cannot read is not a path it may remove.
+            failures.push({ file: entry, error: `unparseable ls-files record: ${unparseable}`, timed_out: false });
+            continue;
+        }
+        const tracked = new Set(indexed.keys());
+        // Does the entry name THIS tracked path itself (the caller declared a
+        // FILE removed) or a directory above it? Decided on RESOLVED paths, never
+        // on the strings: `ls-files` prints cwd-relative paths, and a caller may
+        // pass an absolute path, `./x`, a trailing slash, or run under `--cwd`,
+        // any of which fails a string compare and would silently take the
+        // directory polarity — a directly named gitlink then SKIPS instead of
+        // refusing (found by the round's review, driven with an absolute path).
+        const entryAbs = node_path_1.default.resolve(cwd, entry);
+        const entryRel = node_path_1.default.relative(cwd, entryAbs).split(node_path_1.default.sep).join('/');
+        // Canonical form: realpath of the longest EXISTING prefix, with the absent
+        // tail re-appended. The declared path is usually absent (that is the
+        // point), and `process.cwd()` returns the real path where the caller may
+        // hold a symlinked spelling — macOS `/var` → `/private/var` is the live
+        // instance (CI, this PR's own test) — so a resolve-only compare still
+        // took the directory polarity there.
+        const canon = (p) => {
+            let cur = node_path_1.default.resolve(cwd, p);
+            const tail = [];
+            for (;;) {
+                try {
+                    return node_path_1.default.join(node_fs_1.default.realpathSync.native(cur), ...tail);
+                }
+                catch { /* absent: climb */ }
+                const parent = node_path_1.default.dirname(cur);
+                if (parent === cur)
+                    return node_path_1.default.join(cur, ...tail);
+                tail.unshift(node_path_1.default.basename(cur));
+                cur = parent;
+            }
+        };
+        const namesItself = (p) => p === entryRel || node_path_1.default.resolve(cwd, p) === entryAbs || canon(p) === canon(entry);
+        const inHeadPaths = new Set();
+        if (headExists) {
+            const inHead = (0, shell_command_projection_cjs_1.execGit)(['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', lit(entry)], { cwd });
+            if (inHead.exitCode !== 0) {
+                failures.push({
+                    file: entry,
+                    error: inHead.stderr || inHead.stdout,
+                    timed_out: (0, shell_command_projection_cjs_1.isSpawnTimeout)(inHead),
+                });
+                continue;
+            }
+            for (const p of inHead.stdout.split('\0').filter(Boolean)) {
+                tracked.add(p);
+                inHeadPaths.add(p);
+            }
+        }
+        if (tracked.size === 0)
+            continue;
+        const entryState = lstatState(node_path_1.default.resolve(cwd, entry));
+        if (entryState !== 'present' && entryState !== 'absent') {
+            failures.push({ file: entry, error: `lstat ${entryState.code ?? ''}: ${entryState.message}`, timed_out: false });
+            continue;
+        }
+        let entryIsDirectory = false;
+        if (entryState === 'present') {
+            try {
+                entryIsDirectory = node_fs_1.default.lstatSync(node_path_1.default.resolve(cwd, entry)).isDirectory();
+            }
+            catch { /* raced away: treat as a present non-directory below */ }
+        }
+        if (entryState === 'present' && !entryIsDirectory) {
+            // A present non-directory entry (a file, or ANY symlink — a link to a
+            // directory is still one tracked path) contradicts the declaration.
+            failures.push({
+                file: entry,
+                error: `declared in --files-removed but still present on disk: ${entry}`,
+                timed_out: false,
+            });
+            continue;
+        }
+        for (const trackedPath of tracked) {
+            const indexEntry = indexed.get(trackedPath);
+            let reason = indexEntry === undefined ? null : notARemoval(indexEntry);
+            // Intent-to-add (`git add -N`) renders as a plain `H 100644 <empty
+            // blob> 0` — the flag is not in the listing — yet nothing tracked exists
+            // to remove, and a rollback via `--cacheinfo` cannot restore the flag.
+            // It is the one state whose blob is the empty blob, whose path is not in
+            // HEAD, and which `diff --cached` treats as absent from the index; an
+            // ordinary staged empty file shows there as added. Three probes, on the
+            // rare empty-blob path only.
+            if (reason === null && indexEntry !== undefined && EMPTY_BLOBS.has(indexEntry.sha) && !inHeadPaths.has(trackedPath)) {
+                const cached = (0, shell_command_projection_cjs_1.execGit)(['diff', '--cached', '--name-only', '-z', '--', lit(trackedPath)], { cwd });
+                if (cached.exitCode === 0 && cached.stdout.split('\0').filter(Boolean).length === 0)
+                    reason = 'an intent-to-add entry (git add -N), not tracked content';
+            }
+            if (reason !== null) {
+                if (namesItself(trackedPath)) {
+                    failures.push({
+                        file: entry,
+                        error: `declared in --files-removed but is ${reason}: ${trackedPath}`,
+                        timed_out: false,
+                    });
+                }
+                continue;
+            }
+            const state = lstatState(node_path_1.default.resolve(cwd, trackedPath));
+            if (state === 'present')
+                continue;
+            if (state !== 'absent') {
+                failures.push({ file: trackedPath, error: `lstat ${state.code ?? ''}: ${state.message}`, timed_out: false });
+                continue;
+            }
+            // A HEAD-only path (the caller already `git rm`'d it) has no index entry
+            // to record or restore; the `rm` below is then a no-op.
+            // READ the entry before the mutation, RECORD it only after the mutation
+            // SUCCEEDS. The read must precede (the rm is what destroys the mode/blob
+            // the restore needs); the record must not, because `removedEntries` is
+            // the set this call claims to have staged. Recording ahead of the rm made
+            // a FAILED rm — a stale `index.lock` is the driven case — contribute an
+            // entry the rollback then reported as "still staged in the index" when
+            // nothing had been staged at all: a false disclosure, the mirror of the
+            // silent one the disclosure was added to fix.
+            const recordable = indexEntry !== undefined
+                ? { path: trackedPath, mode: indexEntry.mode, sha: indexEntry.sha }
+                : null;
+            // `--ignore-unmatch` makes "no such index entry" a success, so a non-zero
+            // exit is a real I/O failure — same reading as the default-mode branch.
+            const rmResult = (0, shell_command_projection_cjs_1.execGit)(['rm', '--cached', '--ignore-unmatch', '--', lit(trackedPath)], { cwd });
+            if (rmResult.exitCode === 0) {
+                if (recordable !== null)
+                    removedEntries.push(recordable);
+                // Re-check AFTER the index mutation. The absence test and the `rm` are
+                // not atomic, and the scoped `git commit -- <paths>` below reads the
+                // WORKTREE, so a path recreated in between would be committed as its
+                // new content under a message that declared it removed. A reappearance
+                // is a contradiction like any other: staging failure, and the rollback
+                // restores the recorded entry. Narrows the window; does not close it.
+                if (lstatState(node_path_1.default.resolve(cwd, trackedPath)) !== 'absent') {
+                    failures.push({
+                        file: trackedPath,
+                        error: `declared in --files-removed but reappeared on disk: ${trackedPath}`,
+                        timed_out: false,
+                    });
+                    continue;
+                }
+                // Unborn HEAD: nothing to delete FROM, so the path is unstaged only and
+                // never joins the pathspec; its rollback is the recorded entry above.
+                if (headExists)
+                    removedPathspec.push(trackedPath);
+            }
+            else {
+                // A NON-ZERO rm is NOT proof the index is untouched. `execGit` collapses
+                // a spawn timeout to a non-zero exit, and a killed `git rm` can already
+                // have written the index — so keying the record on the exit code alone
+                // drops a real mutation on the timeout path (driven: a post-index-change
+                // hook that outlives the timeout leaves `D <path>` staged and reported
+                // nowhere). The exit code answers "did the command succeed", never "did
+                // the index change". ASK THE INDEX instead — three honest arms, and no
+                // arm asserts a state it did not observe.
+                // THE ORIGINAL FAILURE IS PUSHED FIRST. `failures[0]` sets the result's
+                // `reason`, `file`, `error` and timeout classification, so appending the
+                // probe's diagnostic ahead of it renamed the cause: a timed-out rm was
+                // reported as a permission error and lost its `timed_out: true`.
+                failures.push({
+                    file: trackedPath,
+                    error: rmResult.stderr || rmResult.stdout,
+                    timed_out: (0, shell_command_projection_cjs_1.isSpawnTimeout)(rmResult),
+                });
+                if (recordable !== null) {
+                    const after = (0, shell_command_projection_cjs_1.execGit)(['ls-files', '-s', '-z', '--', lit(trackedPath)], { cwd });
+                    if (after.exitCode !== 0) {
+                        // Could not determine. Say so; never silently assume either way.
+                        failures.push({
+                            file: trackedPath,
+                            error: `removal failed and the index state for this path could NOT be determined: ${after.stderr || after.stdout}`,
+                            timed_out: (0, shell_command_projection_cjs_1.isSpawnTimeout)(after),
+                        });
+                    }
+                    else if (after.stdout.replace(/\0/g, '').trim() === '') {
+                        // The entry is gone: the rm mutated the index before it failed, so
+                        // this call owns the removal and must restore/disclose it.
+                        removedEntries.push(recordable);
+                    }
+                    // else: the entry is still there — nothing was staged, nothing to undo.
+                }
+            }
+        }
+    }
+    return { removedEntries, removedPathspec, failures };
+}
+/**
+ * #6043 (ADR-4908 §3): a committing verb commits in the checkout the process
+ * runs in. Returns the typed refusal when it cannot: not a git repository, or
+ * `cwd` / a path to commit resolves outside `ctx.worktreeRoot`.
+ * `cwd` and the worktree root are compared by realpath; a relative path is
+ * resolved lexically against the canonical `cwd`, so a `.planning` symlink
+ * inside the worktree stays inside; an absolute path is canonicalized through
+ * its nearest existing ancestor directory.
+ * A degraded context (git timed out or could not run) makes no claim about the
+ * worktree, so it never refuses.
+ */
+function commitRefusal(ctx, cwd, files, filesRemoved) {
+    if (ctx.provenance.reason === 'not_git_repo') {
+        return { reason: 'not_git_repo', message: `commit refused: ${cwd} is not inside a git repository` };
+    }
+    if (ctx.provenance.degraded)
+        return null;
+    const realOrSelf = (p) => {
+        try {
+            return node_fs_1.default.realpathSync.native(p);
+        }
+        catch {
+            return p;
+        }
+    };
+    // Nearest existing ancestor directory of an absolute path, realpath'd, with
+    // the not-yet-existing remainder re-appended (macOS /var <-> /private/var,
+    // Windows 8.3 short names like RUNNER~1).
+    const canonicalAbsolute = (abs) => {
+        const rest = [node_path_1.default.basename(abs)];
+        let ancestor = node_path_1.default.dirname(abs);
+        for (;;) {
+            try {
+                return node_path_1.default.join(node_fs_1.default.realpathSync.native(ancestor), ...rest);
+            }
+            catch {
+                const parent = node_path_1.default.dirname(ancestor);
+                if (parent === ancestor)
+                    return abs;
+                rest.unshift(node_path_1.default.basename(ancestor));
+                ancestor = parent;
+            }
+        }
+    };
+    const norm = (p) => {
+        const slashed = p.replace(/\\/g, '/');
+        return process.platform === 'win32' ? slashed.toLowerCase() : slashed;
+    };
+    const inside = (target, root) => (0, security_cjs_1.isContainedIn)(norm(target), norm(root), { sep: '/' });
+    const worktreeRoot = realOrSelf(node_path_1.default.resolve(ctx.worktreeRoot));
+    const realCwd = realOrSelf(node_path_1.default.resolve(cwd));
+    const declared = [...(files ?? []), ...(filesRemoved ?? [])];
+    const targets = declared.length > 0 ? declared : ['.planning/'];
+    // Lexical against the canonical cwd: a `.planning` symlink component is not followed.
+    const resolveTarget = (t) => node_path_1.default.isAbsolute(t) ? canonicalAbsolute(node_path_1.default.resolve(t)) : node_path_1.default.resolve(realCwd, t);
+    const escaping = !inside(realCwd, worktreeRoot)
+        ? realCwd
+        : targets.map(resolveTarget).find((abs) => !inside(abs, worktreeRoot));
+    if (escaping === undefined)
+        return null;
+    return {
+        reason: 'outside_worktree',
+        skipped: false,
+        message: `commit refused: ${escaping} is outside the worktree ${worktreeRoot}; ` +
+            'pass the checkout that owns the path with --project-dir to commit there',
+    };
+}
+function cmdCommit(cwd, message, files, raw, amend, noVerify, filesRemoved, ctx) {
     if (!message && !amend) {
         error('commit message required');
     }
@@ -1472,12 +1880,26 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
         output(result, raw, 'skipped');
         return;
     }
+    // #6043: refuse before branching or staging, and only AFTER the commit_docs
+    // skip above, so a benign skip is never turned into an error.
+    const refusal = ctx ? commitRefusal(ctx, cwd, files, filesRemoved) : null;
+    if (refusal) {
+        error(refusal.message, refusal.reason === 'not_git_repo' ? ERROR_REASON.COMMIT_NOT_GIT_REPO : ERROR_REASON.COMMIT_OUTSIDE_WORKTREE, {
+            committed: false,
+            ...(refusal.skipped === false ? { skipped: false } : {}),
+            hash: null,
+        });
+    }
     // Ensure branching strategy branch exists before first commit (#1278).
     // Pre-execution workflows (discuss, plan, research) commit artifacts but the branch
     // was previously only created during execute-phase — too late.
     const branchingStrategy = config['branching_strategy'];
     if (branchingStrategy && branchingStrategy !== 'none') {
         let branchName = null;
+        // #4055: the phase directory (cwd-relative POSIX path from
+        // findPhaseInternal) captured while resolving the phase identity — the
+        // state-3 guard below needs it for the committed-history check.
+        let phaseDirRelative = null;
         if (branchingStrategy === 'phase') {
             // Determine which phase we're committing for from the file paths.
             // #2539: the extraction is anchored to the directory SEGMENT immediately
@@ -1497,11 +1919,18 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
             // phase — the phase arm must never branch-mutate for it (isSentinelPhaseId
             // is the invariant's single owner, src/phase-id.cts).
             if (phaseNum && !isSentinelPhaseId(phaseNum)) {
-                const phaseInfo = findPhaseInternal(cwd, phaseNum);
+                const phaseInfo = findPhaseInternal(cwd, phaseNum, undefined, phaseDirectoryOptions(cwd, config));
                 if (phaseInfo) {
-                    branchName = config['phase_branch_template']
-                        .replace('{phase}', normalizePhaseName(phaseInfo['phase_number']))
-                        .replace('{slug}', phaseInfo['phase_slug'] || 'phase');
+                    // #4126: shared with init.cts's cmdInitExecutePhase branch_name field
+                    // via the one canonical renderer (src/phase-id.cts) so an undeliverable
+                    // phase_slug degrades identically at both call sites instead of each
+                    // independently substituting the literal word 'phase'.
+                    branchName = renderPhaseBranchName(config['phase_branch_template'], phaseInfo['phase_number'], phaseInfo['phase_slug']);
+                    // #4055: findPhaseInternal already returns the directory as a
+                    // cwd-relative POSIX path.
+                    const dir = phaseInfo['directory'];
+                    if (typeof dir === 'string' && dir !== '')
+                        phaseDirRelative = dir;
                 }
             }
         }
@@ -1526,6 +1955,14 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
             }
         }
         if (branchName) {
+            // #4055: state-3 discriminator for the create arm. `rev-parse --verify`
+            // alone cannot distinguish "branch never existed" (create is the #1278
+            // intent) from "branch existed, was merged, then deleted" (the phase is
+            // over — recreating it hijacks the close-out commit onto a resurrected
+            // ref, the #3079 bug #3363 reopened). Both extra conditions come from
+            // the confirmed issue: the create arm may fire only for a phase whose
+            // directory has NO committed history on the current line (a genuinely
+            // new phase) while the caller sits on the resolved base branch.
             const currentBranch = (0, shell_command_projection_cjs_1.execGit)(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
             if (currentBranch.exitCode === 0 && currentBranch.stdout.trim() !== branchName) {
                 // #2539/#3079/#3207: two cases the prior (#3079) code collapsed into one.
@@ -1540,18 +1977,63 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
                 // EXISTING branch is never switched to (the else arm logs + commits in
                 // place). The fresh create is logged so the first phase-scoped commit is
                 // not silent about where the work is landing (#3207 AC3).
+                // #4055: "brand-new" is now VERIFIED, not assumed — see the state-3
+                // guard between the verify and the create below.
                 const verify = (0, shell_command_projection_cjs_1.execGit)(['rev-parse', '--verify', `refs/heads/${branchName}`], { cwd });
                 if (verify.exitCode !== 0) {
-                    // Branch does not exist — CREATE AND SWITCH (the #1278 first-commit
-                    // case). checkout -b cannot resurrect anything: the branch was just
-                    // verified absent, so it is created fresh at HEAD.
-                    const create = (0, shell_command_projection_cjs_1.execGit)(['checkout', '-b', branchName], { cwd });
-                    if (create.exitCode === 0) {
-                        process.stderr.write(`${branchingStrategy} branch "${branchName}" created; switched to it for this commit.\n`);
+                    // Branch does not exist — but absence alone cannot distinguish a
+                    // genuinely new phase from a merged-and-deleted one (#4055).
+                    let createBlockReason = null;
+                    if (branchingStrategy === 'phase' && phaseDirRelative) {
+                        // #4055 residual: searchPhaseInDir's #2237 fail-safe can return an
+                        // empty `directory` for ambiguous phase names (leaving
+                        // phaseDirRelative null) — there the history half is skipped and
+                        // only the base check below guards; shallow clones can also show
+                        // an empty probe for old merged phases (depth-sensitive).
+                        const history = (0, shell_command_projection_cjs_1.execGit)(['log', 'HEAD', '--oneline', '--', phaseDirRelative], { cwd });
+                        if (history.exitCode === 0 && history.stdout.trim() !== '') {
+                            createBlockReason =
+                                'its phase directory already has committed history (the phase is resolved)';
+                        }
+                    }
+                    if (!createBlockReason) {
+                        // The base half of the guard applies to BOTH strategies (it does
+                        // not need a directory): a phase/milestone branch is created only
+                        // from the resolved base branch. NOTE the milestone arm keeps its
+                        // existence-only guard for the HISTORY half — a merged-and-deleted
+                        // milestone branch remains resurrectable by an on-base caller
+                        // until a milestone-directory derivation exists here (#4055
+                        // follow-up candidate).
+                        /* eslint-disable @typescript-eslint/no-require-imports */
+                        const gitBaseBranch = require('./git-base-branch.cjs');
+                        /* eslint-enable @typescript-eslint/no-require-imports */
+                        const resolvedBase = gitBaseBranch.resolveBaseBranch(cwd);
+                        if (resolvedBase && resolvedBase !== currentBranch.stdout.trim()) {
+                            createBlockReason =
+                                `the current branch "${currentBranch.stdout.trim()}" is not the ` +
+                                    `resolved base branch "${resolvedBase}"`;
+                        }
+                    }
+                    if (createBlockReason === null) {
+                        // State 1 confirmed: brand-new phase, first phase-scoped commit
+                        // from the base branch. CREATE AND SWITCH (the #1278 first-commit
+                        // case). checkout -b cannot resurrect anything: the branch was
+                        // just verified absent, so it is created fresh at HEAD.
+                        const create = (0, shell_command_projection_cjs_1.execGit)(['checkout', '-b', branchName], { cwd });
+                        if (create.exitCode === 0) {
+                            process.stderr.write(`${branchingStrategy} branch "${branchName}" created; switched to it for this commit.\n`);
+                        }
+                        else {
+                            process.stderr.write(`Warning: could not create ${branchingStrategy} branch "${branchName}" ` +
+                                `(${create.stderr.trim()}); committing on the current branch "${currentBranch.stdout.trim()}".\n`);
+                        }
                     }
                     else {
-                        process.stderr.write(`Warning: could not create ${branchingStrategy} branch "${branchName}" ` +
-                            `(${create.stderr.trim()}); committing on the current branch "${currentBranch.stdout.trim()}".\n`);
+                        // State 3 (or a non-base caller): the phase is resolved — commit
+                        // in place, disclosed (#2539 AC2), never recreate the branch.
+                        process.stderr.write(`Warning: resolved ${branchingStrategy} branch "${branchName}" is absent and ` +
+                            `will not be recreated (${createBlockReason}); committing on the current ` +
+                            `branch "${currentBranch.stdout.trim()}" instead of recreating it.\n`);
                     }
                 }
                 else {
@@ -1563,8 +2045,12 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
         }
     }
     // Stage files
-    const explicitFiles = files && files.length > 0;
-    const filesToStage = explicitFiles ? files : ['.planning/'];
+    // #4208: `--files-removed` is a declared scope in its own right — a caller
+    // that names only removals must not fall through to the unscoped
+    // `.planning/` sweep, which would commit everything under it.
+    const removedDeclared = filesRemoved ?? [];
+    const explicitFiles = (files && files.length > 0) || removedDeclared.length > 0;
+    const filesToStage = explicitFiles ? (files ?? []) : ['.planning/'];
     const stagedPaths = [];
     // #2608: a `git add` that fails must abort the commit, not be skipped.
     // #2523 stopped a failed path entering the commit pathspec, but skipping it
@@ -1574,11 +2060,27 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
     // a linked worktree, timeout) was discarded and the operator saw a downstream
     // pathspec error pointing at an innocent file.
     const stagingFailures = [];
+    // #4454: explicit --files paths skipped because they were missing from disk
+    // (the #2014 guard below). Tracked so the caller can tell a partial commit
+    // from a complete one instead of an unqualified `committed: true`.
+    const skippedFiles = [];
     // Paths already in the index BEFORE this call. On a staging failure the
     // rollback below unstages only what THIS call added — unstaging a path the
     // caller had staged themselves would destroy their work.
-    const preStaged = new Set((0, shell_command_projection_cjs_1.execGit)(['diff', '--cached', '--name-only'], { cwd })
-        .stdout.split('\n').map(s => s.trim()).filter(Boolean));
+    // `-z`: without it `core.quotePath` renders a non-ASCII name as
+    // `"caf\303\251.md"`, which never equals the raw path in `stagedPaths`, so
+    // the rollback below would treat a caller-pre-staged `café.md` as this
+    // call's own and unstage it (#4208 review, driven).
+    // `--relative`: `diff --cached` prints REPO-relative paths whatever the cwd,
+    // while `stagedPaths` holds the caller's own cwd-relative names. In a project
+    // nested inside its repo (`<repo>/sub/.planning/...`) the two name spaces
+    // never intersect, so `preStaged` matched NOTHING and the rollback unstaged
+    // every path including the caller's own pre-staged work. Driven on a nested
+    // fixture: a caller-staged deletion vanished from `diff --cached` after an
+    // unrelated declaration failed. Pre-existing -- it governs the `--files` side
+    // too -- and a no-op when the project IS the repo root.
+    const preStaged = new Set((0, shell_command_projection_cjs_1.execGit)(['diff', '--cached', '--name-only', '-z', '--relative'], { cwd })
+        .stdout.split('\0').filter(Boolean));
     for (const file of filesToStage) {
         const fullPath = node_path_1.default.resolve(cwd, file);
         if (!node_fs_1.default.existsSync(fullPath)) {
@@ -1586,6 +2088,9 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
                 // Caller passed an explicit --files list: missing files are skipped.
                 // Staging a deletion here would silently remove tracked planning files
                 // (e.g. STATE.md, ROADMAP.md) when they are temporarily absent (#2014).
+                // #4454: record what was skipped so the caller can tell a partial
+                // commit from a complete one, instead of an unqualified success.
+                skippedFiles.push(file);
                 continue;
             }
             // Default mode (staging all of .planning/): stage the deletion so
@@ -1623,6 +2128,75 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
             }
         }
     }
+    // #4208: caller-declared removals -- see stageDeclaredRemovals.
+    const declaredRemovals = stageDeclaredRemovals(cwd, removedDeclared);
+    const removedEntries = declaredRemovals.removedEntries;
+    stagingFailures.push(...declaredRemovals.failures);
+    stagedPaths.push(...declaredRemovals.removedPathspec);
+    // A REMOVAL'S PATH IS A PATH DOWNSTREAM TOO. Literalising the staging alone
+    // does not protect the COMMIT's own pathspec: with a tracked file literally
+    // named `.planning/*.md` declared removed beside a MODIFIED `peer.md`, the
+    // `git commit -- <paths>` below globs and commits `M peer.md` the caller
+    // never declared — the sweep this flag exists to remove, arriving one step
+    // later. Driven. Only the removal-derived entries are literalised: `--files`
+    // entries keep whatever pathspec behaviour they have today, which is not this
+    // change's to alter.
+    const removalPathspecs = new Set(declaredRemovals.removedPathspec);
+    const asPathspec = (p) => (removalPathspecs.has(p) ? `:(literal)${p}` : p);
+    const restoreRemovedEntries = () => {
+        if (removedEntries.length === 0)
+            return 'restored';
+        (0, shell_command_projection_cjs_1.execGit)(['update-index', '--add', ...removedEntries.flatMap(e => ['--cacheinfo', `${e.mode},${e.sha},${e.path}`])], { cwd });
+        // VERIFY BY READING THE INDEX BACK, never by the exit code. `execGit`
+        // collapses a spawn timeout to a non-zero exit, and a killed `update-index`
+        // can already have written the index — so an exit code answers "did the
+        // command succeed", never "is the entry back". Driven: a post-index-change
+        // hook outliving the timeout made the restore report failure over an index
+        // it had in fact restored, publishing a disclosure that was simply false.
+        //
+        // `-z` IS LOAD-BEARING, and its absence is the #2014-era defect this PR
+        // already fixed once for `preStaged`: without it `core.quotePath` renders a
+        // non-ASCII name as `"caf\303\251.md"`, which never equals the raw path, so
+        // an exactly-restored `café.md` (and any name carrying a tab or a newline)
+        // read as NOT restored. Driven on all three shapes.
+        const back = (0, shell_command_projection_cjs_1.execGit)(['ls-files', '-s', '-z', '--', ...removedEntries.map(e => `:(literal)${e.path}`)], { cwd });
+        if (back.exitCode !== 0)
+            return 'unverified'; // no observation — never an assertion of failure
+        // COMPARE THE WHOLE ENTRY, not just the path. `--cacheinfo` restores mode,
+        // blob and stage; a path present at a DIFFERENT mode or blob is not the
+        // entry this call removed. Driven: a hook that rewrote the restored entry
+        // 100644 -> 100755 was reported as restored by a path-only test.
+        const present = new Map();
+        for (const rec of back.stdout.split('\0')) {
+            if (rec === '')
+                continue;
+            const tab = rec.indexOf('\t');
+            if (tab === -1)
+                continue;
+            present.set(rec.slice(tab + 1), rec.slice(0, tab));
+        }
+        const ok = removedEntries.every(e => present.get(e.path) === `${e.mode} ${e.sha} 0`);
+        return ok ? 'restored' : 'not-restored';
+    };
+    // The no-change exits' shared arm: restore, and if the restore failed, say so
+    // instead of claiming nothing changed. `staging_failed` is the honest reason —
+    // the index carries a mutation this call made and could not undo.
+    const removalsLeftStaged = (verdict) => ({
+        committed: false,
+        hash: null,
+        reason: 'staging_failed',
+        file: removedEntries[0]?.path ?? null,
+        error: verdict === 'not-restored'
+            ? `declared removal(s) staged but could not be restored after the commit recorded nothing: ${removedEntries.map(e => e.path).join(', ')}`
+            : `declared removal(s) staged and the restore could NOT be VERIFIED after the commit recorded nothing: ${removedEntries.map(e => e.path).join(', ')}`,
+        failures: removedEntries.map(e => ({
+            file: e.path,
+            error: verdict === 'not-restored'
+                ? 'update-index --cacheinfo restore failed'
+                : 'update-index --cacheinfo restore could not be verified — the index was not readable',
+            timed_out: false,
+        })),
+    });
     // #2608: fail closed before `git commit` runs. Checked ahead of the
     // nothing_to_commit branch below so a run where EVERY path failed to stage
     // reports the staging cause rather than "nothing to commit", and ahead of the
@@ -1637,10 +2211,37 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
         // best-effort: if the index is unwritable — the very failure being reported
         // — the reset cannot succeed either, and the staging error is still what
         // gets returned.
-        const toUnstage = stagedPaths.filter(p => !preStaged.has(p));
+        const removedPaths = new Set(removedEntries.map(e => e.path));
+        const toUnstage = stagedPaths.filter(p => !preStaged.has(p) && !removedPaths.has(p));
         if (toUnstage.length > 0) {
-            (0, shell_command_projection_cjs_1.execGit)(['reset', '-q', '--', ...toUnstage], { cwd });
+            // `asPathspec` here too. This reset is the LAST place a removal-derived
+            // name reaches git as a pathspec, and it is the most damaging: driven,
+            // a wildcard-named entry that slipped into `toUnstage` globbed and
+            // unstaged the CALLER'S OWN pre-staged deletion and modification, then
+            // reported only the contradiction that triggered the rollback.
+            (0, shell_command_projection_cjs_1.execGit)(['reset', '-q', '--', ...toUnstage.map(asPathspec)], { cwd });
         }
+        // Removals are restored from the recorded entries, never via `reset`
+        // (no HEAD to reset to on an unborn branch; not the pre-staged blob when
+        // the caller had one) — and unconditionally, since a removal this call
+        // performed is this call's to undo whether or not the path was pre-staged.
+        // DISCLOSE a failed restore here too. The earlier reading -- that this exit
+        // is already reporting a failure, so the restore's result adds nothing --
+        // is wrong, and the counterexample is the ordinary one: the reported
+        // failure is usually a DIFFERENT cause (a contradictory declaration, a
+        // reappeared path), so a caller reading `failures` sees only that cause
+        // and learns nothing about the removal still sitting in its index. Append
+        // rather than replace: the original failure is still the reason.
+        const restoreVerdict = restoreRemovedEntries();
+        const failures = restoreVerdict === 'restored'
+            ? stagingFailures
+            : [...stagingFailures, ...removedEntries.map(e => ({
+                    file: e.path,
+                    error: restoreVerdict === 'not-restored'
+                        ? 'staged removal could NOT be restored during rollback — it is still staged in the index'
+                        : 'staged removal was rolled back but the result could NOT be VERIFIED — the index was not readable',
+                    timed_out: false,
+                }))];
         const first = stagingFailures[0];
         const result = {
             committed: false,
@@ -1648,7 +2249,7 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
             reason: first.timed_out ? 'staging_timeout' : 'staging_failed',
             file: first.file,
             error: first.error,
-            failures: stagingFailures,
+            failures,
         };
         output(result, raw, 'failed');
         return;
@@ -1851,13 +2452,13 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
     // failing-closed (drop the content) and failing-open (re-enter #3776) are
     // wrong answers to a question we can just ask directly.
     const assumeUnchangedWouldRecord = () => {
-        const listed = (0, shell_command_projection_cjs_1.execGit)(['ls-files', '-v', '--', ...stagedPaths], { cwd });
+        const listed = (0, shell_command_projection_cjs_1.execGit)(['ls-files', '-v', '--', ...stagedPaths.map(asPathspec)], { cwd });
         // Only the TAG is read; the path is deliberately never parsed out — see the
         // `core.quotePath` note above, and the dry run below needs no path anyway.
         if (listed.exitCode === 0
             && !listed.stdout.split('\n').some((line) => /^[a-z] /.test(line)))
             return false;
-        const dryRun = (0, shell_command_projection_cjs_1.execGit)(['commit', '--dry-run', '--porcelain', '--no-verify', '-m', sanitizedMessage, '--', ...stagedPaths], { cwd });
+        const dryRun = (0, shell_command_projection_cjs_1.execGit)(['commit', '--dry-run', '--porcelain', '--no-verify', '-m', sanitizedMessage, '--', ...stagedPaths.map(asPathspec)], { cwd });
         // Only a CONFIRMED "nothing to record" closes the path: rc 1 from a git
         // that actually answered. This is the one probe in the guard whose rc 0
         // is the REASSURING answer, so it inverts the diff probe's safety: there
@@ -1879,10 +2480,30 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
     const nothingToCommit = guardApplies
         && (stagedPaths.length === 0
             || (!partialCommitRefused
-                && (0, shell_command_projection_cjs_1.execGit)(['diff', '--quiet', '--ignore-submodules=dirty', '--no-textconv', 'HEAD', '--', ...stagedPaths], { cwd }).exitCode === 0
+                && (0, shell_command_projection_cjs_1.execGit)(['diff', '--quiet', '--ignore-submodules=dirty', '--no-textconv', 'HEAD', '--', ...stagedPaths.map(asPathspec)], { cwd }).exitCode === 0
                 && !assumeUnchangedWouldRecord()));
     if (nothingToCommit) {
-        const result = { committed: false, hash: null, reason: 'nothing_to_commit' };
+        // Nothing is being recorded, so any removal this call staged has no commit
+        // to land in. Put it back before reporting no state change. Reachable on
+        // two shapes, and keying on either one alone leaves the other broken:
+        // an unborn HEAD (a removal never joins `stagedPaths`, so the pathspec is
+        // empty), and a HEAD that simply does not carry the removed path -- an
+        // index-only entry the caller `git add`ed but never committed, where the
+        // `diff HEAD` probe reads clean because the path is absent on both sides.
+        const rv = restoreRemovedEntries();
+        if (rv !== 'restored') {
+            output(removalsLeftStaged(rv), raw, 'failed');
+            return;
+        }
+        // #4454: an explicit --files list where every named path was missing
+        // reaches this branch via `stagedPaths.length === 0` above — surface
+        // which path(s) were the reason, same as the success result below.
+        const result = {
+            committed: false,
+            hash: null,
+            reason: 'nothing_to_commit',
+            ...(skippedFiles.length > 0 ? { skipped_files: skippedFiles } : {}),
+        };
         output(result, raw, 'nothing');
         return;
     }
@@ -1894,7 +2515,7 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
     if (noVerify)
         commitArgs.push('--no-verify');
     if (canScope) {
-        commitArgs.push('--', ...stagedPaths);
+        commitArgs.push('--', ...stagedPaths.map(asPathspec));
     }
     // #3859 follow-up: on git 2.39.5 (confirmed on the CI Linux bench image,
     // ghcr.io/open-gsd/gsd-tester-linux:v1.8.0-node24; NOT reproducible on git
@@ -1952,7 +2573,28 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
             return;
         }
         if (commitResult.stdout.includes('nothing to commit') || commitResult.stderr.includes('nothing to commit')) {
-            const result = { committed: false, hash: null, reason: 'nothing_to_commit' };
+            // Same reading as the guard above: git recorded nothing, so a removal
+            // this call staged must not be left behind under a `nothing_to_commit`
+            // report. The failure exits below are deliberately NOT restored -- they
+            // report a failure rather than "no state changed", and the addition side
+            // leaves its own staged paths in place there too.
+            const rv = restoreRemovedEntries();
+            if (rv !== 'restored') {
+                output(removalsLeftStaged(rv), raw, 'failed');
+                return;
+            }
+            // #4454: this is the residual window the surrounding comments already
+            // document (a partial skip + partialCommitRefused bypassing the diff
+            // probe + git's own empty-commit refusal) — skippedFiles can be
+            // non-empty here too, and omitting it would be the same misreport
+            // this fix exists to close, just on the other branch that reaches
+            // "nothing to commit".
+            const result = {
+                committed: false,
+                hash: null,
+                reason: 'nothing_to_commit',
+                ...(skippedFiles.length > 0 ? { skipped_files: skippedFiles } : {}),
+            };
             output(result, raw, 'nothing');
             return;
         }
@@ -1968,7 +2610,15 @@ function cmdCommit(cwd, message, files, raw, amend, noVerify) {
     // Get short hash
     const hashResult = (0, shell_command_projection_cjs_1.execGit)(['rev-parse', '--short', 'HEAD'], { cwd });
     const hash = hashResult.exitCode === 0 ? hashResult.stdout : null;
-    const result = { committed: true, hash, reason: 'committed' };
+    // #4454: report explicit --files paths that were skipped as missing (the
+    // #2014 guard above) so a caller can tell a partial commit from a complete
+    // one, without changing the payload shape when nothing was skipped.
+    const result = {
+        committed: true,
+        hash,
+        reason: 'committed',
+        ...(skippedFiles.length > 0 ? { skipped_files: skippedFiles } : {}),
+    };
     output(result, raw, hash || 'committed');
 }
 /**
@@ -2007,7 +2657,7 @@ function groupFilesBySubrepo(files, subRepos) {
         let matchLen = -1;
         if (candidates) {
             for (const repo of candidates) {
-                if (file.startsWith(repo + '/')) {
+                if (file.startsWith(repo + '/')) { // allow-handrolled-containment: sub-repo file grouping, not a safety decision
                     const repoLen = String(repo).length;
                     if (repoLen > matchLen) {
                         match = repo;
@@ -2156,15 +2806,13 @@ function cmdPrSubrepo(cwd, repo, branch, commitMessage, raw) {
         error(`Branch name must not start with '-': ${branch}`);
     }
     // 0. Security: validate repo path is contained within the workspace root.
-    //    Uses security.cjs validatePath (symlink-safe realpathSync + startsWith guard)
+    //    Uses security.cjs tryWithinRoot (symlink-safe realpathSync + startsWith guard)
     //    to reject ../escape, absolute paths, and symlink traversal.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/unbound-method
-    const { validatePath } = require('./security.cjs');
-    const pathCheck = validatePath(repo, cwd);
-    if (!pathCheck.safe) {
-        error(`Sub-repo path is unsafe: ${pathCheck.error}`);
+    const repoContained = (0, security_cjs_1.tryWithinRoot)(repo, cwd);
+    if (repoContained === null) {
+        error(`Sub-repo path is unsafe: resolves outside the workspace root`);
     }
-    const repoCwd = pathCheck.resolved;
+    const repoCwd = repoContained;
     if (!node_fs_1.default.existsSync(repoCwd)) {
         error(`Sub-repo not found: ${repoCwd}`);
     }
@@ -2300,13 +2948,38 @@ function cmdSummaryExtract(cwd, summaryPath, fields, raw) {
     if (!summaryPath) {
         error('summary-path required for summary-extract');
     }
-    const fullPath = node_path_1.default.join(cwd, summaryPath);
+    // #5013: requireSafePath (not path.join) so an absolute summaryPath resolves to
+    // that literal path instead of being concatenated onto cwd — path.join has no
+    // special case for an absolute second argument the way path.resolve does. Uses
+    // requireSafePath (the same PathAcceptance.AbsoluteInsideRoot pattern
+    // cmdAuditAcknowledge's write-side counterpart already uses in audit.cts)
+    // rather than a bare path.resolve: a plain path.resolve would also have made
+    // an absolute summaryPath anywhere on the filesystem resolve and have its
+    // content echoed back (this command reads and returns file content, unlike
+    // cmdVerifyPathExists's exists-only check) — an orthogonal-review finding on
+    // this same fix. requireSafePath keeps the acceptance criterion (an absolute
+    // path within the project resolves correctly) while refusing one that
+    // escapes cwd, and rejects relative `../` escapes the same way (pre-existing
+    // in this function, closed as a direct consequence, not separately in scope).
+    const fullPath = (0, security_cjs_1.requireSafePath)(summaryPath, cwd, 'summary-extract target', security_cjs_1.PathAcceptance.AbsoluteInsideRoot);
     if (!node_fs_1.default.existsSync(fullPath)) {
         output({ error: 'File not found', path: summaryPath }, raw, undefined);
         return;
     }
     const content = node_fs_1.default.readFileSync(fullPath, 'utf-8');
     const fm = extractFrontmatter(content, fullPath);
+    // #5013: an unparseable frontmatter block (malformed YAML in the fence) is
+    // NOT the same as an absent/empty one — extractFrontmatter marks it with
+    // FRONTMATTER_UNPARSEABLE (mirrors state.cts's isUnparseableFrontmatter /
+    // state-transition.cts's identical helper). Left unchecked, every field
+    // below silently falls back to its empty default and this command exits 0,
+    // so a milestone audit reading requirements_completed through it would
+    // report "zero requirements completed" for a plan that completed several,
+    // with nothing on stderr. Refuse instead, naming the file, the same way
+    // cmdAuditAcknowledge (audit.cts) refuses on the write-side counterpart.
+    if (fm[FRONTMATTER_UNPARSEABLE] === true) {
+        error(`summary-extract: the frontmatter of "${summaryPath}" is not parseable YAML — fix the syntax error in the file (e.g. an unquoted ": " inside a block-sequence item) before re-running; every field would otherwise silently read as empty`, ERROR_REASON.SUMMARY_EXTRACT_UNPARSEABLE, { path: summaryPath });
+    }
     // Parse key-decisions into structured format
     const parseDecisions = (decisionsList) => {
         if (!decisionsList || !Array.isArray(decisionsList))
@@ -2410,6 +3083,8 @@ async function cmdWebsearch(query, options, raw) {
                         'Accept': 'application/json',
                         'X-Subscription-Token': apiKey
                     },
+                    // never follow redirects: X-Subscription-Token must not leave api.search.brave.com (#5409)
+                    redirect: 'manual',
                     signal: ac.signal
                 });
             }
@@ -2435,7 +3110,9 @@ async function cmdWebsearch(query, options, raw) {
             const status = response.status;
             const isRetryable = status === 429 || status >= 500;
             if (!isRetryable) {
-                // Non-retryable 4xx — fail immediately, no attempts field
+                // Non-retryable 4xx and every 3xx (redirect: 'manual' hands them back as-is, #5409) —
+                // fail immediately, no attempts field. Keep 3xx out of isRetryable.
+                response.body?.cancel().catch(() => { });
                 output({ available: false, error: `API error: ${status}` }, raw, '');
                 return;
             }
@@ -2468,34 +3145,80 @@ async function cmdWebsearch(query, options, raw) {
 function cmdProgressRender(cwd, format, raw) {
     const phasesDir = planningPaths(cwd).phases;
     const milestone = getMilestoneInfo(cwd).value;
+    const phaseIdConvention = resolvePhaseIdConvention(cwd);
+    const milestoneDisplay = phaseIdConvention === 'bracket'
+        ? renderBracketMilestoneDisplay(milestone?.version, loadConfig(cwd).project_code)
+        : null;
+    const milestoneVersion = milestoneDisplay ?? milestone?.version ?? null;
+    const directoryContext = phaseDirectoryOptions(cwd);
     const phases = [];
     let totalPlans = 0;
     let totalSummaries = 0;
     let phaseScope = null;
+    // #5118: carried out of the scan below and failed on after it.
+    let statusError;
     try {
         // #3185 (ADR-3180 Decision 1): the single owner applies the milestone
         // window AND the sentinel filter and returns dirs already sorted by
         // comparePhaseNum. This command previously read the phases directory
         // directly with neither, which is why `query progress` listed 999.*
         // backlog directories as current-milestone phases (#3167).
-        const { value: dirs, scope } = listMilestonePhaseDirs(phasesDir, { cwd });
+        const { value: dirs, scope } = listMilestonePhaseDirs(phasesDir, {
+            cwd,
+            phaseIdConvention,
+        });
         phaseScope = scope;
         for (const dir of dirs) {
-            const dm = dir.match(/^(\d+(?:\.\d+)*)-?(.*)/);
-            const phaseNum = dm ? dm[1] : dir;
-            const phaseName = dm && dm[2] ? dm[2].replace(/-/g, ' ') : '';
-            // #3183: canonical plan/summary counts (root+nested, superseded-excluded,
-            // canonical pairing) from the single owner.
-            const phaseScan = scanPhasePlans(node_path_1.default.join(phasesDir, dir));
-            const plans = phaseScan.planCount;
-            const summaries = phaseScan.summaryCount;
+            let phaseNum;
+            let phaseName;
+            let displayId;
+            if (phaseIdConvention === 'bracket') {
+                try {
+                    const projection = bracketPhaseDirProjection(dir);
+                    phaseNum = projection.number;
+                    phaseName = projection.name;
+                    displayId = projection.display_id;
+                }
+                catch {
+                    // A malformed/tolerated directory must not suppress every later row.
+                    // It cannot receive a canonical display_id because parsePhaseId
+                    // rejected it, but the convention-aware token keeps it observable.
+                    const phaseToken = extractPhaseToken(dir, phaseIdConvention);
+                    phaseNum = phaseToken || dir;
+                    phaseName = recoverBracketPhaseName(dir, phaseToken);
+                }
+            }
+            else {
+                const custom = customPhaseQuery(dir, directoryContext);
+                const owner = custom && customDirectoryOwner(dir, custom);
+                const dm = dir.match(/^(\d+(?:\.\d+)*)-?(.*)/);
+                phaseNum = owner ? owner.id : dm ? dm[1] : dir;
+                phaseName = owner ? owner.slug.replace(/-/g, ' ') : dm && dm[2] ? dm[2].replace(/-/g, ' ') : '';
+            }
+            // #3183/#5060: canonical plan/summary counts and lifecycle status
+            // (root+nested, superseded-excluded, canonical pairing) from the
+            // single owner (Phase Status Module, ADR-5057).
+            const ps = (0, phase_status_cjs_1.phaseStatus)(node_path_1.default.join(phasesDir, dir), { convention: phaseIdConvention });
+            statusError = firstStatusError(statusError, ps.value.statusError);
+            const plans = ps.value.planCount;
+            const summaries = ps.value.summaryCount;
             totalPlans += plans;
             totalSummaries += summaries;
-            const status = determinePhaseStatus(plans, summaries, node_path_1.default.join(phasesDir, dir), 'Pending');
-            phases.push({ number: phaseNum, name: phaseName, plans, summaries, status });
+            const status = (0, phase_status_cjs_1.toDisplayLabel)(ps.value.status, { pendingWord: 'Pending' });
+            phases.push({
+                number: phaseNum,
+                ...(displayId ? { display_id: displayId } : {}),
+                name: phaseName,
+                plans,
+                summaries,
+                status,
+            });
         }
     }
     catch { /* intentionally empty */ }
+    // #5118: a read-only aggregate over a refused report prints nothing.
+    if (statusError)
+        failOnVerificationStatusError(statusError);
     // #3217 (ADR-3180 §7.6 rule 4): `phaseScope` was already computed above
     // (Phase 3, #3222) but never consulted before rendering — a percentage was
     // rendered from counts the scope said were not answers (TRUNCATED /
@@ -2508,23 +3231,19 @@ function cmdProgressRender(cwd, format, raw) {
         : null;
     if (format === 'table') {
         // Render markdown table
-        const barWidth = 10;
-        const filled = percent === null ? 0 : Math.round((percent / 100) * barWidth);
-        const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
+        const bar = (0, phase_lifecycle_cjs_1.renderProgressBar)(percent, 10);
         const percentSuffix = percent === null ? '' : ` (${percent}%)`;
-        let out = `# ${milestone?.version ?? ''} ${milestone?.name ?? ''}\n\n`;
+        let out = `# ${milestoneVersion ?? ''} ${milestone?.name ?? ''}\n\n`;
         out += `**Progress:** [${bar}] ${totalSummaries}/${totalPlans} plans${percentSuffix}\n\n`;
         out += `| Phase | Name | Plans | Status |\n`;
         out += `|-------|------|-------|--------|\n`;
         for (const p of phases) {
-            out += `| ${p.number} | ${p.name} | ${p.summaries}/${p.plans} | ${p.status} |\n`;
+            out += `| ${p.display_id ?? p.number} | ${p.name} | ${p.summaries}/${p.plans} | ${p.status} |\n`;
         }
         output({ rendered: out }, raw, out);
     }
     else if (format === 'bar') {
-        const barWidth = 20;
-        const filled = percent === null ? 0 : Math.round((percent / 100) * barWidth);
-        const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
+        const bar = (0, phase_lifecycle_cjs_1.renderProgressBar)(percent, 20);
         const percentSuffix = percent === null ? '' : ` (${percent}%)`;
         const text = `[${bar}] ${totalSummaries}/${totalPlans} plans${percentSuffix}`;
         output({ bar: text, percent, completed: totalSummaries, total: totalPlans }, raw, text);
@@ -2532,7 +3251,7 @@ function cmdProgressRender(cwd, format, raw) {
     else {
         // JSON format
         output({
-            milestone_version: milestone?.version ?? null,
+            milestone_version: milestoneVersion,
             milestone_name: milestone?.name ?? null,
             phases,
             total_plans: totalPlans,
@@ -2553,7 +3272,8 @@ function cmdTodoMatchPhase(cwd, phase, raw) {
     if (!phase) {
         error('phase required for todo match-phase');
     }
-    const pendingDir = node_path_1.default.join(planningDir(cwd), 'todos', 'pending');
+    // #4256: root-scoped todos read — see cmdListTodos.
+    const pendingDir = node_path_1.default.join(todosDir(cwd), 'pending');
     const todos = [];
     // Load pending todos
     try {
@@ -2592,7 +3312,7 @@ function cmdTodoMatchPhase(cwd, phase, raw) {
         .map(w => w.replace(/[^a-z0-9]/g, ''))
         .filter(w => w.length > 2 && !stopWords.has(w)));
     // Find phase directory to get expected file paths
-    const phaseInfoDisk = findPhaseInternal(cwd, phase);
+    const phaseInfoDisk = findPhaseInternal(cwd, phase, undefined, phaseDirectoryOptions(cwd));
     const phasePlans = [];
     if (phaseInfoDisk && phaseInfoDisk['found']) {
         try {
@@ -2657,41 +3377,92 @@ function cmdTodoMatchPhase(cwd, phase, raw) {
 // #4096: upsert completion keys INSIDE the leading frontmatter block. Never a
 // bare prefix line above the opening `---` (that displaces the fence to line 2
 // and breaks every fence-locating reader). A file with no well-formed block
-// (absent, or an unterminated opening fence) gains a complete block.
+// (absent, or an unterminated opening fence) gains a complete block. The block is
+// the one the one fence owner (`locateFrontmatterFence`) finds, so this writer and
+// every todo reader agree on where it is.
 function upsertTodoCompletionFields(content, today) {
-    const lines = content.split('\n');
     const fields = [`completed: ${today}`, 'status: completed'];
-    const hasOpeningFence = lines[0] !== undefined && lines[0].trim() === '---';
-    const closeIdx = hasOpeningFence ? lines.findIndex((l, i) => i > 0 && l.trim() === '---') : -1;
-    if (!hasOpeningFence || closeIdx === -1) {
+    const fence = (0, frontmatter_fence_cjs_1.locateFrontmatterFence)(content);
+    if (!fence?.closed) {
         // No parseable frontmatter: wrap the whole content in a complete block
-        // rather than prefixing bare keys (#4096 fix 2).
-        return `---\n${fields.join('\n')}\n---\n\n${content}`;
+        // rather than prefixing bare keys (#4096 fix 2). A leading BOM (#2977) stays
+        // the document's first character, ahead of the new fence.
+        const bom = content.charCodeAt(0) === 0xFEFF ? content.slice(0, 1) : '';
+        return `${bom}---\n${fields.join('\n')}\n---\n\n${content.slice(bom.length)}`;
     }
-    const block = lines.slice(1, closeIdx);
+    // The block's lines, split on a bare '\n' so a CRLF line keeps its '\r' — and a
+    // written field line carries one too, so a CRLF block never gains LF-only lines.
+    const inner = content.slice(fence.openEnd, fence.closingStart);
+    const block = inner === '' ? [] : inner.slice(0, -1).split('\n');
+    const cr = fence.eol === '\r\n' ? '\r' : '';
     for (const field of fields) {
         const key = `${field.slice(0, field.indexOf(':'))}:`;
         const idx = block.findIndex(l => l.startsWith(key));
         if (idx === -1) {
-            block.push(field);
+            block.push(field + cr);
         }
         else {
-            block[idx] = field;
+            block[idx] = field + cr;
         }
     }
-    return [...lines.slice(0, 1), ...block, ...lines.slice(closeIdx)].join('\n');
+    return `${content.slice(0, fence.openEnd)}${block.join('\n')}\n${content.slice(fence.closingStart)}`;
 }
 function cmdTodoComplete(cwd, filename, options, raw) {
     if (!filename) {
         error('filename required for todo complete');
     }
-    const pendingDir = node_path_1.default.join(planningDir(cwd), 'todos', 'pending');
-    const completedDir = node_path_1.default.join(planningDir(cwd), 'todos', 'completed');
+    // #4256: root-scoped todos read/write — see cmdListTodos. The pending and
+    // completed halves of the move must resolve from the SAME root or the
+    // completion would strand files where no reader looks.
+    const todosRoot = todosDir(cwd);
+    const pendingDir = node_path_1.default.join(todosRoot, 'pending');
+    const completedDir = node_path_1.default.join(todosRoot, 'completed');
+    // #4652: containment against todosRoot only rejects paths that leave the
+    // root — it cannot express "a todo name is a basename, not a path" (see
+    // #4327). `../sibling.md`, `a/../../b.md`, and `sub/name.md` all resolve
+    // to a location inside todosRoot (or inside pending/) and would pass
+    // containment, yet none of them is a bare filename. Reject on basename
+    // shape FIRST, before any path is even joined — same predicate shape as
+    // findPhaseArtifact in gate-predicate.cts. Checking both `/` and
+    // `\` explicitly (not just path.basename) matters on POSIX, where a
+    // literal backslash is just an ordinary filename character to
+    // path.basename but not to path.win32.basename or to the user's intent.
+    const rawFilename = filename;
+    if (rawFilename === '.' ||
+        rawFilename === '..' ||
+        rawFilename.includes('\0') ||
+        rawFilename.includes('/') ||
+        rawFilename.includes('\\') ||
+        node_path_1.default.basename(rawFilename) !== rawFilename ||
+        node_path_1.default.win32.basename(rawFilename) !== rawFilename) {
+        error(`todo name must be a plain filename inside the pending directory, not a path: ${rawFilename}`, ERROR_REASON.USAGE);
+    }
     const sourcePath = node_path_1.default.join(pendingDir, filename);
-    if (!node_fs_1.default.existsSync(sourcePath)) {
+    const targetPath = node_path_1.default.join(completedDir, filename);
+    const sourceContained = (0, security_cjs_1.tryWithinRoot)(sourcePath, todosRoot, security_cjs_1.PathAcceptance.AbsoluteInsideRoot);
+    if (sourceContained === null) {
+        error(`todo file escapes its allowed directory: ${filename}`, ERROR_REASON.USAGE);
+    }
+    const targetContained = (0, security_cjs_1.tryWithinRoot)(targetPath, todosRoot, security_cjs_1.PathAcceptance.AbsoluteInsideRoot);
+    if (targetContained === null) {
+        error(`todo file escapes its allowed directory: ${filename}`, ERROR_REASON.USAGE);
+    }
+    const resolvedSource = sourceContained;
+    const resolvedTarget = targetContained;
+    if (!node_fs_1.default.existsSync(resolvedSource)) {
         error(`Todo not found: ${filename}`);
     }
-    const content = node_fs_1.default.readFileSync(sourcePath, 'utf-8');
+    // #4652: a name that IS a bare basename can still resolve to something that
+    // is not a regular file — a directory, symlink-to-directory, FIFO or socket
+    // sitting in pending/ under an ordinary-looking name. `.` and `..` no longer
+    // reach here (the basename guard above rejects them first), so this is not
+    // about traversal; it stops fs.readFileSync from throwing an uncaught EISDIR
+    // with an absolute-path stack trace where every sibling case gives a clean
+    // USAGE rejection.
+    if (!node_fs_1.default.statSync(resolvedSource).isFile()) {
+        error(`todo name is not a file: ${filename}`, ERROR_REASON.USAGE);
+    }
+    const content = node_fs_1.default.readFileSync(resolvedSource, 'utf-8');
     const today = clock_cjs_1.realClock.localToday();
     // #4096: --dry-run mirrors `milestone complete --dry-run` (#2118) — every
     // existence check above still runs, nothing below mutates, and the payload
@@ -2703,8 +3474,8 @@ function cmdTodoComplete(cwd, filename, options, raw) {
             file: filename,
             date: today,
             would_move: {
-                source: node_path_1.default.relative(cwd, sourcePath).split(node_path_1.default.sep).join('/'),
-                target: node_path_1.default.relative(cwd, node_path_1.default.join(completedDir, filename)).split(node_path_1.default.sep).join('/'),
+                source: node_path_1.default.relative(cwd, resolvedSource).split(node_path_1.default.sep).join('/'),
+                target: node_path_1.default.relative(cwd, resolvedTarget).split(node_path_1.default.sep).join('/'),
             },
             would_set: { completed: today, status: 'completed' },
         }, raw);
@@ -2714,8 +3485,8 @@ function cmdTodoComplete(cwd, filename, options, raw) {
     // creates nothing).
     (0, shell_command_projection_cjs_1.platformEnsureDir)(completedDir);
     const completedContent = upsertTodoCompletionFields(content, today);
-    (0, shell_command_projection_cjs_1.platformWriteSync)(node_path_1.default.join(completedDir, filename), completedContent);
-    node_fs_1.default.unlinkSync(sourcePath);
+    (0, shell_command_projection_cjs_1.platformWriteSync)(resolvedTarget, completedContent);
+    node_fs_1.default.unlinkSync(resolvedSource);
     output({ completed: true, file: filename, date: today }, raw, 'completed');
 }
 function cmdScaffold(cwd, type, options, raw) {
@@ -2723,7 +3494,7 @@ function cmdScaffold(cwd, type, options, raw) {
     const padded = phase ? normalizePhaseName(phase) : '00';
     const today = clock_cjs_1.realClock.localToday();
     // Find phase directory
-    const phaseInfo = phase ? findPhaseInternal(cwd, phase) : null;
+    const phaseInfo = phase && type !== 'phase-dir' ? findPhaseInternal(cwd, phase, undefined, phaseDirectoryOptions(cwd)) : null;
     const phaseDir = phaseInfo ? node_path_1.default.join(cwd, phaseInfo['directory']) : null;
     if (phase && !phaseDir && type !== 'phase-dir') {
         error(`Phase ${phase} directory not found`);
@@ -2751,14 +3522,14 @@ function cmdScaffold(cwd, type, options, raw) {
             }
             const slug = generateSlugInternal(name);
             // #3287: apply project_code prefix to stay consistent with phase.add/phase.insert
-            const scaffoldConfig = loadConfig(cwd);
-            const scaffoldProjectCode = scaffoldConfig['project_code'] || '';
-            const scaffoldPrefix = scaffoldProjectCode ? `${scaffoldProjectCode}-` : '';
-            const dirName = `${scaffoldPrefix}${padded}-${slug}`;
-            const phasesParent = planningPaths(cwd).phases;
-            (0, shell_command_projection_cjs_1.platformEnsureDir)(phasesParent);
-            const dirPath = node_path_1.default.join(phasesParent, dirName);
-            (0, shell_command_projection_cjs_1.platformEnsureDir)(dirPath);
+            const scaffoldConfig = phaseDirectoryOptions(cwd, undefined, '');
+            const roadmapPath = node_path_1.default.join(planningDir(cwd), 'ROADMAP.md');
+            const roadmap = scaffoldConfig.phaseNaming === 'custom' && node_fs_1.default.existsSync(roadmapPath)
+                ? node_fs_1.default.readFileSync(roadmapPath, 'utf8') : '';
+            const [{ dirPath }] = phaseLocatorMod.createPhaseDirectories(cwd, [{
+                    id: phase, slug: slug || '',
+                    directoryId: scaffoldConfig.phaseNaming === 'custom' && isCustomPhaseId(phase) ? phase : padded,
+                }], { ...scaffoldConfig, roadmap }, false);
             output({ created: true, directory: toPosixPath(node_path_1.default.relative(cwd, dirPath)), path: dirPath }, raw, dirPath);
             return;
         }
@@ -2781,7 +3552,15 @@ function cmdStats(cwd, format, raw) {
     const reqPath = planningPaths(cwd).requirements;
     const statePath = planningPaths(cwd).state;
     const milestone = getMilestoneInfo(cwd).value;
+    const phaseIdConvention = resolvePhaseIdConvention(cwd);
+    const milestoneDisplay = phaseIdConvention === 'bracket'
+        ? renderBracketMilestoneDisplay(milestone?.version, loadConfig(cwd).project_code)
+        : null;
+    const milestoneVersion = milestoneDisplay ?? milestone?.version ?? null;
     // Phase & plan stats (reuse progress pattern)
+    // #5060: `phaseStatus` here is the internal PHASE_STATUS ladder value, never
+    // a display label — the output projection below is the only place a label
+    // is produced (toDisplayLabel).
     const phasesByNumber = new Map();
     let totalPlans = 0;
     let totalSummaries = 0;
@@ -2800,54 +3579,105 @@ function cmdStats(cwd, format, raw) {
         // prose mentioning `### Phase N:` inside an inline code span produced a phantom
         // Not-Started row and made phases_total disagree with roadmap analyze.
         // phase-id-owner: uses the [.-] (dot-or-dash) separator variant, not the canonical dot-only token; a swap to PHASE_NUMBER_TOKEN_SOURCE would drop hyphenated phase-id matches.
-        const headingPattern = /#{2,4}\s*(?:\[[^\]]{1,200}\]\s*)?Phase\s+([A-Za-z]?\d+[A-Z]?(?:[.-]\d+)*)(?:\s*\([^)\n]{0,200}\))?\s*:\s*([^\n]+)/gi;
+        const capturesBracketId = phaseIdConvention === 'bracket';
+        const headingPrefix = phaseHeadingPrefixSrcFor(PHASE_HEADING_BASELINE.ANY_BRACKET, phaseIdConvention, capturesBracketId);
+        // phase-id-owner: this preserves cmdStats's shipped dot-or-dash heading
+        // token variant; PHASE_NUMBER_TOKEN_SOURCE is dot-only and would drop M-NN.
+        const headingPattern = new RegExp(
+        // phase-id-owner: cmdStats's shipped [.-] token variant; the canonical token is dot-only.
+        `#{2,4}\\s*${headingPrefix}([A-Za-z]?\\d+[A-Z]?(?:[.-]\\d+)*)(?:\\s*\\([^)\\n]{0,200}\\))?\\s*:\\s*([^\\n]+)`, 'gi');
         let match;
         while ((match = headingPattern.exec(roadmapContent)) !== null) {
+            const bracketId = capturesBracketId ? match[1] : undefined;
+            const phaseToken = capturesBracketId ? match[2] : match[1];
+            const phaseName = capturesBracketId ? match[3] : match[2];
             // #3185: the heading seed carried no sentinel filter, so a
             // `### Phase 999.1:` backlog heading produced a stats row even with no
             // directory on disk. Uses the canonical predicate (phase-id.cts), not a
             // local literal — the rule had five copies and three regex variants
             // before this phase, disagreeing about Phase 0.
-            if (isSentinelPhaseId(match[1]))
+            const sentinelId = bracketId ? `${bracketId}-${phaseToken}` : phaseToken;
+            if (capturesBracketId
+                ? isSentinelPhaseId(sentinelId, phaseIdConvention)
+                : isSentinelPhaseId(sentinelId))
                 continue;
-            const key = normalizePhaseName(match[1]);
+            const key = normalizePhaseName(phaseToken);
+            let displayId;
+            if (bracketId) {
+                try {
+                    displayId = renderPhaseId(parsePhaseId(`${bracketId}-${phaseToken}`));
+                }
+                catch {
+                    // Read tolerance can admit a non-canonical heading spelling; keep
+                    // the stats row but do not invent a canonical identity for it.
+                }
+            }
             phasesByNumber.set(key, {
                 number: key,
-                name: match[2].replace(/\(INSERTED\)/i, '').trim(),
+                ...(displayId ? { display_id: displayId } : {}),
+                name: (0, phase_entry_grammar_cjs_1.stripInsertedMarker)(phaseName),
                 plans: 0,
                 summaries: 0,
-                status: 'Not Started',
+                phaseStatus: phase_status_cjs_1.PHASE_STATUS.NOT_STARTED,
             });
         }
     }
     catch { /* intentionally empty */ }
+    // #5118: the first phase whose verification report `status` is outside the
+    // closed set — carried out of the scan below and failed on after it.
+    let statusError;
     try {
         // #3185 (ADR-3180 Decision 1): route through the single owner. This
         // previously applied the milestone window but NOT a directory-level
         // sentinel filter — and getMilestonePhaseFilter degrades to a pass-all
         // predicate when its heading set is empty, at which point every directory
         // on disk passed, backlog included (#3167).
-        const { value: dirs, scope } = listMilestonePhaseDirs(phasesDir, { cwd });
+        const { value: dirs, scope } = listMilestonePhaseDirs(phasesDir, {
+            cwd,
+            phaseIdConvention,
+        });
         phaseScope = scope;
         for (const dir of dirs) {
-            // Use extractPhaseToken to correctly parse M-NN-style and code-prefixed dir names.
-            const phaseToken = extractPhaseToken(dir);
-            const phaseNum = phaseToken || dir;
-            // phaseName is everything after the token (strip leading '-')
-            const afterToken = dir.slice(phaseToken ? phaseToken.length : 0).replace(/^-/, '');
-            const phaseName = afterToken ? afterToken.replace(/-/g, ' ') : '';
-            // #3183: canonical plan/summary counts (root+nested, superseded-excluded,
-            // canonical pairing) from the single owner.
-            const phaseScan = scanPhasePlans(node_path_1.default.join(phasesDir, dir));
-            const plans = phaseScan.planCount;
-            const summaries = phaseScan.summaryCount;
+            let phaseNum;
+            let phaseName;
+            let displayId;
+            if (phaseIdConvention === 'bracket') {
+                try {
+                    const projection = bracketPhaseDirProjection(dir);
+                    phaseNum = projection.number;
+                    phaseName = projection.name;
+                    displayId = projection.display_id;
+                }
+                catch {
+                    const phaseToken = extractPhaseToken(dir, phaseIdConvention);
+                    phaseNum = phaseToken || dir;
+                    phaseName = recoverBracketPhaseName(dir, phaseToken);
+                }
+            }
+            else {
+                // Use extractPhaseToken to correctly parse M-NN-style and code-prefixed dir names.
+                const phaseToken = extractPhaseToken(dir);
+                phaseNum = phaseToken || dir;
+                // phaseName is everything after the token (strip leading '-')
+                const afterToken = dir.slice(phaseToken ? phaseToken.length : 0).replace(/^-/, '');
+                phaseName = afterToken ? afterToken.replace(/-/g, ' ') : '';
+            }
+            // #3183/#5060: canonical plan/summary counts and lifecycle status
+            // (root+nested, superseded-excluded, canonical pairing) from the
+            // single owner (Phase Status Module, ADR-5057).
+            const ps = (0, phase_status_cjs_1.phaseStatus)(node_path_1.default.join(phasesDir, dir), { convention: phaseIdConvention });
+            statusError = firstStatusError(statusError, ps.value.statusError);
+            const plans = ps.value.planCount;
+            const summaries = ps.value.summaryCount;
             totalPlans += plans;
             totalSummaries += summaries;
-            const status = determinePhaseStatus(plans, summaries, node_path_1.default.join(phasesDir, dir), 'Not Started');
             const normalizedNum = normalizePhaseName(phaseNum);
             const existing = phasesByNumber.get(normalizedNum);
             phasesByNumber.set(normalizedNum, {
                 number: normalizedNum,
+                ...(existing?.display_id || displayId
+                    ? { display_id: existing?.display_id || displayId }
+                    : {}),
                 name: existing?.name || phaseName,
                 plans: (existing?.plans || 0) + plans,
                 summaries: (existing?.summaries || 0) + summaries,
@@ -2856,13 +3686,26 @@ function cmdStats(cwd, format, raw) {
                 // platforms, so a naive overwrite can report a Complete phase as Not
                 // Started (or vice versa) depending on read order. The fold picks the
                 // furthest-along status, matching what an operator expects.
-                status: existing ? foldPhaseStatus(existing.status, status) : status,
+                phaseStatus: existing ? (0, phase_status_cjs_1.foldPhaseStatuses)(existing.phaseStatus, ps.value.status) : ps.value.status,
             });
         }
     }
     catch { /* intentionally empty */ }
-    const phases = [...phasesByNumber.values()].sort((a, b) => comparePhaseNum(a.number, b.number));
-    const completedPhases = phases.filter(p => p.status === 'Complete').length;
+    // #5118: a read-only aggregate over a refused report prints nothing.
+    if (statusError)
+        failOnVerificationStatusError(statusError);
+    const internalPhases = [...phasesByNumber.values()].sort((a, b) => comparePhaseNum(a.number, b.number));
+    const completedPhases = internalPhases.filter(p => p.phaseStatus === phase_status_cjs_1.PHASE_STATUS.COMPLETE).length;
+    // #5060: project the internal PHASE_STATUS ladder to the display label at
+    // the output boundary only — the internal `phaseStatus` field is never emitted.
+    const phases = internalPhases.map(p => ({
+        number: p.number,
+        ...(p.display_id ? { display_id: p.display_id } : {}),
+        name: p.name,
+        plans: p.plans,
+        summaries: p.summaries,
+        status: (0, phase_status_cjs_1.toDisplayLabel)(p.phaseStatus, { pendingWord: 'Not Started' }),
+    }));
     // #3217 (ADR-3180 §7.6 rule 4): both percentages here are derived from the
     // same `phaseScope`-carrying directory enumeration above (Phase 3, #3222) —
     // withhold both when that scope is not COMPLETE, same rationale as
@@ -2906,7 +3749,7 @@ function cmdStats(cwd, format, raw) {
         }
     }
     const result = {
-        milestone_version: milestone?.version ?? null,
+        milestone_version: milestoneVersion,
         milestone_name: milestone?.name ?? null,
         phases,
         phases_completed: completedPhases,
@@ -2925,10 +3768,8 @@ function cmdStats(cwd, format, raw) {
         phase_scope: phaseScope,
     };
     if (format === 'table') {
-        const barWidth = 10;
-        const filled = percent === null ? 0 : Math.round((percent / 100) * barWidth);
-        const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
-        let out = `# ${milestone?.version ?? ''} ${milestone?.name ?? ''} — Statistics\n\n`;
+        const bar = (0, phase_lifecycle_cjs_1.renderProgressBar)(percent, 10);
+        let out = `# ${milestoneVersion ?? ''} ${milestone?.name ?? ''} — Statistics\n\n`;
         const percentSuffix = percent === null ? '' : ` (${percent}%)`;
         out += `**Progress:** [${bar}] ${completedPhases}/${phases.length} phases${percentSuffix}\n`;
         if (totalPlans > 0 && planPercent !== null) {
@@ -2942,7 +3783,7 @@ function cmdStats(cwd, format, raw) {
         out += `| Phase | Name | Plans | Completed | Status |\n`;
         out += `|-------|------|-------|-----------|--------|\n`;
         for (const p of phases) {
-            out += `| ${p.number} | ${p.name} | ${p.plans} | ${p.summaries} | ${p.status} |\n`;
+            out += `| ${p.display_id ?? p.number} | ${p.name} | ${p.plans} | ${p.summaries} | ${p.status} |\n`;
         }
         if (gitCommits > 0) {
             out += `\n**Git:** ${gitCommits} commits`;
@@ -2987,12 +3828,19 @@ function cmdStats(cwd, format, raw) {
  */
 function cmdCheckCommit(cwd, raw) {
     const config = loadConfig(cwd);
-    const stagedResult = (0, shell_command_projection_cjs_1.execGit)(['diff', '--cached', '--name-only', '-z'], { cwd });
+    // #5548: execGit scrubs the repo-location vars, but inside the pre-commit hook git sets them
+    // (GIT_DIR/GIT_WORK_TREE of an explicit --git-dir commit, GIT_INDEX_FILE of a `-a` / `<path>`
+    // commit) to name the repo being committed: hand them back or the guard finds no repo and allows.
+    const hookEnv = {};
+    for (const k of shell_command_projection_cjs_1.GIT_LOCATION_ENV_VARS)
+        if (process.env[k] !== undefined)
+            hookEnv[k] = process.env[k];
+    const stagedResult = (0, shell_command_projection_cjs_1.execGit)(['diff', '--cached', '--name-only', '-z'], { cwd, env: hookEnv });
     if (stagedResult.exitCode === 0) {
         const files = stagedResult.stdout.split('\0').filter(Boolean);
         const planningFiles = files.filter(f => f.startsWith('.planning/'));
         if (planningFiles.length > 0) {
-            const policy = resolveCommitDocsPolicy(config, detectPhaseNumberFromFiles(planningFiles), () => isGitIgnored(cwd, '.planning'));
+            const policy = resolveCommitDocsPolicy(config, detectPhaseNumberFromFiles(planningFiles), () => isGitIgnored(cwd, '.planning', hookEnv));
             if (!policy.resolved) {
                 error(`commit_docs is false but ${planningFiles.length} .planning/ file(s) are staged:\n` +
                     planningFiles.map(f => `  ${f}`).join('\n') +
@@ -3190,9 +4038,6 @@ function cmdCommitDocsGuardDisable(cwd, raw) {
 module.exports = {
     effortSurfaceForHost,
     groupFilesBySubrepo,
-    determinePhaseStatus,
-    foldPhaseStatus,
-    PHASE_STATUS_PRECEDENCE,
     cmdGenerateSlug,
     cmdCurrentTimestamp,
     cmdListTodos,

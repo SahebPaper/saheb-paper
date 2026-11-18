@@ -25,6 +25,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_crypto_1 = __importDefault(require("node:crypto"));
+const security_cjs_1 = require("./security.cjs");
 /* eslint-disable @typescript-eslint/no-require-imports */
 const sourceMod = require('./capability-source.cjs');
 const ledgerMod = require('./capability-ledger.cjs');
@@ -33,7 +34,7 @@ const consentMod = require('./capability-consent.cjs');
 const projectRootMod = require('./project-root.cjs');
 // #1459 finding 4: the SHARED hardened lock primitive (single source of truth for lifecycle + consent).
 const lockMod = require('./capability-lock.cjs');
-const { platformWriteSync, retryRenameSync } = require('./shell-command-projection.cjs');
+const { platformWriteSync, retryRenameSync, shellSingleQuote } = require('./shell-command-projection.cjs');
 // #1463: numeric major.minor.patch comparison for the outdated check (the SAME compare the resolver
 // and capability list use). -1 (a<b), 0 (equal), 1 (a>b).
 const semverMod = require('./semver-compare.cjs');
@@ -202,7 +203,10 @@ function safeRmUnder(runtimeDir, rel) {
     catch {
         return false;
     }
-    if (realParent !== realRoot && !realParent.startsWith(realRoot + node_path_1.default.sep))
+    // Containment decision is the canonical LEXICAL predicate (ADR-4650 decision 6); lexical because
+    // both operands are already realpath-resolved here and the final component is deliberately
+    // handled as a link (see above).
+    if ((0, security_cjs_1.tryWithinRootLexical)(realParent, realRoot) === null)
         return false;
     const realTarget = node_path_1.default.join(realParent, node_path_1.default.basename(target));
     let st;
@@ -250,11 +254,11 @@ function confinedSharedFile(runtimeDir, relFile) {
     catch {
         // Parent does not exist yet (created inside the scope on write): a non-existent path cannot be a
         // symlink escaping the root, so a lexical containment check is sufficient.
-        if (parentDir !== realRoot && !parentDir.startsWith(realRoot + node_path_1.default.sep))
+        if ((0, security_cjs_1.tryWithinRootLexical)(parentDir, realRoot) === null)
             return null;
         return target;
     }
-    if (realParent !== realRoot && !realParent.startsWith(realRoot + node_path_1.default.sep))
+    if ((0, security_cjs_1.tryWithinRootLexical)(realParent, realRoot) === null)
         return null;
     return node_path_1.default.join(realParent, node_path_1.default.basename(target));
 }
@@ -305,17 +309,6 @@ function isSafeHookScriptPath(script) {
     return true;
 }
 /**
- * #1460 (R) HIGH: POSIX single-quote an arbitrary string for safe inclusion in a shell command.
- * The emitted hook `command` is the ABSOLUTE confined script path, which begins with the
- * (non-manifest) install-prefix — commonly a home dir containing spaces/special chars (e.g.
- * "/Users/Bob Smith/.agents/..."). Written unquoted it would word-split (and, with a hostile
- * prefix, could inject). Wrapping in single quotes — with each embedded `'` escaped as `'\''` —
- * makes the whole path a single shell token that no metacharacter inside it can break.
- */
-function shellSingleQuote(value) {
-    return "'" + value.replace(/'/g, "'\\''") + "'";
-}
-/**
  * #1634: build the emitted hook `command` for an ABSOLUTE confined script path. For `.js`-family
  * hooks (`.js`/`.cjs`/`.mjs`) prefix with `node` so the hook runs regardless of the source's
  * executable bit — a `git`/tarball source that lost `+x` would otherwise yield
@@ -363,7 +356,7 @@ function confinedBundleScript(capDirPath, script) {
         // disk): a non-existent root cannot be a symlink escaping itself, so confine lexically.
         realCapRoot = node_path_1.default.resolve(capDirPath);
         const targetLex = node_path_1.default.resolve(realCapRoot, script);
-        if (targetLex !== realCapRoot && !targetLex.startsWith(realCapRoot + node_path_1.default.sep))
+        if ((0, security_cjs_1.tryWithinRootLexical)(targetLex, realCapRoot) === null)
             return null;
         return targetLex;
     }
@@ -376,13 +369,13 @@ function confinedBundleScript(capDirPath, script) {
     catch {
         // Parent does not exist yet (created inside the bundle): lexical containment is sufficient
         // because a non-existent path cannot be a symlink escaping the root.
-        if (parentDir !== realCapRoot && !parentDir.startsWith(realCapRoot + node_path_1.default.sep))
+        if ((0, security_cjs_1.tryWithinRootLexical)(parentDir, realCapRoot) === null)
             return null;
         return target;
     }
     // The realpath'd parent chain must remain inside the bundle — an ancestor symlink escaping the
     // bundle is refused here (the symlink is followed by realpathSync, so its real location is checked).
-    if (realParent !== realCapRoot && !realParent.startsWith(realCapRoot + node_path_1.default.sep))
+    if ((0, security_cjs_1.tryWithinRootLexical)(realParent, realCapRoot) === null)
         return null;
     return node_path_1.default.join(realParent, node_path_1.default.basename(target));
 }

@@ -13,6 +13,7 @@ const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_os_1 = __importDefault(require("node:os"));
 const validate_cjs_1 = require("./validate.cjs");
+const security_cjs_1 = require("./security.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-workspace.cjs is an export= CommonJS module
 const planningWorkspace = require("./planning-workspace.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
@@ -21,27 +22,21 @@ const frontmatterMod = require("./frontmatter.cjs");
 const stateMod = require("./state.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- model-profiles.cjs is an export= CommonJS module
 const modelProfilesMod = require("./model-profiles.cjs");
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- plan-scan.cjs is an export= CommonJS module
-const planScanMod = require("./plan-scan.cjs");
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- verification.cjs is an export= CommonJS module
-const verificationMod = require("./verification.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- core-utils.cjs is an export= CommonJS module
 const coreUtilsMod = require("./core-utils.cjs");
 const { findOrphanSummaries, findUnsummarizedPlans } = coreUtilsMod;
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-scope.cjs is an export= CommonJS module
-const planningScopeMod = require("./planning-scope.cjs");
-const { SCOPE } = planningScopeMod;
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- worktree-safety.cjs is an export= CommonJS module
-const worktreeSafetyMod = require("./worktree-safety.cjs");
-// Single owner of git C-quoted-path decoding (see #4081 note at the
-// codebase-drift --name-status parse loop).
-const { decodeGitQuotedPath } = worktreeSafetyMod;
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
-const security_cjs_1 = require("./security.cjs");
+const read_only_git_env_cjs_1 = require("./read-only-git-env.cjs");
+const security_cjs_2 = require("./security.cjs");
 const runtime_slash_cjs_1 = require("./runtime-slash.cjs");
 const schema_detect_cjs_1 = require("./schema-detect.cjs");
 const markdown_sectionizer_cjs_1 = require("./markdown-sectionizer.cjs");
+const criterion_baseline_cjs_1 = require("./criterion-baseline.cjs");
+const criterion_replay_cjs_1 = require("./criterion-replay.cjs");
 const pattern_cjs_1 = require("./pattern.cjs");
+const gate_exit_cjs_1 = require("./gate-exit.cjs");
+const gate_evidence_cjs_1 = require("./gate-evidence.cjs");
+const gate_verdict_cjs_1 = require("./gate-verdict.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- agent-install-check.cjs is an export= CommonJS module
 const agentInstallCheck = require("./agent-install-check.cjs");
 const { checkAgentsInstalled, checkCodexModelPosture, checkCodexSandboxPosture } = agentInstallCheck;
@@ -49,11 +44,8 @@ const { checkAgentsInstalled, checkCodexModelPosture, checkCodexSandboxPosture }
 const ioMod = require("./io.cjs");
 const { output, error } = ioMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const phaseIdMod = require("./phase-id.cjs");
-const { normalizePhaseName, matchPhaseDirs } = phaseIdMod;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const phaseLocatorMod = require("./phase-locator.cjs");
-const { findPhaseInternal } = phaseLocatorMod;
+const { phaseDirectoryOptions, findPhaseInternal } = phaseLocatorMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const roadmapParserMod = require("./roadmap-parser.cjs");
 const { stripShippedMilestones } = roadmapParserMod;
@@ -63,8 +55,11 @@ const { SEVERITY: HEALTH_SEVERITY, REMEDY_ACTION, REMEDY_RISK, evaluateRules, ev
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-snapshot.cjs is an export= CommonJS module
 const planningSnapshotMod = require("./planning-snapshot.cjs");
 const { buildPlanningSnapshot } = planningSnapshotMod;
-const { planningDir } = planningWorkspace;
-const { defaultPhaseCleanCommitTimesMs } = verificationMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- onboard-projection.cjs is an export= CommonJS module
+const onboardProjectionMod = require("./onboard-projection.cjs");
+const { REQUIRED_CODEBASE_MAP_FILES } = onboardProjectionMod;
+const clock_cjs_1 = require("./clock.cjs");
+const { planningDir, withPlanningLock } = planningWorkspace;
 const { extractFrontmatter, parseMustHavesBlock } = frontmatterMod;
 const { readStateHeadFreshness } = stateMod;
 /**
@@ -152,9 +147,12 @@ function verifySummaryCore(cwd, summaryPath, checkFileCount, opts) {
         if (firstSegment.indexOf('.') > 0)
             return false;
         // Containment guard: a `../`-bearing reference must not turn this advisory
-        // into a filesystem existence probe outside the project.
-        const resolved = node_path_1.default.resolve(projectRoot, candidate);
-        if (resolved !== projectRoot && !resolved.startsWith(projectRoot + node_path_1.default.sep))
+        // into a filesystem existence probe outside the project. Lexical (ADR-4650
+        // decision 6): the candidate is a string pulled from a SUMMARY document and
+        // by construction may not exist yet — existence is what gets probed
+        // downstream — and this is a pure string-heuristic filter with no other fs
+        // access, so a realpath call would also change its cost profile.
+        if ((0, security_cjs_1.tryWithinRootLexical)(candidate, projectRoot) === null)
             return false;
         return true;
     };
@@ -265,8 +263,8 @@ function cmdVerifySummary(cwd, summaryPath, checkFileCount, raw) {
 }
 /**
  * Issue #429 — negative-grep comment-text echo gate.
- * A literal that an acceptance criterion negative-greps for (grep -c 'LIT' file == 0)
- * must not also appear verbatim inside an <action> body, or the executor's commit-time
+ * A literal that an acceptance criterion negative-greps for (grep -c 'LIT' file == 0, or the
+ * negated spellings `! grep -q 'LIT' file` / `if ! grep ...`, #4541) must not also appear verbatim inside an <action> body, or the executor's commit-time
  * verify gate fails on the comment echo rather than a real regression. Conservative:
  * errors only on a confidently-extracted QUOTED literal; ambiguous (bareword) → warning.
  */
@@ -331,6 +329,12 @@ function splitShellSegments(line) {
     segments.push(current.trim());
     return segments.filter((s) => s !== '');
 }
+/**
+ * The status-test alternation of a negated grep gate (`grep -q 'LIT' f; test $? -ne 0`): the one
+ * definition `statusNegatedTest` (the segment test) and `statusNegatedSpanRe` (the span removal)
+ * share, so the two cannot drift apart.
+ */
+const STATUS_NEGATED_ALTERNATION = String.raw `(?:-ne\s+0|-eq\s+1|!=\s*0|==\s*1)`;
 function scanNegativeGrepCommentEcho(content) {
     const errors = [];
     const warnings = [];
@@ -368,6 +372,18 @@ function scanNegativeGrepCommentEcho(content) {
     //    command, not the whole line) so a pasted verify command does not self-flag
     //    while a prose echo on the same line is still caught.
     const cmdSpanRe = /grep(?:\s+-{1,2}[A-Za-z][A-Za-z-]*)+\s+(?:'[^']*'|"[^"]*"|[^\s'"|>&;]+)[^\n]*?(?:==|-eq|=)\s*0\b/g;
+    // #4541: the other spellings of a negative gate — `! grep ...` / `if ! grep ...` (the shell
+    // negates the exit status) and `grep ...; test $? -ne 0`. A pasted command in an <action> is
+    // likewise not an echo, so these spans are removed from the scanned action text too.
+    // The `!` is a command word: it follows a line start, whitespace, `;`, `(` or the `>` closing the
+    // `<automated>` tag, and is itself followed by whitespace (so `!=` and `!==` never match).
+    const negatedGrepRe = /(?:^|[\s;(>])!\s+grep((?:\s+-{1,2}[A-Za-z][A-Za-z-]*)*)\s+(?:'([^']*)'|"([^"]*)"|([^\s'"|>&;]+))/g;
+    const negatedSpanRe = /(?:^|[\s;(>])!\s+grep(?:\s+-{1,2}[A-Za-z][A-Za-z-]*)*\s+(?:'[^']*'|"[^"]*"|[^\s'"|>&;]+)[^\n;&|<]*/g;
+    const statusNegatedTest = new RegExp(String.raw `\$\?\s*${STATUS_NEGATED_ALTERNATION}(?![\w.])`);
+    // The span between the grep literal and the status test is bounded (`{0,1000}`), like the other
+    // scans in this file, rather than a lazy unanchored run to the end of the line.
+    const statusNegatedSpanRe = new RegExp(String.raw `grep(?:\s+-{1,2}[A-Za-z][A-Za-z-]*)*\s+(?:'[^']*'|"[^"]*"|[^\s'"|>&;]+)[^\n]{0,1000}?\$\?\s*${STATUS_NEGATED_ALTERNATION}(?![\w.])`, 'g');
+    const anyGrepRe = /grep((?:\s+-{1,2}[A-Za-z][A-Za-z-]*)*)\s+(?:'([^']*)'|"([^"]*)"|([^\s'"|>&;]+))/g;
     // Security scan: must see the FULL text up to the first </action> — including a
     // malformed inner <action> — so a grep-echo-0 trick cannot hide behind a
     // deliberately-unclosed tag. Use a bounded to-first-close scan (ReDoS-safe via
@@ -378,7 +394,9 @@ function scanNegativeGrepCommentEcho(content) {
     let acm;
     while ((acm = actionRe.exec(text)) !== null)
         actionZones.push(acm[1]);
-    const scannableActionText = actionZones.map((zone) => zone.replace(cmdSpanRe, ' ')).join('\n');
+    const scannableActionText = actionZones
+        .map((zone) => zone.replace(cmdSpanRe, ' ').replace(negatedSpanRe, ' ').replace(statusNegatedSpanRe, ' '))
+        .join('\n');
     // 3. Per shell SEGMENT (split lines on && / ||) extract count-grep literals and
     //    check echoes. Per-segment splitting keeps a positive gate (`== 1`) from
     //    poisoning a negative gate (`== 0`) sharing the same physical line.
@@ -386,28 +404,52 @@ function scanNegativeGrepCommentEcho(content) {
     const seenWarn = new Set();
     const segments = text.split('\n').flatMap(splitShellSegments);
     for (const seg of segments) {
-        if (!/grep(?:\s+-{1,2}[A-Za-z])/.test(seg) || !zeroCmp(seg))
+        if (!/grep\b/.test(seg))
             continue;
-        countGrepRe.lastIndex = 0;
+        const countForm = /grep(?:\s+-{1,2}[A-Za-z])/.test(seg) && zeroCmp(seg);
+        const statusForm = statusNegatedTest.test(seg);
         const quotedLits = [];
         const bareLits = [];
-        let m;
-        while ((m = countGrepRe.exec(seg)) !== null) {
-            if (!optsHaveCount(m[1]) || optsHaveInvert(m[1]))
-                continue; // need count, not invert (-cv is positive)
+        const harvest = (m) => {
             if (m[2] !== undefined)
                 quotedLits.push(m[2]);
             else if (m[3] !== undefined)
                 quotedLits.push(m[3]);
             else if (m[4] !== undefined && plausibleBare(m[4]))
                 bareLits.push(m[4]);
+        };
+        let m;
+        if (countForm) {
+            countGrepRe.lastIndex = 0;
+            while ((m = countGrepRe.exec(seg)) !== null) {
+                if (!optsHaveCount(m[1]) || optsHaveInvert(m[1]))
+                    continue; // need count, not invert (-cv is positive)
+                harvest(m);
+            }
         }
+        // `! grep -q 'LIT' f` / `if ! grep ...`: the negation is the shell's own, so any grep it
+        // negates is a negative gate whether or not it counts (an inverted grep is the positive one).
+        negatedGrepRe.lastIndex = 0;
+        while ((m = negatedGrepRe.exec(seg)) !== null) {
+            if (!optsHaveInvert(m[1]))
+                harvest(m);
+        }
+        // `grep -q 'LIT' f; test $? -ne 0`: the same gate with the status tested on the next command.
+        if (statusForm) {
+            anyGrepRe.lastIndex = 0;
+            while ((m = anyGrepRe.exec(seg)) !== null) {
+                if (!optsHaveInvert(m[1]))
+                    harvest(m);
+            }
+        }
+        if (quotedLits.length === 0 && bareLits.length === 0)
+            continue;
         for (const quoted of quotedLits) {
             if (!quoted || allow.has(quoted) || seenErr.has(quoted))
                 continue;
             if (scannableActionText.includes(quoted)) {
                 seenErr.add(quoted);
-                errors.push(`Plan body contains forbidden literal "${quoted}" in an <action> block, but an acceptance criterion negative-greps for it (grep -c ... == 0). Rephrase the literal by concept, remove it from the plan body, or add <!-- planner-discipline-allow: ${quoted} --> if it must legitimately appear.`);
+                errors.push(`Plan body contains forbidden literal "${quoted}" in an <action> block, but an acceptance criterion negative-greps for it (grep -c ... == 0, or a negated gate such as ! grep -q ...). Rephrase the literal by concept, remove it from the plan body, or add <!-- planner-discipline-allow: ${quoted} --> if it must legitimately appear.`);
             }
         }
         if (quotedLits.length === 0) {
@@ -757,11 +799,9 @@ function scanQuantitativeCriteria(content) {
         return { errors, warnings };
     // Allow markers may sit anywhere in the plan (same as the sibling scanners).
     // The reason must be non-empty: `R1 - -->` is not an auditable exit.
-    const allow = new Set();
-    const allowRe = /<!--\s*plan-criteria-allow:\s*(R[1-6])\s+-\s+([^>]*\S)\s*-->/g;
-    let am;
-    while ((am = allowRe.exec(content || '')) !== null)
-        allow.add(am[1]);
+    // #4309: the marker parser is shared with the baseline-notation scanner
+    // (it also honors B1/B2; this scanner only ever asks about R ids).
+    const allow = (0, criterion_baseline_cjs_1.parseCriteriaAllowMarkers)(content || '');
     const record = (bucket, rule, message, seen) => {
         if (allow.has(rule) || seen.has(message))
             return;
@@ -846,8 +886,15 @@ function scanQuantitativeCriteria(content) {
             // Not a markdown table: the negated-pipe class matches a SHELL pipeline
             // stage boundary (git before the next `|`), the same shape the
             // #429/#968 scanners use; there is no table row to parse.
+            // #4774: the lookahead keeps `||` — a logical OR, the construct that
+            // HANDLES the failure (e.g. the `git cat-file -e <sha> || echo missing`
+            // ghost-control idiom, reachable here when prose apostrophes leave the
+            // segment's quote state unclosed) — quiet, while `|` and `|&` (a real
+            // pipeline stage, stderr-merged or not) still warn. Accepted trade-off:
+            // a QUOTED `||` literal ahead of a real pipe (``git grep 'a||b' f | wc -l``)
+            // also goes quiet — the lookahead cannot reach past the doubled pipe.
             // allow-adhoc-markdown: shell pipeline stage boundary, not a table cell (#4024)
-            if (/\bgit\s+[a-z][^\n|]*\|/.test(seg)) {
+            if (/\bgit\s+[a-z][^\n|]*\|(?!\|)/.test(seg)) {
                 record(warnings, 'R4', '[plan-criteria R4] A fallible `git` in a non-final pipeline stage is swallowed — the pipeline reports ' +
                     'the last stage\'s status, so a broken command reads as clean. Capture the status first.', seenWarn);
             }
@@ -918,6 +965,13 @@ function extractPlanTaskInfos(content) {
         const nameArr = (0, markdown_sectionizer_cjs_1.extractTaggedBlocks)(body, 'name');
         const hasName = nameArr.length > 0;
         const name = hasName ? nameArr[0].trim() : '';
+        // `(?:^|\s)` (not `\b`) so a hyphenated attribute ending in `auto_select`
+        // can never be mistaken for the real attribute — the same defensive
+        // anchor as extractOptionIds' `id` match below (#4095).
+        const autoSelectMatch = attrs.match(/(?:^|\s)auto_select\s*=\s*["']([^"']*)["']/);
+        const autoSelect = autoSelectMatch ? autoSelectMatch[1] : null;
+        const optionsArr = (0, markdown_sectionizer_cjs_1.extractTaggedBlocks)(body, 'options');
+        const optionIds = optionsArr.length > 0 ? extractOptionIds(optionsArr[0]) : [];
         infos.push({
             name,
             type,
@@ -935,6 +989,8 @@ function extractPlanTaskInfos(content) {
             hasHowToVerify: /<how-to-verify[\s>]/.test(body),
             hasDecision: /<decision[\s>]/.test(body),
             hasOptions: /<options[\s>]/.test(body),
+            autoSelect,
+            optionIds,
             hasInstructions: /<instructions[\s>]/.test(body),
             hasVerification: /<verification[\s>]/.test(body),
             hasResumeSignal: /<resume-signal[\s>]/.test(body),
@@ -945,6 +1001,35 @@ function extractPlanTaskInfos(content) {
         }
     }
     return infos;
+}
+/**
+ * Extract the `id` attribute of every `<option id="…">` opening tag found in
+ * `optionsBody` (the inner text of one `<options>…</options>` block), in
+ * document order. Bounded attribute scan (`[^>]{0,500}`), mirroring the same
+ * ReDoS-safe idiom `extractPlanTaskInfos` uses for the `<task type="…">`
+ * attribute string — this file's established pattern for reading an
+ * attribute value without a general XML parser (#4095).
+ */
+function extractOptionIds(optionsBody) {
+    const ids = [];
+    if (typeof optionsBody !== 'string' || optionsBody.length === 0)
+        return ids;
+    const OPTION_OPEN_RE = /<option(\s[^>]{0,500})?>/g;
+    let match;
+    while ((match = OPTION_OPEN_RE.exec(optionsBody)) !== null) {
+        const attrs = match[1] ?? '';
+        // `(?:^|\s)` (not `\b`) so a decoy attribute like `data-id="…"` inside
+        // the same opening tag cannot be mistaken for the real `id` — `\b`
+        // matches at the `-`→`i` boundary too, which `.match()`'s
+        // first-hit-wins semantics would then silently prefer (#4095).
+        const idMatch = attrs.match(/(?:^|\s)id\s*=\s*["']([^"']{1,200})["']/);
+        if (idMatch)
+            ids.push(idMatch[1]);
+        if (match.index === OPTION_OPEN_RE.lastIndex) {
+            OPTION_OPEN_RE.lastIndex++;
+        }
+    }
+    return ids;
 }
 function isCheckpointType(type) {
     return type.startsWith('checkpoint:');
@@ -988,6 +1073,15 @@ function validatePlanTaskStructure(task) {
                     errors.push(`Task '${taskName}' missing <decision>`);
                 if (!task.hasOptions)
                     errors.push(`Task '${taskName}' missing <options>`);
+                if (task.autoSelect !== null) {
+                    if (task.autoSelect.length === 0) {
+                        errors.push(`Task '${taskName}' auto_select is empty — name an <option id="…">`);
+                    }
+                    else if (task.hasOptions && !task.optionIds.includes(task.autoSelect)) {
+                        errors.push(`Task '${taskName}' auto_select="${task.autoSelect}" does not match any `
+                            + `<option id="…"> (available: ${task.optionIds.join(', ') || 'none'})`);
+                    }
+                }
                 break;
             case 'checkpoint:human-action':
                 if (!task.hasAction)
@@ -1015,7 +1109,78 @@ function validatePlanTaskStructure(task) {
     }
     return { errors, warnings };
 }
-function cmdVerifyPlanStructure(cwd, filePath, raw) {
+// ─── Gate verb exit status (#5170, ADR-5057 §4) ──────────────────────────────────────────────────
+//
+// A verb that returns a verdict is evaluated by callers that branch on the exit status: exit 0 and
+// exit 1 are verdicts (the JSON on stdout is authoritative), any other status means the verb could
+// not look. Each verb builds a real GateVerdict and declares its exit from `gateExitOutcome` — no
+// verb picks its own code.
+/**
+ * A verb's target file as evidence. An absent file is `none`; an EMPTY file is `found ''` (a plan
+ * that exists but is empty is not "File not found"); any other failure is `unreadable`.
+ */
+function readVerbFile(fullPath) {
+    try {
+        const content = (0, shell_command_projection_cjs_1.platformReadSync)(fullPath);
+        return content === null ? (0, gate_evidence_cjs_1.evidenceNone)() : (0, gate_evidence_cjs_1.evidenceFound)(content);
+    }
+    catch (err) {
+        return (0, gate_evidence_cjs_1.evidenceFromError)(err, fullPath);
+    }
+}
+/** Print a verb's verdict payload, then declare its exit. Declared after output(), which rewrites the pending-outcome cell. */
+function emitVerbVerdict(verdict, mode, raw, rawLabel) {
+    output(verdict.payload, raw, rawLabel);
+    (0, gate_exit_cjs_1.declareGateExit)(verdict, mode);
+}
+/** A verb whose result is valid/invalid: invalid is a negative verdict (exit 1 in status mode). */
+function validityVerdict(valid, payload) {
+    return (0, gate_verdict_cjs_1.gateVerdict)(valid ? 'pass' : 'block', !valid, payload);
+}
+/**
+ * The "could not evaluate" verdict for a verb's target file that is not `found` (outcome `unreadable`,
+ * exit UNAVAILABLE — an absent file and an unreadable one alike). The caller emits it through
+ * `emitVerbVerdict` on its own return path, so every path out of a verb visibly declares its exit.
+ */
+function unreadableFileVerdict(evidence, displayPath) {
+    const payload = evidence.kind === 'none'
+        ? { error: 'File not found', path: displayPath }
+        : { error: 'File unreadable', path: displayPath, read_error: evidence.reason };
+    return (0, gate_verdict_cjs_1.gateUnreadable)(false, payload);
+}
+/**
+ * Issue #4927 — a PLAN.md can be cut off by a tool that still reported the write
+ * as successful (runtimes cap tool-call output; a ~450-line plan stopped inside
+ * an XML tag). The planner and the plan checker both run `verify plan-structure`
+ * on every plan, so this is where a silent partial write is caught, independent
+ * of what the write call returned.
+ *
+ * Three signals, each a strong sign of a partial file and none of them a shape a
+ * finished plan carries:
+ *   - the incremental-write sentinel (`<!-- gsd-write-continue -->`) left behind
+ *     (the planner's large-file fallback never removed it);
+ *   - `<tasks>` opened and never closed;
+ *   - the file ends inside a tag (`...</ta`). Prose such as `a < b` does not
+ *     match: a tag needs a name character straight after the `<` or `</`.
+ */
+function scanPlanTruncation(content) {
+    const errors = [];
+    const text = content || '';
+    if (/<!--\s*gsd-write-continue\s*-->/.test(text)) {
+        errors.push('Plan appears truncated: the incremental-write sentinel `<!-- gsd-write-continue -->` is still present — '
+            + 'the last section was never written. Finish the write (or re-write the plan) before treating it as complete.');
+    }
+    if (/<tasks>/.test(text) && !/<\/tasks>/.test(text)) {
+        errors.push('Plan appears truncated: `<tasks>` is opened but `</tasks>` never appears — the file was cut off before the task list ended.');
+    }
+    const trimmed = text.replace(/\s+$/, '');
+    const lastLt = trimmed.lastIndexOf('<');
+    if (lastLt !== -1 && trimmed.indexOf('>', lastLt) === -1 && /^<\/?[A-Za-z_!][^<>]{0,200}$/.test(trimmed.slice(lastLt))) {
+        errors.push(`Plan appears truncated: the file ends inside a tag (\`${trimmed.slice(lastLt).slice(0, 40)}\`) — the write stopped mid-payload.`);
+    }
+    return errors;
+}
+function cmdVerifyPlanStructure(cwd, filePath, raw, opts = {}) {
     if (!filePath) {
         error('file path required');
     }
@@ -1023,22 +1188,25 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
         error('file path contains null bytes');
     }
     const fullPath = node_path_1.default.isAbsolute(filePath) ? filePath : node_path_1.default.join(cwd, filePath);
-    const content = (0, shell_command_projection_cjs_1.platformReadSync)(fullPath);
-    if (!content) {
-        output({ error: 'File not found', path: filePath }, raw);
+    const read = readVerbFile(fullPath);
+    if (read.kind !== 'found') {
+        emitVerbVerdict(unreadableFileVerdict(read, filePath), 'status', raw);
         return;
     }
+    const content = read.value;
     // #2701: fail loud on NUL/binary corruption before structure checks. A
     // structurally intact-but-NUL-corrupted plan otherwise passes as valid and is
     // silently skipped by recursive/binary-skipping searchers downstream.
     const encErr = (0, validate_cjs_1.textEncodingError)(content, filePath);
     if (encErr) {
-        output({ valid: false, errors: [encErr] }, raw);
+        emitVerbVerdict(validityVerdict(false, { valid: false, errors: [encErr] }), 'status', raw);
         return;
     }
     const fm = extractFrontmatter(content, fullPath);
     const errors = [];
     const warnings = [];
+    // #4927: a plan the write tool reported as written but that ends mid-payload.
+    errors.push(...scanPlanTruncation(content));
     const required = ['phase', 'plan', 'type', 'wave', 'depends_on', 'files_modified', 'autonomous', 'must_haves'];
     for (const field of required) {
         if (fm[field] === undefined)
@@ -1087,7 +1255,8 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
             continue;
         if (!decisionCheckpointOffsets.some((offset) => offset < at)) {
             warnings.push('Task rated <reversibility rating="one-way"> has no preceding checkpoint:decision — '
-                + 'a one-way door must be confirmed before the agent walks through it');
+                + 'a one-way door must be confirmed before the agent walks through it (unless the decision is already settled '
+                + 'in CONTEXT.md, an ingested ADR, or an answered checkpoint)');
         }
     }
     const echoScan = scanNegativeGrepCommentEcho(content);
@@ -1101,22 +1270,65 @@ function cmdVerifyPlanStructure(cwd, filePath, raw) {
     const quantScan = scanQuantitativeCriteria(content);
     errors.push(...quantScan.errors);
     warnings.push(...quantScan.warnings);
-    output({
+    // #4309: criterion baseline notation (B1 non-discriminating, B2 legacy
+    // comment). Parse failures are statuses only and never change validity.
+    const baselineScan = (0, criterion_baseline_cjs_1.scanBaselineNotation)(content);
+    errors.push(...baselineScan.errors);
+    warnings.push(...baselineScan.warnings);
+    // #4310: opt-in replay (ADR-4310). Advisory: mismatches are warnings, statuses never change validity.
+    let replayReport = null;
+    if (opts.replay === true) {
+        const projectDir = node_path_1.default.resolve(cwd);
+        const head = (0, shell_command_projection_cjs_1.execGit)(['rev-parse', 'HEAD'], { cwd: projectDir, timeout: 5000 });
+        const headSha = head.exitCode === 0 && /^[0-9a-f]{40}$/.test(head.stdout) ? head.stdout : null;
+        const replayEnv = { ...process.env, ...(0, read_only_git_env_cjs_1.readOnlyGitEnv)(), GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_PAGER: 'cat', PAGER: 'cat' };
+        // Fail closed: an operand that exists but cannot be shown to resolve inside the project is refused.
+        const isInsideRoot = (candidate) => {
+            const st = (0, gate_evidence_cjs_1.statEvidence)(node_path_1.default.resolve(projectDir, candidate));
+            return st.kind === 'none' || (st.kind === 'found' && (0, security_cjs_2.tryWithinRoot)(candidate, projectDir) !== null);
+        };
+        replayReport = (0, criterion_replay_cjs_1.replayBaselineCriteria)(content, {
+            isInsideRoot,
+            run: (argv, { timeoutMs }) => (0, shell_command_projection_cjs_1.execArgvQuarantined)(argv[0], argv.slice(1), {
+                cwd: projectDir,
+                env: replayEnv,
+                timeout: timeoutMs,
+                maxBuffer: criterion_replay_cjs_1.REPLAY_LIMITS.OUTPUT_CAP_BYTES,
+            }),
+            now: () => Date.now(),
+            headSha,
+        });
+        warnings.push(...replayReport.warnings);
+    }
+    emitVerbVerdict(validityVerdict(errors.length === 0, {
         valid: errors.length === 0,
         errors,
         warnings,
         task_count: tasks.length,
         tasks,
         frontmatter_fields: Object.keys(fm),
-    }, raw, errors.length === 0 ? 'valid' : 'invalid');
+        // #4309: appended keys (additive payload).
+        baseline_notation_count: baselineScan.notationCount,
+        baseline_findings: baselineScan.findings,
+        baseline_statuses: baselineScan.statuses,
+        ...(replayReport === null ? {} : {
+            replay: {
+                head_sha: replayReport.head_sha,
+                results: replayReport.results,
+                mismatch_count: replayReport.mismatch_count,
+                statuses: replayReport.statuses,
+            },
+        }),
+    }), 'status', raw, errors.length === 0 ? 'valid' : 'invalid');
 }
 function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
     if (!phase) {
         error('phase required');
     }
-    const phaseInfoRaw = findPhaseInternal(cwd, phase);
+    const phaseInfoRaw = findPhaseInternal(cwd, phase, undefined, phaseDirectoryOptions(cwd));
     if (!phaseInfoRaw || !phaseInfoRaw['found']) {
-        output({ error: 'Phase not found', phase }, raw);
+        // An unresolvable phase is "could not look" (#5170): there is no phase to evaluate.
+        emitVerbVerdict((0, gate_verdict_cjs_1.gateUnreadable)(false, { error: 'Phase not found', phase }), 'status', raw);
         return;
     }
     const phaseInfo = phaseInfoRaw;
@@ -1132,12 +1344,14 @@ function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
     // recognized naming forms — producing false "Plans without summaries" /
     // "Summaries without plans" for names it could not recognize as paired
     // (the same failure class #1988/#2648 fixed for the owner's own callers).
-    const scan = planScanMod.scanPhasePlans(phaseDir);
-    if (scan.scope === SCOPE.UNREADABLE) {
-        output({ error: 'Cannot read phase directory' }, raw);
+    // Only SCOPE.COMPLETE is a real answer: an existing nested plans/ that could not be read (TRUNCATED)
+    // would hand the check a short plan set and report the unseen plans as nothing (#5170).
+    const scan = (0, gate_evidence_cjs_1.readPlanScanEvidence)(phaseDir);
+    if (scan.kind === 'unreadable') {
+        emitVerbVerdict((0, gate_verdict_cjs_1.gateUnreadable)(false, { error: 'Cannot read phase directory' }), 'status', raw);
         return;
     }
-    const { planFiles, summaryFiles } = scan;
+    const { planFiles, summaryFiles } = scan.value;
     const incompletePlans = findUnsummarizedPlans(planFiles, summaryFiles);
     if (incompletePlans.length > 0) {
         errors.push(`Plans without summaries: ${incompletePlans.join(', ')}`);
@@ -1146,7 +1360,7 @@ function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
     if (orphanSummaries.length > 0) {
         warnings.push(`Summaries without plans: ${orphanSummaries.join(', ')}`);
     }
-    output({
+    emitVerbVerdict(validityVerdict(errors.length === 0, {
         complete: errors.length === 0,
         phase: phaseInfo['phase_number'],
         plan_count: planFiles.length,
@@ -1155,58 +1369,77 @@ function cmdVerifyPhaseCompleteness(cwd, phase, raw) {
         orphan_summaries: orphanSummaries,
         errors,
         warnings,
-    }, raw, errors.length === 0 ? 'complete' : 'incomplete');
+    }), 'status', raw, errors.length === 0 ? 'complete' : 'incomplete');
+}
+// #4678: citations may carry a trailing line suffix (":42", ":1-20") that
+// describes a location inside the file, not part of the path itself.
+function stripLineSuffix(ref) {
+    return ref.replace(/:\d+(?:-\d+)?$/, '');
 }
 function cmdVerifyReferences(cwd, filePath, raw) {
     if (!filePath) {
         error('file path required');
     }
     const fullPath = node_path_1.default.isAbsolute(filePath) ? filePath : node_path_1.default.join(cwd, filePath);
-    const content = (0, shell_command_projection_cjs_1.platformReadSync)(fullPath);
-    if (!content) {
-        output({ error: 'File not found', path: filePath }, raw);
+    const read = readVerbFile(fullPath);
+    if (read.kind !== 'found') {
+        emitVerbVerdict(unreadableFileVerdict(read, filePath), 'status', raw);
         return;
     }
+    const content = read.value;
     const found = [];
     const missing = [];
+    // A reference whose path could not be examined (EACCES on a parent ...) is neither found nor missing.
+    const unexaminable = [];
+    const probeRef = (cleanRef, resolved) => {
+        const probe = (0, gate_evidence_cjs_1.statEvidence)(resolved);
+        if (probe.kind === 'found')
+            found.push(cleanRef);
+        else if (probe.kind === 'none')
+            missing.push(cleanRef);
+        else
+            unexaminable.push({ ref: cleanRef, reason: probe.reason });
+    };
     const atRefs = content.match(/@([^\s\n,)]+\/[^\s\n,)]+)/g) || [];
     for (const ref of atRefs) {
         const cleanRef = ref.slice(1);
-        const resolved = cleanRef.startsWith('~/')
-            ? node_path_1.default.join(process.env['HOME'] || '', cleanRef.slice(2))
-            : node_path_1.default.join(cwd, cleanRef);
-        if (node_fs_1.default.existsSync(resolved)) {
-            found.push(cleanRef);
-        }
-        else {
-            missing.push(cleanRef);
-        }
+        const fsRef = stripLineSuffix(cleanRef);
+        const resolved = fsRef.startsWith('~/')
+            ? node_path_1.default.join(process.env['HOME'] || '', fsRef.slice(2))
+            : node_path_1.default.join(cwd, fsRef);
+        probeRef(cleanRef, resolved);
     }
-    const backtickRefs = content.match(/`([^`]+\/[^`]+\.[a-zA-Z]{1,10})`/g) || [];
+    const backtickRefs = content.match(/`([^`]+\/[^`]+\.[a-zA-Z]{1,10}(?::\d+(?:-\d+)?)?)`/g) || [];
     for (const ref of backtickRefs) {
         const cleanRef = ref.slice(1, -1);
         if (cleanRef.startsWith('http') || cleanRef.includes('${') || cleanRef.includes('{{'))
             continue;
-        if (found.includes(cleanRef) || missing.includes(cleanRef))
+        if (found.includes(cleanRef) || missing.includes(cleanRef) || unexaminable.some((u) => u.ref === cleanRef))
             continue;
-        const resolved = node_path_1.default.join(cwd, cleanRef);
-        if (node_fs_1.default.existsSync(resolved)) {
-            found.push(cleanRef);
-        }
-        else {
-            missing.push(cleanRef);
-        }
+        probeRef(cleanRef, node_path_1.default.join(cwd, stripLineSuffix(cleanRef)));
     }
-    output({
+    // Unexaminable references only matter when they could flip the verdict: with a reference already
+    // missing the verdict is negative whatever they are; with none missing, "valid" cannot be claimed.
+    if (missing.length === 0 && unexaminable.length > 0) {
+        emitVerbVerdict((0, gate_verdict_cjs_1.gateUnreadable)(false, { error: 'Could not examine references', path: filePath, unreadable: unexaminable }), 'status', raw);
+        return;
+    }
+    emitVerbVerdict(validityVerdict(missing.length === 0, {
         valid: missing.length === 0,
         found: found.length,
         missing,
         total: found.length + missing.length,
-    }, raw, missing.length === 0 ? 'valid' : 'invalid');
+    }), 'status', raw, missing.length === 0 ? 'valid' : 'invalid');
 }
 function cmdVerifyCommits(cwd, hashes, raw) {
     if (!hashes || hashes.length === 0) {
         error('At least one commit hash required');
+    }
+    // A directory that is not a git work tree cannot answer "is this a commit": could not look, not "invalid".
+    const inWorkTree = (0, shell_command_projection_cjs_1.execGit)(['rev-parse', '--is-inside-work-tree'], { cwd });
+    if (inWorkTree.exitCode !== 0) {
+        emitVerbVerdict((0, gate_verdict_cjs_1.gateUnreadable)(false, { error: 'Not a git repository' }), 'status', raw);
+        return;
     }
     const valid = [];
     const invalid = [];
@@ -1219,26 +1452,30 @@ function cmdVerifyCommits(cwd, hashes, raw) {
             invalid.push(hash);
         }
     }
-    output({
+    emitVerbVerdict(validityVerdict(invalid.length === 0, {
         all_valid: invalid.length === 0,
         valid,
         invalid,
         total: hashes.length,
-    }, raw, invalid.length === 0 ? 'valid' : 'invalid');
+    }), 'status', raw, invalid.length === 0 ? 'valid' : 'invalid');
 }
 function cmdVerifyArtifacts(cwd, planFilePath, raw) {
     if (!planFilePath) {
         error('plan file path required');
     }
     const fullPath = node_path_1.default.isAbsolute(planFilePath) ? planFilePath : node_path_1.default.join(cwd, planFilePath);
-    const content = (0, shell_command_projection_cjs_1.platformReadSync)(fullPath);
-    if (!content) {
-        output({ error: 'File not found', path: planFilePath }, raw);
+    // #5170: no plan to read is "could not look" (UNAVAILABLE), never a pass. A plan that exists but is
+    // empty WAS read: it has no artifacts block, which is a genuinely empty scope (below).
+    const read = readVerbFile(fullPath);
+    if (read.kind !== 'found') {
+        emitVerbVerdict(unreadableFileVerdict(read, planFilePath), 'status', raw);
         return;
     }
+    const content = read.value;
     const artifacts = parseMustHavesBlock(content, 'artifacts');
     if (artifacts.length === 0) {
-        output({ error: 'No must_haves.artifacts found in frontmatter', path: planFilePath }, raw);
+        // The plan was read and declares nothing to verify: NO_INPUT (ran, zero units in scope, genuinely).
+        emitVerbVerdict((0, gate_verdict_cjs_1.gateVerdict)('empty', false, { error: 'No must_haves.artifacts found in frontmatter', path: planFilePath }), 'status', raw);
         return;
     }
     const results = [];
@@ -1249,27 +1486,66 @@ function cmdVerifyArtifacts(cwd, planFilePath, raw) {
         if (!artPath)
             continue;
         const artFullPath = node_path_1.default.join(cwd, artPath);
-        const exists = node_fs_1.default.existsSync(artFullPath);
+        // Typed evidence, not `fs.existsSync`: a path that cannot be examined (EACCES on a parent) is an
+        // unreadable entry, not a missing one.
+        const artStat = (0, gate_evidence_cjs_1.statEvidence)(artFullPath);
+        const exists = artStat.kind === 'found';
         const check = { path: artPath, exists, issues: [], passed: false };
+        // #4685: one artifact's I/O problem is that artifact's failure, never the
+        // whole plan's. `safeReadFile` rethrows every errno except ENOENT, so before
+        // this an unreadable entry — a directory most commonly, but equally an EACCES
+        // file or a dangling mount — threw out of the loop and the command reported
+        // NOTHING: not the offending entry, and not the plan's other, perfectly good
+        // artifacts either. A check that disappears is worse than a check that fails,
+        // because a failure is visible.
+        //
+        // #5170: the stat and the read are typed evidence (`statEvidence` / `readVerbFile`), so no `try`
+        // is needed: an artifact that could not be examined or read is that artifact's failure, recorded
+        // with its errno (an operator seeing EACCES acts differently from one seeing EIO) and left
+        // `passed: false` — never a pass, so the verdict is negative (exit 1).
         if (exists) {
-            const fileContent = (0, shell_command_projection_cjs_1.platformReadSync)(artFullPath) || '';
-            const lineCount = fileContent.split('\n').length;
-            if (artifact['min_lines'] && lineCount < artifact['min_lines']) {
-                check['issues'].push(`Only ${lineCount} lines, need ${artifact['min_lines']}`);
+            // A directory is reported as its own kind of failure, distinct from
+            // `File not found`: the path resolved, it simply is not the thing an
+            // artifact entry can be checked against. Verifying a directory (matching
+            // `contains:`/`min_lines:`/`exports:` across the files inside it) is a
+            // feature decision, deliberately not made here.
+            if (artStat.kind === 'found' && artStat.value.isDirectory()) {
+                check['issues'].push('Not a file: path is a directory');
             }
-            if (artifact['contains'] && !fileContent.includes(artifact['contains'])) {
-                check['issues'].push(`Missing pattern: ${artifact['contains']}`);
-            }
-            if (artifact['exports']) {
-                const exports = Array.isArray(artifact['exports'])
-                    ? artifact['exports']
-                    : [artifact['exports']];
-                for (const exp of exports) {
-                    if (!fileContent.includes(exp))
-                        check['issues'].push(`Missing export: ${exp}`);
+            else {
+                // `safeReadFile` returns null on ENOENT, and `|| ''` would turn that
+                // into an empty file — which an entry carrying only `path`/`provides`
+                // would then PASS, having checked nothing. `statSync` just succeeded, so
+                // `none` here means the artifact went away mid-check. Report that rather
+                // than inheriting a pass from it.
+                const artRead = readVerbFile(artFullPath);
+                if (artRead.kind !== 'found') {
+                    check['issues'].push(artRead.kind === 'none' ? 'Unreadable: disappeared during check' : `Unreadable: ${artRead.reason}`);
+                    results.push(check);
+                    continue;
                 }
+                const fileContent = artRead.value;
+                const lineCount = fileContent.split('\n').length;
+                if (artifact['min_lines'] && lineCount < artifact['min_lines']) {
+                    check['issues'].push(`Only ${lineCount} lines, need ${artifact['min_lines']}`);
+                }
+                if (artifact['contains'] && !fileContent.includes(artifact['contains'])) {
+                    check['issues'].push(`Missing pattern: ${artifact['contains']}`);
+                }
+                if (artifact['exports']) {
+                    const exports = Array.isArray(artifact['exports'])
+                        ? artifact['exports']
+                        : [artifact['exports']];
+                    for (const exp of exports) {
+                        if (!fileContent.includes(exp))
+                            check['issues'].push(`Missing export: ${exp}`);
+                    }
+                }
+                check['passed'] = check['issues'].length === 0;
             }
-            check['passed'] = check['issues'].length === 0;
+        }
+        else if (artStat.kind === 'unreadable') {
+            check['issues'].push(`Unreadable: ${artStat.reason}`);
         }
         else {
             check['issues'].push('File not found');
@@ -1284,12 +1560,13 @@ function cmdVerifyArtifacts(cwd, planFilePath, raw) {
     // no-vacuous-pass rule at src/uat-predicate.cts. The fully-empty block is still
     // caught earlier by the `artifacts.length === 0` guard and returns its error.
     const allPassed = results.length > 0 && passed === results.length;
-    output({
+    // #5170: the exit status follows the verdict — a negative verdict is exit 1 (JSON unchanged).
+    emitVerbVerdict(validityVerdict(allPassed, {
         all_passed: allPassed,
         passed,
         total: results.length,
         artifacts: results,
-    }, raw, allPassed ? 'valid' : 'invalid');
+    }), 'status', raw, allPassed ? 'valid' : 'invalid');
 }
 /**
  * Returns a Set of file paths (relative to cwd) that are promised by plans in
@@ -1300,12 +1577,23 @@ function cmdVerifyArtifacts(cwd, planFilePath, raw) {
  */
 function collectPromisedFilesAtOrAfterWave(phaseDir, minWave) {
     const promised = new Set();
-    const { planFiles } = planScanMod.scanPhasePlans(phaseDir);
-    for (const planFile of planFiles) {
+    // #5170: a plan set the scan did not fully see (an existing nested plans/ that could not be read), or
+    // a plan that cannot be read, is "could not look" — it may be the plan that promises the file — and
+    // is reported to the caller, never treated as "no plan promises it".
+    let unreadable = null;
+    const planSet = (0, gate_evidence_cjs_1.readPlanSetEvidence)(phaseDir);
+    if (planSet.kind === 'unreadable')
+        return { files: promised, unreadable: planSet.reason };
+    for (const planFile of planSet.value) {
         const planFullPath = node_path_1.default.join(phaseDir, planFile);
-        const planContent = (0, shell_command_projection_cjs_1.platformReadSync)(planFullPath);
-        if (!planContent)
+        const planRead = readVerbFile(planFullPath);
+        if (planRead.kind === 'unreadable') {
+            unreadable = unreadable ?? planRead.reason;
             continue;
+        }
+        if (planRead.kind === 'none' || !planRead.value)
+            continue;
+        const planContent = planRead.value;
         const fm = extractFrontmatter(planContent, planFullPath);
         const waveRaw = fm['wave'];
         const wave = typeof waveRaw === 'string' ? parseInt(waveRaw, 10) : (typeof waveRaw === 'number' ? waveRaw : NaN);
@@ -1322,21 +1610,23 @@ function collectPromisedFilesAtOrAfterWave(phaseDir, minWave) {
                 promised.add(f.trim());
         }
     }
-    return promised;
+    return { files: promised, unreadable };
 }
 function cmdVerifyKeyLinks(cwd, planFilePath, raw) {
     if (!planFilePath) {
         error('plan file path required');
     }
     const fullPath = node_path_1.default.isAbsolute(planFilePath) ? planFilePath : node_path_1.default.join(cwd, planFilePath);
-    const content = (0, shell_command_projection_cjs_1.platformReadSync)(fullPath);
-    if (!content) {
-        output({ error: 'File not found', path: planFilePath }, raw);
+    const read = readVerbFile(fullPath);
+    if (read.kind !== 'found') {
+        emitVerbVerdict(unreadableFileVerdict(read, planFilePath), 'status', raw);
         return;
     }
+    const content = read.value;
     const keyLinks = parseMustHavesBlock(content, 'key_links');
     if (keyLinks.length === 0) {
-        output({ error: 'No must_haves.key_links found in frontmatter', path: planFilePath }, raw);
+        // The plan was read and declares no key links: NO_INPUT, the same genuinely-empty scope as `verify artifacts`.
+        emitVerbVerdict((0, gate_verdict_cjs_1.gateVerdict)('empty', false, { error: 'No must_haves.key_links found in frontmatter', path: planFilePath }), 'status', raw);
         return;
     }
     // Derive the current plan's wave number and phase directory for wave-aware
@@ -1378,38 +1668,40 @@ function cmdVerifyKeyLinks(cwd, planFilePath, raw) {
             // project. Leave sourceContent as null so the existing not-found /
             // pending classification below runs unchanged. Note this guard is
             // narrower than it may look: `from: "."` is a non-empty string, so it
-            // still reaches validatePath and safeReadFile below, and DOES read the
+            // still reaches tryWithinRoot and safeReadFile below, and DOES read the
             // cwd directory (yielding "Source read failed: EISDIR") — this branch
             // only short-circuits the true empty-string case.
-            const fromCheck = (0, security_cjs_1.validatePath)(fromPath, cwd);
-            if (!fromCheck.safe) {
+            const fromContained = (0, security_cjs_2.tryWithinRoot)(fromPath, cwd);
+            if (fromContained === null) {
                 // Do not echo result.error — it embeds absolute host paths.
                 check['path_rejected'] = 'from';
                 check['detail'] = 'Source path rejected — resolves outside the project directory';
                 results.push(check);
                 continue;
             }
-            try {
-                sourceContent = (0, shell_command_projection_cjs_1.platformReadSync)(fromCheck.resolved);
-            }
-            catch (err) {
-                // Report the errno only — never the message or path (untrusted `from:`
-                // can trigger EISDIR/EACCES, which platformReadSync re-throws for any
-                // non-ENOENT errno). A single bad link must not abort the whole command.
-                const code = err?.code ?? 'unknown';
-                check['detail'] = `Source read failed: ${code}`;
+            // Report the errno only — never the message or path (untrusted `from:` can trigger
+            // EISDIR/EACCES). A single bad link must not abort the whole command.
+            const sourceRead = readVerbFile(fromContained);
+            if (sourceRead.kind === 'unreadable') {
+                check['detail'] = `Source read failed: ${sourceRead.reason}`;
                 results.push(check);
                 continue;
             }
+            sourceContent = sourceRead.kind === 'found' ? sourceRead.value : null;
         }
         if (!sourceContent) {
             // Check if the missing file is promised by a plan at the same or later wave.
             const promised = getPromisedFiles();
-            const isPromised = fromPath.trim() !== '' && promised.has(fromPath.trim());
+            const isPromised = fromPath.trim() !== '' && promised.files.has(fromPath.trim());
             if (isPromised) {
                 check['pending'] = true;
                 check['detail'] = 'Source file not yet created — declared in files_modified of a same-or-later-wave plan';
                 pendingCount++;
+            }
+            else if (promised.unreadable !== null) {
+                // The plans that could declare this file could not all be read: it is not known to be missing,
+                // and the link is not verified — a failed link, never a pending or passing one.
+                check['detail'] = `Source file not found, and the plans that could declare it could not be read: ${promised.unreadable}`;
             }
             else {
                 check['detail'] = 'Source file not found (from: must be a relative file path; describe components/endpoints in via:)';
@@ -1445,46 +1737,47 @@ function cmdVerifyKeyLinks(cwd, planFilePath, raw) {
                 check['detail'] = `Pattern not verified (${reason})`;
             }
             else {
-                try {
-                    if (pat.test(sourceContent)) {
-                        check['verified'] = true;
-                        check['detail'] = 'Pattern found in source';
-                    }
-                    else {
-                        const toRaw = link['to'];
-                        const toPath = typeof toRaw === 'string' ? toRaw : '';
-                        let targetContent = null;
-                        if (toPath !== '') {
-                            // An empty/missing `to:` is a malformed plan, not a
-                            // path-confinement violation — only a non-empty path that
-                            // actually resolves outside the project is path_rejected.
-                            const toCheck = (0, security_cjs_1.validatePath)(toPath, cwd);
-                            if (!toCheck.safe) {
-                                // Do not read a rejected `to:` — treat as no target content
-                                // and do not echo result.error, which embeds absolute host
-                                // paths.
-                                check['path_rejected'] = 'to';
-                                check['detail'] = `Pattern "${link['pattern']}" not found in source; target path rejected — resolves outside the project directory`;
-                            }
-                            else {
-                                targetContent = (0, shell_command_projection_cjs_1.platformReadSync)(toCheck.resolved);
-                            }
-                        }
-                        if (targetContent && pat.test(targetContent)) {
-                            check['verified'] = true;
-                            check['detail'] = 'Pattern found in target';
-                        }
-                        else if (!check['path_rejected']) {
-                            check['detail'] = `Pattern "${link['pattern']}" not found in source or target`;
-                        }
-                    }
+                if (pat.test(sourceContent)) {
+                    check['verified'] = true;
+                    check['detail'] = 'Pattern found in source';
                 }
-                catch (err) {
-                    // Report the errno only — never the full error/message, which for a
-                    // re-thrown non-ENOENT platformReadSync failure (e.g. EISDIR from an
-                    // untrusted `to:` like "../..") embeds an absolute filesystem path.
-                    const code = err?.code ?? 'unknown';
-                    check['detail'] = `Pattern check failed: ${code}`;
+                else {
+                    const toRaw = link['to'];
+                    const toPath = typeof toRaw === 'string' ? toRaw : '';
+                    let targetContent = null;
+                    let targetUnreadable = null;
+                    if (toPath !== '') {
+                        // An empty/missing `to:` is a malformed plan, not a
+                        // path-confinement violation — only a non-empty path that
+                        // actually resolves outside the project is path_rejected.
+                        const toContained = (0, security_cjs_2.tryWithinRoot)(toPath, cwd);
+                        if (toContained === null) {
+                            // Do not read a rejected `to:` — treat as no target content
+                            // and do not echo result.error, which embeds absolute host
+                            // paths.
+                            check['path_rejected'] = 'to';
+                            check['detail'] = `Pattern "${link['pattern']}" not found in source; target path rejected — resolves outside the project directory`;
+                        }
+                        else {
+                            // Report the errno only — never the message, which for an untrusted `to:` like "../.."
+                            // (EISDIR) would embed an absolute filesystem path.
+                            const targetRead = readVerbFile(toContained);
+                            if (targetRead.kind === 'unreadable')
+                                targetUnreadable = targetRead.reason;
+                            else if (targetRead.kind === 'found')
+                                targetContent = targetRead.value;
+                        }
+                    }
+                    if (targetUnreadable !== null) {
+                        check['detail'] = `Pattern check failed: ${targetUnreadable}`;
+                    }
+                    else if (targetContent && pat.test(targetContent)) {
+                        check['verified'] = true;
+                        check['detail'] = 'Pattern found in target';
+                    }
+                    else if (!check['path_rejected']) {
+                        check['detail'] = `Pattern "${link['pattern']}" not found in source or target`;
+                    }
                 }
             }
         }
@@ -1514,13 +1807,13 @@ function cmdVerifyKeyLinks(cwd, planFilePath, raw) {
     // block still satisfies results.length > 0 and its #1202 non-hard-failing
     // semantics are unchanged — the floor only rejects the zero-result case.
     const allVerified = results.length > 0 && hardFailed === 0;
-    output({
+    emitVerbVerdict(validityVerdict(allVerified, {
         all_verified: allVerified,
         verified,
         pending: pendingCount,
         total: results.length,
         links: results,
-    }, raw, allVerified ? 'valid' : 'invalid');
+    }), 'status', raw, allVerified ? 'valid' : 'invalid');
 }
 /**
  * Wrapper-level fix-text table for `cmdValidateHealth`'s migrated
@@ -1559,6 +1852,8 @@ function repairFixText(slash, action) {
             return `Run ${slash('health')} --repair to add key`;
         case REMEDY_ACTION.BACKFILL_MILESTONES:
             return `Run ${slash('health')} --backfill to synthesize missing entries from archive snapshots`;
+        case REMEDY_ACTION.REPAIR_VERIFICATION_STATUS:
+            return `Run ${slash('health')} --repair to rewrite the legacy status (original kept as legacy_status)`;
         default:
             return '';
     }
@@ -1684,6 +1979,9 @@ function cmdValidateHealth(cwd, options, raw) {
     // Diagnostic -> IssueEntry mapping contract this reproduces.
     const snapshot = buildPlanningSnapshot(cwd);
     const diagnostics = evaluateRules(snapshot);
+    // #5118: an out-of-set verification report status is carried by the
+    // snapshot (`verificationStatusError`) and reported as the W030 finding — a
+    // diagnostics surface survives the defect it diagnoses, so this run exits 0.
     const errors = [];
     const warnings = [];
     const info = [];
@@ -1807,332 +2105,108 @@ function cmdValidateAgents(cwd, raw) {
         sandbox_posture: sandboxPosture,
     }, raw);
 }
-// ─── Context drift (#3348) ───────────────────────────────────────────────────
 /**
- * Resolve a phase directory under `phasesDir` from a user-supplied `phaseArg`,
- * via the canonical phase-directory matcher (phase-id.cjs::matchPhaseDirs) rather
- * than a naive substring test — a bare `.includes(phaseArg)` lets a non-existent
- * phase silently match a different phase whose directory name merely contains the
- * requested token (e.g. "1" matching "11-expansion"). Falls back to an exact
- * directory-name match. Returns null if neither resolves. (#1571, #2528)
+ * Stamp `last_mapped_commit` (plus `last_mapped_at`) into the frontmatter of
+ * every codebase-map document that exists on disk, using the current HEAD sha.
+ *
+ * #3418: `drift.cjs` shipped a correct `writeMappedCommit` with no production
+ * caller, so no full `/gsd-map-codebase` run ever wrote the machine-readable
+ * baseline that the codebase-drift gate (`gate-codebase-drift.cts`) reads. The stamp lives in CODE rather
+ * than in a prose instruction to the mapper agent on purpose: an agent that
+ * decides its work is already done skips a prose step silently, which is the
+ * exact class of failure the stamp exists to detect.
+ *
+ * Only documents that already exist are stamped -- a `--fast` map produces four
+ * of the seven, and this must not conjure the missing three as frontmatter-only
+ * stubs that would then satisfy the seven-file completeness probe. `only`
+ * (`--files a.md,b.md`) narrows further, for a caller that refreshed a subset.
+ *
+ * Non-blocking by contract, like every other drift surface: any failure emits
+ * `skipped` with a reason and exits 0.
  */
-function resolvePhaseDirByToken(phasesDir, phaseArg) {
-    const normalizedPhase = normalizePhaseName(phaseArg);
-    const dirEntries = node_fs_1.default.readdirSync(phasesDir, { withFileTypes: true });
-    const dirNames = dirEntries.filter((e) => e.isDirectory()).map((e) => e.name);
-    const matched = matchPhaseDirs(dirNames, normalizedPhase).matches[0];
-    if (matched)
-        return node_path_1.default.join(phasesDir, matched);
-    const check = (0, security_cjs_1.validatePath)(phaseArg, phasesDir);
-    if (check.safe && node_fs_1.default.existsSync(check.resolved))
-        return check.resolved;
-    return null;
-}
-/**
- * Pure comparator: which of `entries` have an effective last-changed time
- * STRICTLY BEFORE `contextEffectiveMs` (CONTEXT.md's own effective time)? Strict
- * `<` is "stale" (matches findStaleVerificationSummary's own strict `>` convention
- * for "newer than" elsewhere in this codebase — an artifact committed in the SAME
- * commit/second as CONTEXT.md is in sync, not stale).
- */
-function computeContextDrift(contextEffectiveMs, entries) {
-    return entries.filter((e) => e.effectiveMs < contextEffectiveMs).map((e) => e.file);
-}
-function buildContextDriftMessage(staleArtifacts, phaseArg) {
-    const parts = [`CONTEXT.md decisions are newer than: ${staleArtifacts.join(', ')}.`];
-    if (staleArtifacts.some((f) => f.endsWith('-RESEARCH.md'))) {
-        parts.push(`Regenerate research: /gsd-plan-phase ${phaseArg} --research.`);
-    }
-    if (staleArtifacts.some((f) => f.endsWith('-PATTERNS.md'))) {
-        parts.push('Regenerate patterns: delete the PATTERNS.md file, then re-run /gsd-plan-phase.');
-    }
-    if (staleArtifacts.some((f) => f.endsWith('-VALIDATION.md') || (f.endsWith('-SPEC.md') && !f.endsWith('-AI-SPEC.md') && !f.endsWith('-UI-SPEC.md')))) {
-        parts.push('Regenerate or manually reconcile VALIDATION.md / SPEC.md against the current decisions.');
-    }
-    parts.push('Do not hand-inject the newer decisions into a prompt as a substitute for regenerating — that carries the staleness forward.');
-    return parts.join(' ');
-}
-function cmdVerifyContextDrift(cwd, phaseArg, raw) {
-    if (!phaseArg) {
-        error('Usage: verify context-drift <phase>');
-        return;
-    }
-    const pDir = planningDir(cwd);
-    const phasesDir = node_path_1.default.join(pDir, 'phases');
-    const emitSkip = (reason, message = '') => {
-        output({ block: false, skipped: true, reason, stale_artifacts: [], message }, raw);
-    };
-    if (!node_fs_1.default.existsSync(phasesDir)) {
-        emitSkip('phase-not-found', `Phase directory not found: ${phaseArg}`);
-        return;
-    }
-    // Same phase-directory resolution rule cmdVerifySchemaDrift uses (#1571, #2528):
-    // matchPhaseDirs, never a naive substring test.
-    const phaseDir = resolvePhaseDirByToken(phasesDir, phaseArg);
-    if (!phaseDir) {
-        emitSkip('phase-not-found', `Phase directory not found: ${phaseArg}`);
-        return;
-    }
-    let phaseFiles;
-    try {
-        phaseFiles = node_fs_1.default.readdirSync(phaseDir).slice().sort();
-    }
-    catch {
-        emitSkip('phase-not-found', `Phase directory not found: ${phaseArg}`);
-        return;
-    }
-    const contextFile = phaseFiles.find((f) => f.endsWith('-CONTEXT.md'));
-    if (!contextFile) {
-        emitSkip('no-context-md');
-        return;
-    }
-    const researchFile = phaseFiles.find((f) => f.endsWith('-RESEARCH.md'));
-    const patternsFile = phaseFiles.find((f) => f.endsWith('-PATTERNS.md'));
-    const validationFile = phaseFiles.find((f) => f.endsWith('-VALIDATION.md'));
-    const specFile = phaseFiles.find((f) => f.endsWith('-SPEC.md') && !f.endsWith('-AI-SPEC.md') && !f.endsWith('-UI-SPEC.md'));
-    const upstreamFiles = [researchFile, patternsFile, validationFile, specFile].filter((f) => !!f);
-    if (upstreamFiles.length === 0) {
-        emitSkip('no-upstream-artifacts');
-        return;
-    }
-    const allFiles = [contextFile, ...upstreamFiles];
-    const cleanCommitMs = defaultPhaseCleanCommitTimesMs(phaseDir, allFiles);
-    const effectiveTimeMs = (file) => cleanCommitMs.has(file)
-        ? cleanCommitMs.get(file)
-        : node_fs_1.default.statSync(node_path_1.default.join(phaseDir, file)).mtimeMs;
-    const contextMs = effectiveTimeMs(contextFile);
-    const driftEntries = upstreamFiles.map((f) => ({ file: f, effectiveMs: effectiveTimeMs(f) }));
-    const staleArtifacts = computeContextDrift(contextMs, driftEntries);
-    let wf;
-    try {
-        const rawCfg = JSON.parse(node_fs_1.default.readFileSync(node_path_1.default.join(pDir, 'config.json'), 'utf-8'));
-        wf = rawCfg['workflow'];
-    }
-    catch {
-        wf = undefined;
-    }
-    const action = wf?.context_drift_action === 'block' ? 'block' : 'warn';
-    const block = staleArtifacts.length > 0 && action === 'block';
-    const message = staleArtifacts.length > 0 ? buildContextDriftMessage(staleArtifacts, phaseArg) : '';
-    output({
-        block,
-        skipped: false,
-        stale_artifacts: staleArtifacts,
-        action,
-        message,
-    }, raw);
-}
-function cmdVerifySchemaDrift(cwd, phaseArg, skipFlag, raw) {
-    if (!phaseArg) {
-        error('Usage: verify schema-drift <phase> [--skip]');
-        return;
-    }
-    const pDir = planningDir(cwd);
-    const phasesDir = node_path_1.default.join(pDir, 'phases');
-    if (!node_fs_1.default.existsSync(phasesDir)) {
-        output({ block: false, drift_detected: false, blocking: false, message: 'No phases directory' }, raw);
-        return;
-    }
-    // Resolve the phase directory with the canonical phase-directory matcher
-    // (phase-id.cjs::matchPhaseDirs), not a naive substring test. A bare
-    // `.includes(phaseArg)` lets a non-existent phase silently match a different
-    // phase whose directory name merely contains the requested token (e.g. "1"
-    // matching "11-expansion"), making the drift gate inspect the wrong phase.
-    // This shares the one selection rule with find-phase / verify
-    // phase-completeness rather than restating it. (#1571, #2528)
-    const phaseDir = resolvePhaseDirByToken(phasesDir, phaseArg);
-    if (!phaseDir) {
-        output({ block: false, drift_detected: false, blocking: false, message: `Phase directory not found: ${phaseArg}` }, raw);
-        return;
-    }
-    // #3183: canonical LIVE plan/summary sets (root+nested,
-    // status: superseded EXCLUDED) from the single owner, rather than a
-    // root-only readdirSync filter — a superseded plan's claimed
-    // files_modified is no longer treated as an expected drift target, and
-    // nested (#3139 layout) plans/summaries are no longer invisible to the
-    // drift check.
-    const { planFiles, summaryFiles } = planScanMod.scanPhasePlans(phaseDir);
-    const allFiles = [];
-    for (const pf of planFiles) {
-        const content = node_fs_1.default.readFileSync(node_path_1.default.join(phaseDir, pf), 'utf-8');
-        const fmMatch = content.match(/files_modified:\s*\[([^\]]{0,8000})\]/);
-        if (fmMatch) {
-            const files = fmMatch[1].split(',').map((f) => f.trim()).filter(Boolean);
-            allFiles.push(...files);
-        }
-    }
-    let executionLog = '';
-    for (const sf of summaryFiles) {
-        executionLog += node_fs_1.default.readFileSync(node_path_1.default.join(phaseDir, sf), 'utf-8') + '\n';
-    }
-    const gitLog = (0, shell_command_projection_cjs_1.execGit)(['log', '--oneline', '--all', '-50'], { cwd });
-    if (gitLog.exitCode === 0) {
-        executionLog += '\n' + gitLog.stdout;
-    }
-    const result = (0, schema_detect_cjs_1.checkSchemaDrift)(allFiles, executionLog, { skipCheck: !!skipFlag });
-    const isSkipped = !!result['skipped'];
-    output({
-        // Uniform gate contract: `block` = true means "this gate's bad condition is met".
-        // When skipCheck is true (GSD_SKIP_SCHEMA_CHECK=true), the gate is bypassed —
-        // block must be false regardless of whether drift was detected.
-        // drift_detected and blocking are kept for compatibility.
-        block: isSkipped ? false : !!result['driftDetected'],
-        drift_detected: result['driftDetected'],
-        blocking: result['blocking'],
-        schema_files: result['schemaFiles'],
-        orms: result['orms'],
-        unpushed_orms: result['unpushedOrms'],
-        message: result['message'],
-        skipped: isSkipped,
-    }, raw);
-}
-function cmdVerifyCodebaseDrift(cwd, raw) {
+function cmdStampCodebaseMap(cwd, raw, only) {
     // Non-hoisted: load-order matters for circular dep guard
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- drift.cjs is an export= CommonJS module
     const drift = require('./drift.cjs');
     const emit = (payload) => output(payload, raw);
+    const skip = (reason) => ({
+        stamped: [],
+        commit: null,
+        stamped_at: null,
+        skipped: true,
+        reason,
+    });
     try {
+        // Probed outside the lock on purpose: taking the lock creates `.planning/`
+        // if absent, and a stamp against a project that has no codebase map at all
+        // must not conjure the directory. The per-document existence check inside
+        // the lock is the one that matters -- a map deleted after this probe lands
+        // on `no-codebase-map` there rather than being recreated as stubs.
         const codebaseDir = node_path_1.default.join(planningDir(cwd), 'codebase');
-        const structurePath = node_path_1.default.join(codebaseDir, 'STRUCTURE.md');
-        if (!node_fs_1.default.existsSync(structurePath)) {
-            emit({
-                // Uniform gate contract: block = action_required (false when skipped).
-                block: false,
-                skipped: true,
-                reason: 'no-structure-md',
-                action_required: false,
-                directive: 'none',
-                elements: [],
-            });
+        if (!node_fs_1.default.existsSync(codebaseDir)) {
+            emit(skip('no-codebase-dir'));
             return;
         }
-        let structureMd;
-        try {
-            structureMd = node_fs_1.default.readFileSync(structurePath, 'utf-8');
+        // `--files` restricts the stamp to the documents a caller actually
+        // refreshed. The execute-phase auto-remap path rewrites STRUCTURE.md and
+        // ARCHITECTURE.md only; stamping the other five at HEAD there would claim a
+        // currency they do not have. Membership is checked against the closed
+        // seven-document set, so an unknown name is a fail-loud non-answer rather
+        // than a path this function tries to resolve. An empty value is refused
+        // rather than read as "no filter": a caller that meant to narrow the scope
+        // must not silently widen it to all seven.
+        let candidates = REQUIRED_CODEBASE_MAP_FILES;
+        if (only) {
+            if (only.length === 0) {
+                emit(skip('empty-codebase-map-file-filter'));
+                return;
+            }
+            const unknown = only.filter((file) => !candidates.includes(file));
+            if (unknown.length > 0) {
+                emit(skip('unknown-codebase-map-file: ' + unknown.join(',')));
+                return;
+            }
+            candidates = candidates.filter((file) => only.includes(file));
         }
-        catch (err) {
-            emit({
-                block: false,
-                skipped: true,
-                reason: 'cannot-read-structure-md: ' + (err instanceof Error ? err.message : String(err)),
-                action_required: false,
-                directive: 'none',
-                elements: [],
-            });
-            return;
-        }
-        const lastMapped = drift['readMappedCommit'](structurePath);
-        const revProbe = (0, shell_command_projection_cjs_1.execGit)(['rev-parse', 'HEAD'], { cwd });
-        if (revProbe.exitCode !== 0) {
-            emit({
-                block: false,
-                skipped: true,
-                reason: 'not-a-git-repo',
-                action_required: false,
-                directive: 'none',
-                elements: [],
-            });
-            return;
-        }
-        const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
-        let base = lastMapped;
-        if (!base) {
-            base = EMPTY_TREE;
-        }
-        else {
-            const verify = (0, shell_command_projection_cjs_1.execGit)(['cat-file', '-t', base], { cwd });
-            if (verify.exitCode !== 0)
-                base = EMPTY_TREE;
-        }
-        const diff = (0, shell_command_projection_cjs_1.execGit)(['diff', '--name-status', base, 'HEAD'], { cwd });
-        if (diff.exitCode !== 0) {
-            emit({
-                block: false,
-                skipped: true,
-                reason: 'git-diff-failed',
-                action_required: false,
-                directive: 'none',
-                elements: [],
-            });
-            return;
-        }
-        const added = [];
-        const modified = [];
-        const deleted = [];
-        for (const line of diff.stdout.split(/\r?\n/)) {
-            if (!line.trim())
-                continue;
-            const m = line.match(/^([A-Z])\d*\t(.+?)(?:\t(.+))?$/);
-            if (!m)
-                continue;
-            const status = m[1];
-            // execGit sets no core.quotepath config, so git's default `true` applies:
-            // any path containing non-ASCII bytes (or `"`, `\`, control bytes) is
-            // C-quoted — `"docs/\350\256\276…/overview.md"`. Capturing that verbatim
-            // garbles affected_paths/elements and makes isPathMapped compare the
-            // quoted prefix (`"docs`) against STRUCTURE.md, misclassifying DOCUMENTED
-            // directories as new_dir (#4081). Decode with the single owner of the
-            // git C-quote seam (worktree-safety.cjs); a non-quoted value — the plain
-            // ASCII common case — passes through untouched. Both capture groups are
-            // decoded: R/C lines carry old AND new paths, either may be quoted.
-            const file = decodeGitQuotedPath(m[3] || m[2]);
-            if (status === 'A' || status === 'R' || status === 'C')
-                added.push(file);
-            else if (status === 'M')
-                modified.push(file);
-            else if (status === 'D')
-                deleted.push(file);
-        }
-        // loadConfig() returns a flattened object — there is no nested `workflow`
-        // key. Read the raw config.json directly to access workflow-scoped keys,
-        // matching the pattern used in check-command-router.cts:readWorkflowConfig.
-        let wf;
-        try {
-            const rawCfg = JSON.parse(node_fs_1.default.readFileSync(node_path_1.default.join(planningDir(cwd), 'config.json'), 'utf-8'));
-            wf = rawCfg['workflow'];
-        }
-        catch {
-            wf = undefined;
-        }
-        const threshold = Number.isInteger(wf?.drift_threshold) && wf?.drift_threshold >= 1
-            ? wf?.drift_threshold
-            : 3;
-        const action = wf?.drift_action === 'auto-remap' ? 'auto-remap' : 'warn';
-        const driftResult = drift['detectDrift']({
-            addedFiles: added,
-            modifiedFiles: modified,
-            deletedFiles: deleted,
-            structureMd,
-            threshold,
-            action,
-            runtime: (0, runtime_slash_cjs_1.resolveRuntime)(cwd),
+        // Everything the stamp reads is read under the lock it writes under, the
+        // same lock the rest of the .planning/ writers take. Two stampers can run
+        // at once (the full map-codebase run and the execute-phase auto-remap);
+        // one that resolved HEAD or listed the present documents before waiting on
+        // the lock would write its now-stale sha over the newer one, or recreate a
+        // document deleted while it waited as a frontmatter-only stub.
+        const result = withPlanningLock(cwd, () => {
+            const revProbe = (0, shell_command_projection_cjs_1.execGit)(['rev-parse', 'HEAD'], { cwd });
+            if (revProbe.exitCode !== 0)
+                return skip('not-a-git-repo');
+            const commit = revProbe.stdout.trim();
+            if (!/^[0-9a-f]{7,40}$/.test(commit))
+                return skip('unreadable-head');
+            const present = candidates.filter((file) => node_fs_1.default.existsSync(node_path_1.default.join(codebaseDir, file)));
+            if (present.length === 0)
+                return skip('no-codebase-map');
+            // Host-local calendar day, matching the `**Analysis Date:**` line the
+            // mapper agent writes -- the two freshness markers must not disagree by
+            // a timezone.
+            const stampedAt = clock_cjs_1.realClock.localToday();
+            const write = drift['writeMappedCommit'];
+            const stamped = [];
+            const failed = [];
+            for (const file of present) {
+                try {
+                    write(node_path_1.default.join(codebaseDir, file), commit, stampedAt);
+                    stamped.push(file);
+                }
+                catch (err) {
+                    // One unwritable document must not cost the stamp on the other six.
+                    failed.push({ file, reason: err instanceof Error ? err.message : String(err) });
+                }
+            }
+            return { stamped, failed, commit, stamped_at: stampedAt, skipped: false, reason: null };
         });
-        const actionRequired = !!driftResult['actionRequired'];
-        emit({
-            // Uniform gate contract: block = action_required.
-            block: actionRequired,
-            skipped: !!driftResult['skipped'],
-            reason: driftResult['reason'] || null,
-            action_required: actionRequired,
-            directive: driftResult['directive'],
-            spawn_mapper: !!driftResult['spawnMapper'],
-            affected_paths: driftResult['affectedPaths'] || [],
-            elements: driftResult['elements'] || [],
-            threshold,
-            action,
-            last_mapped_commit: lastMapped,
-            message: driftResult['message'] || '',
-        });
+        emit(result);
     }
     catch (err) {
-        emit({
-            block: false,
-            skipped: true,
-            reason: 'exception: ' + (err && err instanceof Error ? err.message : String(err)),
-            action_required: false,
-            directive: 'none',
-            elements: [],
-        });
+        emit(skip('exception: ' + (err instanceof Error ? err.message : String(err))));
     }
 }
 module.exports = {
@@ -2150,9 +2224,6 @@ module.exports = {
     cmdValidateConsistency,
     cmdValidateHealth,
     cmdValidateAgents,
-    cmdVerifySchemaDrift,
-    cmdVerifyCodebaseDrift,
-    computeContextDrift,
-    cmdVerifyContextDrift,
+    cmdStampCodebaseMap,
     STATE_HEAD_ADVISORY_COMMITS,
 };

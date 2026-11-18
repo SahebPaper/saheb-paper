@@ -21,3 +21,7 @@
 - Only bump version in `public/version.json` and `src/components/AppUpdateModal.tsx` when an explicit user-facing update release is requested.
 - Keep `apkUrl` in `public/version.json` pointing to `https://sahebpaper.github.io/saheb-paper/#/` (internal app path) to prevent older clients from launching external browser intents.
 
+### 4. GSD Development Framework (@opengsd/gsd-core)
+- Always use the GSD (Git. Ship. Done.) framework (`@opengsd/gsd-core`) for developing and evolving the app.
+- Follow disciplined spec-driven workflows (planning, task execution, verification loops, and atomic milestone commits) to ensure stable and consistent engineering.
+

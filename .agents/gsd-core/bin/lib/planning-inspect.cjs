@@ -51,7 +51,7 @@ const planningSnapshotMod = require("./planning-snapshot.cjs");
 const { buildPlanningSnapshot, worstScope } = planningSnapshotMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planningWorkspaceMod = require("./planning-workspace.cjs");
-const { planningPaths } = planningWorkspaceMod;
+const { planningPaths, resolvePhaseIdConvention } = planningWorkspaceMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planScan = require("./plan-scan.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -71,10 +71,10 @@ const planningScopeMod = require("./planning-scope.cjs");
 const { SCOPE } = planningScopeMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const verificationMod = require("./verification.cjs");
-const { readVerificationStatus } = verificationMod;
+const { readVerificationStatus, VerificationStatusError, failOnVerificationStatusError } = verificationMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const phaseIdMod = require("./phase-id.cjs");
-const { phaseKeyFromDir, phaseKeyFromToken, phaseMarkdownRegexSource } = phaseIdMod;
+const { phaseKeyFromDir, phaseKeyFromToken, phaseMarkdownRegexSource, extractPhaseDependencyTokens } = phaseIdMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const roadmapParserMod = require("./roadmap-parser.cjs");
 const { extractCurrentMilestone } = roadmapParserMod;
@@ -94,6 +94,9 @@ const { parseMarkdownTable, matchTableSchema } = markdownTable;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const coreUtilsMod = require("./core-utils.cjs");
 const { normalizeLineEndings } = coreUtilsMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const securityMod = require("./security.cjs");
+const { tryWithinRoot, PathAcceptance, isContainedIn } = securityMod;
 /**
  * The wire schema version. A consumer MUST reject any value other than this
  * one rather than best-effort-parsing an unknown shape.
@@ -184,32 +187,45 @@ function toPosix(value) {
  * directory like `.planning-evil/` that merely shares a string prefix. Pure
  * string comparison, no I/O — callers own their own `fs.realpathSync` call
  * (and its own not-found/broken-symlink handling).
+ *
+ * NOT an independent containment implementation — it is the comparison step
+ * of one, and that comparison now comes from `security.cts`'s exported
+ * `isContainedIn` rather than being redeclared here. `readDocument` below
+ * realpaths target and root itself (to keep its own exists-vs-escaped
+ * tri-state) and calls `isContainedIn` directly; `isPathContained` gets its
+ * containment DECISION from the canonical `tryWithinRoot` predicate instead
+ * (ADR-4650 decision 6) and never called this comparison directly. Every
+ * caller owns its own resolution.
  */
-function isWithinRoot(resolvedTarget, resolvedRoot) {
-    return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + node_path_1.default.sep);
-}
 /**
- * Containment check for a path (file OR directory) that resolves its own
- * `fs.realpathSync`, then delegates the actual boundary comparison to
- * `isWithinRoot`. Used where the caller does not need to distinguish "target
- * vanished / broken symlink" from "target resolved but escapes root" — both
- * degrade the same way at every call site that uses this (an escaped or
- * unresolvable phase directory is treated identically to an unreadable one).
- * `readDocument` below needs that distinction for its own exists/readable
- * tri-state, so it keeps its own inline `realpathSync` calls and calls
- * `isWithinRoot` directly instead of this wrapper.
+ * Containment check for a path (file OR directory), used where the caller
+ * does not need to distinguish "target vanished / broken symlink" from
+ * "target resolved but escapes root" — both degrade the same way at every
+ * call site that uses this (an escaped or unresolvable phase directory is
+ * treated identically to an unreadable one). `readDocument` below needs
+ * that distinction for its own exists/readable tri-state, so it keeps its
+ * own inline `realpathSync` calls and calls `isContainedIn` directly instead
+ * of this wrapper.
+ *
+ * The containment DECISION comes from the canonical `tryWithinRoot`
+ * predicate (ADR-4650 decision 6: a wrapper may decide HOW to degrade,
+ * never WHETHER a path is contained). Must-exist stays this module's OWN
+ * degradation condition, applied after: `tryWithinRoot` deliberately accepts
+ * a not-yet-created path under the root (ancestor-walk realpath), but every
+ * caller of `isPathContained` guards an `fs` read that is about to happen
+ * against an already-existing directory, so a vanished/unresolvable path
+ * must still degrade the same as an escaped one.
  */
 function isPathContained(target, root) {
-    let realTarget;
-    let realRoot;
+    if (tryWithinRoot(target, root, PathAcceptance.AbsoluteInsideRoot) === null)
+        return false;
     try {
-        realTarget = node_fs_1.default.realpathSync(target);
-        realRoot = node_fs_1.default.realpathSync(root);
+        node_fs_1.default.realpathSync(target);
     }
     catch {
         return false;
     }
-    return isWithinRoot(realTarget, realRoot);
+    return true;
 }
 function readDocument(filePath, root) {
     let stat;
@@ -234,7 +250,7 @@ function readDocument(filePath, root) {
         // here — the same non-answer `readDocument` already gives "not exists".
         return { text: null, exists: false, readable: false };
     }
-    if (!isWithinRoot(realTarget, realRoot)) {
+    if (!isContainedIn(realTarget, realRoot)) {
         return { text: null, exists: true, readable: false };
     }
     try {
@@ -288,6 +304,8 @@ function containmentEnforcingVerificationFs(planningRoot) {
             return node_fs_1.default.readFileSync(filePath, encoding);
         },
         statSync(filePath) {
+            // #5118: a code-less containment throw here is NOT "phase directory
+            // not found" — readVerificationStatus falls through to `missing`.
             assertContained(filePath);
             return node_fs_1.default.statSync(filePath);
         },
@@ -389,7 +407,7 @@ function findDuplicateIds(reqMd) {
     }
     return dupes;
 }
-function buildRequirements(requirementsPath, knownPhaseKeys, diagnostics, planningRoot) {
+function buildRequirements(requirementsPath, knownPhaseKeys, diagnostics, planningRoot, directoryContext) {
     const doc = readDocument(requirementsPath, planningRoot);
     if (!doc.exists) {
         diagnostics.push({
@@ -446,7 +464,7 @@ function buildRequirements(requirementsPath, knownPhaseKeys, diagnostics, planni
             // here too — it is a FILE-MEMBERSHIP predicate (#3511) for aggregate
             // `*-UAT.md` / `*-VERIFICATION.md` scans, not a phase-identity equality
             // test, and is unreliable for decimal phases.
-            if (!knownPhaseKeys.has(phaseKeyFromToken(token))) {
+            if (!knownPhaseKeys.has(phaseKeyFromToken(token, directoryContext))) {
                 diagnostics.push({
                     code: INSPECT_DIAGNOSTIC.REQUIREMENT_PHASE_UNKNOWN,
                     subject: `${item.id}->${token}`,
@@ -897,11 +915,16 @@ function extractGoalProse(sectionBody) {
  * token scan above), never a document-wide scan. `[]` when the line is
  * absent.
  */
-function extractDependencyTokens(sectionBody) {
+function extractDependencyTokens(sectionBody, phaseIdConvention) {
     const m = DEPENDS_ON_LINE_RE.exec(sectionBody);
     if (!m)
         return [];
-    return sortedUnique([...m[1].matchAll(/\d+(?:\.\d+)*/g)].map((t) => t[0]));
+    // #4764/#4304: phase REFERENCES, not digit runs. Both this informational
+    // reader and init.manager consume phase-id.cts's convention-aware owner, so
+    // bracket milestone digits never surface as dependencies. Self-exclusion is
+    // deliberately NOT applied here: this site has no row context and does not
+    // gate readiness.
+    return sortedUnique(extractPhaseDependencyTokens(m[1], phaseIdConvention));
 }
 /**
  * This phase's own ROADMAP.md section body — milestone-scoped via the SAME
@@ -914,9 +937,9 @@ function extractDependencyTokens(sectionBody) {
  * sibling phase whose TITLE merely mentions this phase's number is never
  * hijacked.
  */
-function findPhaseRoadmapSection(cwd, roadmapText, phaseId) {
+function findPhaseRoadmapSection(cwd, roadmapText, phaseId, directoryContext) {
     const scoped = extractCurrentMilestone(roadmapText, cwd);
-    const headingRe = new RegExp(`^(?:\\[[^\\]]{1,200}\\]\\s*)?Phase\\s+${phaseMarkdownRegexSource(phaseId)}(?=[\\s:(]|$)`, 'i');
+    const headingRe = new RegExp(`^(?:\\[[^\\]]{1,200}\\]\\s*)?Phase\\s+${phaseMarkdownRegexSource(phaseId, directoryContext)}(?=[\\s:(]|$)`, 'i');
     const section = collectSection(scoped, (h) => headingRe.test(h.text));
     return section ? section.body : null;
 }
@@ -941,7 +964,7 @@ function findPhaseRoadmapSection(cwd, roadmapText, phaseId) {
  * `readDocument(paths.roadmap)` read, keeps both the read path and the
  * "found vs missing vs unreadable" distinction singular.
  */
-function buildPhaseGoalAndDependencies(cwd, roadmapDoc, phaseId, phaseDirLabel, diagnostics) {
+function buildPhaseGoalAndDependencies(cwd, roadmapDoc, phaseId, phaseDirLabel, phaseIdConvention, diagnostics, directoryContext) {
     if (!roadmapDoc.readable || roadmapDoc.text === null) {
         diagnostics.push({
             code: INSPECT_DIAGNOSTIC.ROADMAP_UNSCOPED,
@@ -964,7 +987,7 @@ function buildPhaseGoalAndDependencies(cwd, roadmapDoc, phaseId, phaseDirLabel, 
             dependencies: { value: [], scope: SCOPE.UNSCOPED },
         };
     }
-    const sectionBody = findPhaseRoadmapSection(cwd, roadmapDoc.text, phaseId);
+    const sectionBody = findPhaseRoadmapSection(cwd, roadmapDoc.text, phaseId, directoryContext);
     if (sectionBody === null) {
         diagnostics.push({
             code: INSPECT_DIAGNOSTIC.ROADMAP_UNSCOPED,
@@ -978,13 +1001,25 @@ function buildPhaseGoalAndDependencies(cwd, roadmapDoc, phaseId, phaseDirLabel, 
     }
     return {
         goal: { value: extractGoalProse(sectionBody), scope: SCOPE.COMPLETE },
-        dependencies: { value: extractDependencyTokens(sectionBody), scope: SCOPE.COMPLETE },
+        dependencies: { value: extractDependencyTokens(sectionBody, phaseIdConvention), scope: SCOPE.COMPLETE },
     };
 }
 // ─── Entry points ─────────────────────────────────────────────────────────────
 function buildPlanningInspect(cwd) {
+    return buildPlanningInspectResult(cwd).payload;
+}
+/**
+ * #5118: the inspect payload plus the first verification report whose
+ * `status` is outside the closed set (`statusError`, or `null`) — the
+ * aggregate CARRIES the owner's error in its own result, and `planning
+ * inspect` fails with it instead of printing an answer computed over a
+ * report the owner refused.
+ */
+function buildPlanningInspectResult(cwd) {
+    let statusError = null;
     const diagnostics = [];
     const paths = planningPaths(cwd);
+    const phaseIdConvention = resolvePhaseIdConvention(cwd);
     const planningExists = node_fs_1.default.existsSync(paths.planning);
     if (!planningExists) {
         diagnostics.push({
@@ -994,6 +1029,7 @@ function buildPlanningInspect(cwd) {
         });
     }
     const snapshot = buildPlanningSnapshot(cwd);
+    const directoryContext = snapshot.directoryContext;
     if (snapshot.milestone.scope !== SCOPE.COMPLETE) {
         diagnostics.push({
             code: INSPECT_DIAGNOSTIC.ROADMAP_UNSCOPED,
@@ -1026,14 +1062,14 @@ function buildPlanningInspect(cwd) {
     // one phase.
     const checkboxByPhaseKey = new Map();
     for (const [token, ticked] of Object.entries(checkboxes)) {
-        checkboxByPhaseKey.set(phaseKeyFromToken(token), ticked);
+        checkboxByPhaseKey.set(phaseKeyFromToken(token, directoryContext), ticked);
     }
     const phaseSnapshots = snapshot.phases.value;
     // Canonical per-directory identity keys (`phase-id.cts`'s
     // `phaseKeyFromDir`), not a raw regex scrape — this is the set
     // `buildRequirements` below matches Traceability tokens against via
     // `phaseKeyFromToken`.
-    const knownPhaseKeys = new Set(windowed.map((dir) => phaseKeyFromDir(dir)));
+    const knownPhaseKeys = new Set(windowed.map((dir) => phaseKeyFromDir(dir, undefined, directoryContext)));
     // Read once, shared across every phase row's goal/dependencies lookup —
     // the same `readDocument` seam every other document read in this module
     // uses, never a second file-reading path.
@@ -1045,8 +1081,8 @@ function buildPlanningInspect(cwd) {
         // GAP 2 (#2790 follow-up security review): `readVerificationStatus`
         // (`src/verification.cts`) is a shared owner with its own unguarded
         // `readFileSync` — a `*-VERIFICATION.md` symlinked outside the planning
-        // root would leak an unrecognized `status:` value verbatim via its
-        // "Unexpected verification status '<value>'" `next_action` string. Fixed
+        // root would leak its unrecognized `status:` value verbatim (today via
+        // the VerificationStatusError message, #5118). Fixed
         // from THIS consumer's side via the injectable `opts.fs` seam that
         // function already exposes, never by touching its signature — see
         // `containmentEnforcingVerificationFs`'s doc comment. This same seam's
@@ -1061,12 +1097,27 @@ function buildPlanningInspect(cwd) {
         // (`superseded`) rather than document text, and GAP 1's directory
         // containment check already covers the escaped-DIRECTORY case for it —
         // so it needs no fix of its own.
-        const verification = readVerificationStatus(phaseDir, {
-            fs: containmentEnforcingVerificationFs(paths.planning),
-        });
+        // #5118: an out-of-set report status is carried, not thrown past the
+        // other phases — the row reads `status: null` and the command fails with
+        // the first such error once the payload is built.
+        let verification;
+        try {
+            verification = readVerificationStatus(phaseDir, {
+                fs: containmentEnforcingVerificationFs(paths.planning),
+            });
+        }
+        catch (err) {
+            if (!(err instanceof VerificationStatusError))
+                throw err;
+            if (statusError === null)
+                statusError = err;
+            verification = { status: null, next_action: err.message, route: '' };
+        }
         const token = /^(\d+(?:\.\d+)*)/.exec(phase.dir);
-        const phaseId = token ? token[1] : null;
-        const { goal, dependencies } = buildPhaseGoalAndDependencies(cwd, roadmapDoc, phaseId, phase.dir, diagnostics);
+        const custom = phaseIdMod.customPhaseQuery(phase.dir, directoryContext);
+        const owner = custom && phaseIdMod.customPhaseDirectoryParts(phase.dir, custom);
+        const phaseId = owner ? owner.id : token ? token[1] : null;
+        const { goal, dependencies } = buildPhaseGoalAndDependencies(cwd, roadmapDoc, phaseId, phase.dir, phaseIdConvention, diagnostics, directoryContext);
         // `uat.foldScope`, NOT `uat.scope` (#3078 round-8). The two currently
         // agree at every call site — see `buildUatRows` for why the field is
         // still kept separate — so folding either one here produces the same
@@ -1096,10 +1147,12 @@ function buildPlanningInspect(cwd) {
             verification: {
                 status: verification.status,
                 next_action: verification.next_action ?? null,
+                // #5118: additive — the bare command the owner routes this status to.
+                route: verification.route,
             },
             roadmap_acceptance: {
-                checkbox: checkboxByPhaseKey.has(phaseKeyFromDir(phase.dir))
-                    ? checkboxByPhaseKey.get(phaseKeyFromDir(phase.dir))
+                checkbox: checkboxByPhaseKey.has(phaseKeyFromDir(phase.dir, undefined, directoryContext))
+                    ? checkboxByPhaseKey.get(phaseKeyFromDir(phase.dir, undefined, directoryContext))
                     : null,
                 // ADR-3180 §7.4: a ticked checkbox is a human annotation with no
                 // machine authority. Stated in the payload so a consumer cannot
@@ -1113,11 +1166,11 @@ function buildPlanningInspect(cwd) {
             scope: folded,
         };
     });
-    const requirements = buildRequirements(paths.requirements, knownPhaseKeys, diagnostics, paths.planning);
+    const requirements = buildRequirements(paths.requirements, knownPhaseKeys, diagnostics, paths.planning, directoryContext);
     const phaseScope = worstScope(snapshot.phaseDirs.scope, snapshot.phases.scope, ...phaseRows.map((p) => p.scope));
     const acceptedPhases = makeFraction(phaseRows.filter((p) => p.complete).length, phaseRows.length, phaseScope, 'progress.accepted_phases', diagnostics);
     const completedPlans = makeFraction(phaseRows.reduce((sum, p) => sum + p.summary_count, 0), phaseRows.reduce((sum, p) => sum + p.plan_count, 0), phaseScope, 'progress.completed_plans', diagnostics);
-    return {
+    const payload = {
         schema_version: PLANNING_INSPECT_SCHEMA_VERSION,
         generated_from: {
             cwd: toPosix(cwd),
@@ -1145,6 +1198,7 @@ function buildPlanningInspect(cwd) {
         },
         diagnostics,
     };
+    return { payload, statusError };
 }
 /**
  * `planning inspect` — emit the schema-v1 snapshot.
@@ -1154,7 +1208,12 @@ function buildPlanningInspect(cwd) {
  * transparently on stdout. Bypassing `output()` would lose that for free.
  */
 function cmdPlanningInspect(cwd, raw) {
-    output(buildPlanningInspect(cwd), raw);
+    const { payload, statusError } = buildPlanningInspectResult(cwd);
+    // #5118: a read-only aggregate over a refused report prints nothing and
+    // fails with the error's own reason (`verification_status_invalid`).
+    if (statusError)
+        failOnVerificationStatusError(statusError);
+    output(payload, raw);
 }
 const planningInspect = {
     PLANNING_INSPECT_SCHEMA_VERSION,

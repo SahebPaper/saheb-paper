@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// gsd-hook-version: 1.13.0
+// gsd-hook-version: 1.21.0
 // Context Monitor - PostToolUse/AfterTool hook (Gemini uses AfterTool)
 // Reads context metrics from the statusline bridge file and injects
 // warnings when context usage is high. This makes the AGENT aware of
@@ -14,6 +14,11 @@
 // Thresholds:
 //   WARNING  (remaining <= 35%): Agent should wrap up current task
 //   CRITICAL (remaining <= 25%): Agent should stop immediately and save state
+// "remaining" is of the auto-compact threshold — the statusline puts the
+// bridge on that scale (#4985), so both fire before Claude Code compacts.
+// Both fire-points are overridable per project via .planning/config.json
+// (hooks.context_warning_threshold / hooks.context_critical_threshold, #4285);
+// the values above are the defaults used when the keys are absent or unusable.
 //
 // Debounce: 5 tool uses between warnings to avoid spam
 // Severity escalation bypasses debounce (WARNING -> CRITICAL fires immediately)
@@ -23,6 +28,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { HOOK_ON_CRASH, allow, crash } = require('./lib/hook-exit.js');
+const { readConfigFileBounded } = require('./lib/config-read.js');
 
 // This hook only injects an advisory context-usage warning; it never blocks
 // the tool call it rides in on. A crash here (e.g. a malformed bridge file)
@@ -30,8 +36,8 @@ const { HOOK_ON_CRASH, allow, crash } = require('./lib/hook-exit.js');
 // context warning is far cheaper than stalling the agent's work (#3911).
 const ON_CRASH = HOOK_ON_CRASH.ALLOW;
 
-const WARNING_THRESHOLD = 35;  // remaining_percentage <= 35%
-const CRITICAL_THRESHOLD = 25; // remaining_percentage <= 25%
+const WARNING_THRESHOLD = 35;  // remaining_percentage <= 35% (default, see resolveThresholds)
+const CRITICAL_THRESHOLD = 25; // remaining_percentage <= 25% (default, see resolveThresholds)
 const STALE_SECONDS = 60;      // ignore metrics older than 60s
 const DEBOUNCE_CALLS = 5;      // min tool uses between warnings
 // How long after a PreCompact readings stay suspect. The watermark records the
@@ -56,6 +62,41 @@ const COMPACT_GRACE_SECONDS = 60;
 // trio (Codex review of #3808, round 4). Note it also extends the mute: a
 // watermark this far ahead pushes first recovery from +61 to +66 (measured).
 const WATERMARK_SKEW_SECONDS = 5;
+
+// Resolve the two fire-points from the project's `.planning/config.json`
+// (#4285). The constants above are the DEFAULTS; a project overrides either one
+// through `hooks.context_warning_threshold` / `hooks.context_critical_threshold`,
+// which is what keeps a tuned fire-point alive across updates — this file is in
+// the MANAGED registry, so an edit to the constants is re-staged away by the
+// next install.
+//
+// TOTAL and never-throwing: this hook must not block the tool call it rides in
+// on, so every unusable input degrades to the default instead of raising.
+// Unusable is decided by Number.isFinite, which is type-strict (the string
+// "30" and true are both rejected, unlike the global isFinite), plus the 0-100
+// domain of the remaining_percentage these are compared against.
+//
+// The PAIR is validated too, and falls back TOGETHER. `critical >= warning` has
+// no coherent reading — critical fires deeper into the window than warning —
+// and honouring one side of an inconsistent pair silently picks which of the
+// operator's two numbers to discard. This also rejects a single override that
+// contradicts the OTHER key's default (warning 20 with critical absent, i.e.
+// 25); the resulting pair is the same nonsense either way. Set-time validation
+// cannot stand in for this check: `config-set` writes one key per call, so
+// tuning both (warning first, then critical) is transiently inconsistent on
+// disk, and refusing it there would block a legitimate configuration.
+function resolveThresholds(hooks) {
+  const defaults = { warning: WARNING_THRESHOLD, critical: CRITICAL_THRESHOLD };
+  if (!hooks || typeof hooks !== 'object') return defaults;
+
+  const usable = (value, fallback) =>
+    (Number.isFinite(value) && value >= 0 && value <= 100) ? value : fallback;
+
+  const warning = usable(hooks.context_warning_threshold, WARNING_THRESHOLD);
+  const critical = usable(hooks.context_critical_threshold, CRITICAL_THRESHOLD);
+
+  return critical < warning ? { warning, critical } : defaults;
+}
 
 // One DEFINITION of what counts as a lifecycle event name, shared by the #3709
 // PreCompact reset and the #2289 output-envelope allowlist. Two call sites, one
@@ -163,15 +204,35 @@ function writeSentinel(target, payload) {
   } catch (e) { /* best effort — see above */ }
 }
 
+// The calendar day the CRITICAL auto-record writes into STATE.md (#4905): the
+// operator's LOCAL day through the clock seam, which honors GSD_NOW_MS under
+// GSD_TEST_MODE, like every other date GSD stamps into planning files. The
+// clock is compiled into gsd-core/bin/lib/, so it is reached through the
+// self-healing build seam (#3582). If the library is missing and cannot
+// self-build, the host's local day stands in — still never the UTC day.
+function localDayStamp() {
+  try {
+    const { ensureRuntimeBuild } = require('../gsd-core/bin/ensure-runtime-build.cjs');
+    ensureRuntimeBuild();
+    return require('../gsd-core/bin/lib/clock.cjs').realClock.localToday();
+  } catch {
+    const now = new Date();
+    return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
+  }
+}
+
+// The Stopped At breadcrumb for /gsd:resume-work (#1974). usedPct is coerced to
+// a safe number in case the bridge file is malformed.
+function criticalStoppedAt(usedPct) {
+  return `context exhaustion at ${Number(usedPct) || 0}% (${localDayStamp()})`;
+}
+
 let input = '';
-// Timeout guard: if stdin doesn't close within 10s (e.g. pipe issues on
-// Windows/Git Bash, or slow Claude Code piping during large outputs),
-// exit silently instead of hanging until Claude Code kills the process
-// and reports "hook error". See #775, #1162.
-const stdinTimeout = setTimeout(() => allow(undefined), 10000);
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => input += chunk);
-process.stdin.on('end', () => {
+// Assigned by main(); the handler below clears it. Declared out here rather
+// than inside main() because the handler closes over it.
+let stdinTimeout = null;
+
+const handleStdinEnd = () => {
   clearTimeout(stdinTimeout);
   try {
     const data = JSON.parse(input);
@@ -266,18 +327,26 @@ process.stdin.on('end', () => {
       allow(undefined);
     }
 
-    // Check if context warnings are disabled via config.
+    // Check if context warnings are disabled via config, and resolve the two
+    // fire-points from the same read (#4285 — one config read, not two).
     // Collapsed existsSync+readFileSync into a single read guarded by try/catch
     // (ENOENT or parse error → use defaults, same as old "planningDir absent" branch).
     const cwd = data.cwd || process.cwd();
+    let thresholds = { warning: WARNING_THRESHOLD, critical: CRITICAL_THRESHOLD };
     try {
       const configPath = path.join(cwd, '.planning', 'config.json');
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const config = JSON.parse(readConfigFileBounded(configPath, { required: true }));
       if (config.hooks?.context_warnings === false) {
         allow(undefined);
       }
+      // After the disable check, not before: a disabled monitor exits above and
+      // never reaches a threshold, so resolving first would only add work to the
+      // path that does nothing. allow() exits the process (it does not throw),
+      // so this line is unreachable when warnings are off.
+      thresholds = resolveThresholds(config.hooks);
     } catch (e) {
-      // Missing or unparseable config → proceed with defaults (context warnings enabled)
+      // Missing or unparseable config → proceed with defaults (context warnings
+      // enabled, thresholds at the constants above, which `thresholds` already holds)
     }
 
     // If no metrics file, this is a subagent or fresh session -- exit silently.
@@ -352,7 +421,7 @@ process.stdin.on('end', () => {
     const usedPct = metrics.used_pct;
 
     // No warning needed
-    if (remaining > WARNING_THRESHOLD) {
+    if (remaining > thresholds.warning) {
       allow(undefined);
     }
 
@@ -389,7 +458,7 @@ process.stdin.on('end', () => {
 
     warnData.callsSinceWarn = (warnData.callsSinceWarn || 0) + 1;
 
-    const isCritical = remaining <= CRITICAL_THRESHOLD;
+    const isCritical = remaining <= thresholds.critical;
     const currentLevel = isCritical ? 'critical' : 'warning';
 
     // Emit immediately on first warning, then debounce subsequent ones
@@ -421,9 +490,7 @@ process.stdin.on('end', () => {
         // Using __dirname makes this work on Claude Code, OpenCode, Gemini,
         // Kilo, etc. without hardcoding ~/.agents/.
         const gsdTools = path.join(__dirname, '..', 'gsd-core', 'bin', 'gsd-tools.cjs');
-        // Coerce usedPct to a safe number in case bridge file is malformed
-        const safeUsedPct = Number(usedPct) || 0;
-        const stoppedAt = `context exhaustion at ${safeUsedPct}% (${new Date().toISOString().split('T')[0]})`;
+        const stoppedAt = criticalStoppedAt(usedPct);
         spawn(
           process.execPath,
           [gsdTools, 'state', 'record-session', '--stopped-at', stoppedAt],
@@ -436,23 +503,30 @@ process.stdin.on('end', () => {
     }
 
     // Build advisory warning message (never use imperative commands that
-    // override user preferences — see #884)
+    // override user preferences — see #884). The percentages are of the
+    // auto-compact threshold (#4985); the token counts, when the bridge has
+    // them, are the ones /context shows (#2451).
+    const kTokens = n => `${Math.round(n / 1000)}k`;
+    const tokenDetail = Number.isFinite(metrics.used_tokens) && Number.isFinite(metrics.threshold_tokens)
+      ? ` (${kTokens(metrics.used_tokens)} of ${kTokens(metrics.threshold_tokens)} usable tokens)`
+      : '';
+    const usage = `Usage at ${usedPct}%${tokenDetail}. Remaining: ${remaining}%. `;
     let message;
     if (isCritical) {
       message = isGsdActive
-        ? `CONTEXT CRITICAL: Usage at ${usedPct}%. Remaining: ${remaining}%. ` +
+        ? `CONTEXT CRITICAL: ${usage}` +
           'Context is nearly exhausted. Do NOT start new complex work or write handoff files — ' +
           'GSD state is already tracked in STATE.md. Inform the user so they can run ' +
           '/gsd:pause-work at the next natural stopping point.'
-        : `CONTEXT CRITICAL: Usage at ${usedPct}%. Remaining: ${remaining}%. ` +
+        : `CONTEXT CRITICAL: ${usage}` +
           'Context is nearly exhausted. Inform the user that context is low and ask how they ' +
           'want to proceed. Do NOT autonomously save state or write handoff files unless the user asks.';
     } else {
       message = isGsdActive
-        ? `CONTEXT WARNING: Usage at ${usedPct}%. Remaining: ${remaining}%. ` +
+        ? `CONTEXT WARNING: ${usage}` +
           'Context is getting limited. Avoid starting new complex work. If not between ' +
           'defined plan steps, inform the user so they can prepare to pause.'
-        : `CONTEXT WARNING: Usage at ${usedPct}%. Remaining: ${remaining}%. ` +
+        : `CONTEXT WARNING: ${usage}` +
           'Be aware that context is getting limited. Avoid unnecessary exploration or ' +
           'starting new complex work.';
     }
@@ -491,4 +565,36 @@ process.stdin.on('end', () => {
     // exit(0) fail-open behavior exactly (#3911).
     crash(ON_CRASH, undefined);
   }
-});
+};
+
+// The stdin adapter is the only side-effecting statement in this file, so it is
+// the only thing that must not run on `require()`. Gating it lets a test import
+// `resolveThresholds` and drive it directly — the repo's own conclusion for a
+// seam like this (CONTEXT-INDEX, on the ROADMAP Requirements parser: a closure
+// reachable only by spawning the CLI is one "no fast-check property can do").
+// A spawn-per-case property test is not the same test: it would exercise the
+// resolver at whatever pairs survive to an observable severity, not over its
+// whole numeric domain.
+/* istanbul ignore next -- stdin adapter, exercised via spawnSync in tests */
+function main() {
+  // Timeout guard: if stdin doesn't close within 10s (e.g. pipe issues on
+  // Windows/Git Bash, or slow Claude Code piping during large outputs),
+  // exit silently instead of hanging until Claude Code kills the process
+  // and reports "hook error". See #775, #1162.
+  stdinTimeout = setTimeout(() => allow(undefined), 10000);
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', chunk => input += chunk);
+  process.stdin.on('end', handleStdinEnd);
+}
+
+if (require.main === module) {
+  main();
+}
+
+// Exported for tests only. resolveThresholds and the two constants serve the
+// #4285 property test; the constants ride along so a test asserts the fallback
+// pair against the SOURCE of truth rather than re-hardcoding 35/25 — a test
+// carrying its own copy of the defaults would stay green if the constants were
+// edited. criticalStoppedAt lets the #4905 test pin the breadcrumb's day
+// without waiting on the detached record-session writer (#3726).
+module.exports = { resolveThresholds, WARNING_THRESHOLD, CRITICAL_THRESHOLD, criticalStoppedAt };

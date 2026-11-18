@@ -25,15 +25,15 @@ const { readSubdirectories } = coreUtilsMod;
 const planScan = require("./plan-scan.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planningWorkspace = require("./planning-workspace.cjs");
-const { planningPaths, planningRoot, getActiveWorkstream } = planningWorkspace;
+const { planningPaths, planningRoot, getActiveWorkstream, resolvePhaseIdConvention } = planningWorkspace;
 const state_document_cjs_1 = require("./state-document.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 const frontmatterMod = require("./frontmatter.cjs");
 const { extractFrontmatter, stripFrontmatter } = frontmatterMod;
-const markdown_table_cjs_1 = require("./markdown-table.cjs");
+const roadmap_progress_cjs_1 = require("./roadmap-progress.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- verification.cjs is an export= CommonJS module
 const verificationMod = require("./verification.cjs");
-const { isPhaseComplete } = verificationMod;
+const { isPhaseComplete, isVerificationStatus, VERIFICATION_STATUS } = verificationMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-id.cjs is an export= CommonJS module
 const phaseIdMod = require("./phase-id.cjs");
 const { phaseKeyFromDir, phaseKeyFromProse, parentPhaseKey } = phaseIdMod;
@@ -41,6 +41,9 @@ const { phaseKeyFromDir, phaseKeyFromProse, parentPhaseKey } = phaseIdMod;
 const roadmapParserMod = require("./roadmap-parser.cjs");
 const { getMilestonePhaseFilter, isMilestoneShippedInRoadmap } = roadmapParserMod;
 const workstream_inventory_builder_cjs_1 = require("./workstream-inventory-builder.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const phaseLocatorMod = require("./phase-locator.cjs");
+const { phaseDirectoryOptions } = phaseLocatorMod;
 // ─── Implementation ───────────────────────────────────────────────────────────
 function workstreamsRoot(cwd) {
     return node_path_1.default.join(planningRoot(cwd), 'workstreams');
@@ -75,7 +78,7 @@ function countRoadmapPhases(roadmapPath, fallbackCount, cwd, ws, versionOverride
         // `null` -> 0 (fallback), `undefined` -> 3. A non-bracket workstream
         // resolves to a value that compiles the same base grammar `null` did, so
         // its count is unchanged (verified against a legacy control).
-        const filter = getMilestonePhaseFilter(cwd, versionOverride ?? null, undefined, ws ?? null);
+        const filter = getMilestonePhaseFilter(cwd, versionOverride ?? null, undefined, ws ?? null, phaseDirectoryOptions(cwd, undefined, undefined, ws ?? null));
         // A pass-all degrade (phaseCount 0) means the window declared no phases —
         // fall back rather than reporting a confident zero.
         return filter.phaseCount > 0 ? filter.phaseCount : fallbackCount;
@@ -98,25 +101,22 @@ function countRoadmapPhases(roadmapPath, fallbackCount, cwd, ws, versionOverride
  * `phaseKeyFromDir` uses for directories, so a `| 01. … |` row and a `1-slug`
  * directory cannot land in different key spaces (the padding-asymmetry defect).
  */
-function parseRoadmapProgressRows(roadmapPath) {
-    let content;
-    try {
-        content = node_fs_1.default.readFileSync(roadmapPath, 'utf-8');
-    }
-    catch {
-        return []; /* no roadmap */
-    }
+function parseRoadmapProgressRows(content, directoryContext, convention) {
     // Milestone-ATTRIBUTING shape first. Both shapes carry `Plans Complete`, so
     // probing that column first would pick a flat table appearing earlier in the
     // document over a milestone-grouped one later — every row would come back
     // unattributed and be treated as current-milestone, silently over-including.
-    const table = (0, markdown_table_cjs_1.findTableWithColumns)(content, ['Phase', 'Milestone'])
-        ?? (0, markdown_table_cjs_1.findTableWithColumns)(content, ['Phase', 'Plans Complete']);
-    if (!table)
-        return [];
+    // #5761: the roadmap-progress owner picks the table (heading-scoped, so a
+    // decoy table elsewhere cannot be mistaken for it); this reader only supplies
+    // the probe order. A table outside a table-less `## Progress` section has
+    // always been read here (#5692: no behavior change), hence `sectionMiss`.
+    const { rows: tableRows } = (0, roadmap_progress_cjs_1.locateRoadmapProgress)(content, {
+        columns: [['Phase', 'Milestone'], ['Phase', 'Plans Complete']],
+        sectionMiss: 'document',
+    });
     const rows = [];
-    for (const row of table.rows) {
-        const key = phaseKeyFromProse(row['Phase']);
+    for (const row of tableRows) {
+        const key = phaseKeyFromProse(row['Phase'], directoryContext, convention);
         if (key === null)
             continue;
         const cell = (row['Milestone'] ?? '').trim();
@@ -269,7 +269,10 @@ function readVerificationLedger(wsDir) {
     }
     const out = {};
     for (const [key, value] of Object.entries(parsed)) {
-        if (typeof value === 'string')
+        // #5118: an entry outside the closed enum (a stored `unknown` from an
+        // older run) reads as absent — the phase then fails CLOSED to
+        // `unrecorded`, the same posture as a corrupt ledger.
+        if (isVerificationStatus(value))
             out[key] = value;
     }
     return { state: 'ok', entries: out };
@@ -425,12 +428,18 @@ function inspectWorkstream(cwd, name, options = {}) {
     const writeDiagnostic = options.writeDiagnostic ?? ((message) => process.stderr.write(message));
     const p = planningPaths(cwd, name);
     const phaseDirNames = readSubdirectories(p.phases);
+    let roadmap = '';
+    try {
+        roadmap = node_fs_1.default.readFileSync(p.roadmap, 'utf8');
+    }
+    catch { /* no roadmap */ }
+    const directoryContext = phaseDirectoryOptions(cwd, undefined, roadmap, name);
     // #2562: scope progress to the CURRENT milestone. Membership and the
     // denominator are derived in ONE key space (`phaseKeyFromDir` /
     // `phaseKeyFromProse`, both from the phase-id owner module) so the two sides
     // of the rollup cannot disagree.
     const currentVersion = readCurrentMilestoneVersion(p.state, p.roadmap);
-    const progressRows = parseRoadmapProgressRows(p.roadmap);
+    const progressRows = parseRoadmapProgressRows(roadmap, directoryContext, resolvePhaseIdConvention(cwd, name));
     // Phase keys the ROADMAP attributes to the current milestone. A row whose
     // Milestone cell is blank or malformed is INCLUDED rather than dropped: a
     // phase we cannot attribute must still be visible to the rollup. Dropping it
@@ -455,7 +464,7 @@ function inspectWorkstream(cwd, name, options = {}) {
     // it is exactly the caller that cannot set `GSD_WORKSTREAM`; spelling `null`
     // pinned every workstream to the legacy grammar and made `headingScoped`
     // unreachable (`phaseCount > 0` never held) on a bracket workstream.
-    const headingFilter = getMilestonePhaseFilter(cwd, currentVersion, undefined, name);
+    const headingFilter = getMilestonePhaseFilter(cwd, currentVersion, undefined, name, directoryContext);
     const headingScoped = headingFilter.versionScoped && headingFilter.phaseCount > 0;
     // Phase keys the ROADMAP attributes to some OTHER milestone. A row carrying an
     // explicit version that is not the current one is a positive claim by a prior
@@ -504,7 +513,7 @@ function inspectWorkstream(cwd, name, options = {}) {
     const isDirInCurrentMilestone = (dir) => {
         if (!scoped)
             return true;
-        const key = phaseKeyFromDir(dir);
+        const key = phaseKeyFromDir(dir, undefined, directoryContext);
         if (currentMilestoneKeys.has(key))
             return true;
         const parent = parentPhaseKey(key);
@@ -555,25 +564,35 @@ function inspectWorkstream(cwd, name, options = {}) {
         // unverified-fallback diagnostic (#3057 B4) — the closest existing idiom,
         // since `WorkstreamInventory`'s aggregate return shape carries no
         // per-phase verification detail for this to attach to.
-        if (verificationResult.staleCheckIndeterminate) {
+        if ('staleCheckIndeterminate' in verificationResult && verificationResult.staleCheckIndeterminate) {
             writeDiagnostic(`⚠ workstream-inventory: verification staleness check could not complete for phase directory '${dir}' in workstream '${name}' — routed as not-stale, but this was not actually verified. See #3057.\n`, { phaseDir: dir, reason: 'staleCheckIndeterminate' });
         }
         return {
             directory: dir,
-            phaseKey: phaseKeyFromDir(dir),
+            phaseKey: phaseKeyFromDir(dir, undefined, directoryContext),
             mtimeMs: phaseDirMtime(phaseDir),
             planCount: counts.planCount,
             summaryCount: counts.summaryCount,
             inMilestone: isDirInCurrentMilestone(dir),
             liveVerificationStatus: verificationResult.status,
+            // #5118: the owner's out-of-set report error, carried to the check below.
+            statusError: completionResult.value.statusError,
             // ADR-3180 §7.4 (#3186): the owner's verdict, read live off disk — never
             // ledger-adjusted (see the phaseFilesCounts map below; the ledger only
             // ever substitutes a 'missing' status with a remembered one, and under
-            // disk-strict neither 'missing' nor 'unrecorded' is ever complete, so
-            // there is nothing for the ledger to override here).
+            // disk-strict 'missing' is never complete, so there is nothing for the
+            // ledger to override here).
             complete: completionResult.value.complete,
         };
     });
+    // #5118 (no write before the error): this inspection WRITES the ledger
+    // below, so a report whose `status` is outside the closed set fails it
+    // first — the owner's own error thrown as-is (like `init *`, `phase *` and
+    // `state *`), which the CLI entry seam projects once into its reason and
+    // message; nothing persisted.
+    const firstStatusError = rawPhaseEntries.find((entry) => entry.statusError)?.statusError;
+    if (firstStatusError)
+        throw firstStatusError;
     // #2645: only the directory Bug #2445's de-dup rollup would actually pick
     // for a phase key may read or write that key's ledger entry. Letting every
     // same-keyed directory (including a stale leftover) write would let a
@@ -604,10 +623,11 @@ function inspectWorkstream(cwd, name, options = {}) {
     const verificationLedger = ledgerRead.entries;
     let ledgerDirty = false;
     for (const winner of ledgerWinnerByKey.values()) {
-        if (winner.liveVerificationStatus === 'missing')
+        const live = winner.liveVerificationStatus;
+        if (live === null || live === VERIFICATION_STATUS.MISSING)
             continue;
-        if (verificationLedger[winner.phaseKey] !== winner.liveVerificationStatus) {
-            verificationLedger[winner.phaseKey] = winner.liveVerificationStatus;
+        if (verificationLedger[winner.phaseKey] !== live) {
+            verificationLedger[winner.phaseKey] = live;
             ledgerDirty = true;
         }
     }
@@ -620,20 +640,16 @@ function inspectWorkstream(cwd, name, options = {}) {
         writeVerificationLedger(wsDir, verificationLedger);
     const phaseFilesCounts = rawPhaseEntries.map(entry => {
         const isLedgerWinner = ledgerWinnerByKey.get(entry.phaseKey) === entry;
+        // A live `missing` on the ledger winner reads the remembered verdict when
+        // there is one. #5118: the former `unrecorded` state ("adopted, never
+        // recorded") is deleted — its only reader, phaseStatusFromFacts, treats it
+        // exactly like `missing` (only `human_needed` changes the ladder, and under
+        // disk-strict neither is ever complete), so it was a dead distinction.
         let verificationStatus = entry.liveVerificationStatus;
-        if (entry.liveVerificationStatus === 'missing' && isLedgerWinner) {
-            if (ledgerRead.state === 'absent') {
-                // State 1: pre-adoption. Exactly today's behavior — 'missing' is
-                // NOT in FAILING_VERIFICATION_STATUSES, so this does not gate.
-                verificationStatus = 'missing';
-            }
-            else {
-                // States 2/3 ('corrupt' or 'ok'): this workstream has adopted the
-                // ledger. A remembered entry wins; no entry fails CLOSED to the
-                // 'unrecorded' sentinel rather than falling open to 'missing'.
-                const remembered = verificationLedger[entry.phaseKey];
-                verificationStatus = remembered !== undefined ? remembered : 'unrecorded';
-            }
+        if (entry.liveVerificationStatus === VERIFICATION_STATUS.MISSING && isLedgerWinner) {
+            const remembered = verificationLedger[entry.phaseKey];
+            if (remembered !== undefined)
+                verificationStatus = remembered;
         }
         return {
             directory: entry.directory,
@@ -733,6 +749,7 @@ module.exports = {
     inspectWorkstream,
     isCompletedInventory: workstream_inventory_builder_cjs_1.isCompletedInventory,
     listWorkstreamInventories,
+    readCurrentMilestoneVersion,
     sortWorkstreamInventories,
     workstreamsRoot,
 };

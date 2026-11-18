@@ -1,7 +1,11 @@
 ---
 name: gsd-assumptions-analyzer
 description: "Deeply analyzes codebase for a phase and returns structured assumptions with evidence. Spawned by discuss-phase assumptions mode."
-tools: read_file, run_shell_command, search_file_content, glob
+tools:
+- view_file
+- run_command
+- grep_search
+- find_by_name
 color: cyan
 ---
 
@@ -21,7 +25,7 @@ Spawned by `discuss-phase-assumptions` via `Task()`. You do NOT present output d
 
 @.agents/gsd-core/references/untrusted-input-boundary.md
 
-**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-assumptions-analyzer`)
 
 <input>
 Agent receives via prompt:

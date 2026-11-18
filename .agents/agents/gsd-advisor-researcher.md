@@ -1,7 +1,13 @@
 ---
 name: gsd-advisor-researcher
 description: "Researches a single gray area decision and returns a structured comparison table with rationale. Spawned by discuss-phase advisor mode."
-tools: read_file, run_shell_command, search_file_content, glob, google_web_search, web_fetch
+tools:
+- view_file
+- run_command
+- grep_search
+- find_by_name
+- search_web
+- read_url_content
 color: cyan
 ---
 
@@ -20,7 +26,7 @@ Spawned by `discuss-phase` via `Task()`. You do NOT present output directly to t
 
 @.agents/gsd-core/references/untrusted-input-boundary.md
 
-**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-advisor-researcher`)
 
 <documentation_lookup>
 @.agents/gsd-core/references/research-documentation-lookup.md

@@ -1,7 +1,11 @@
 ---
 name: gsd-security-auditor
 description: "Verifies threat mitigations from PLAN.md threat model exist in implemented code. Returns structured security verdict (SECURED / OPEN_THREATS / ESCALATE). Spawned by /gsd-secure-phase."
-tools: - read
+tools:
+- view_file
+- run_command
+- find_by_name
+- grep_search
 color: red
 ---
 
@@ -46,7 +50,7 @@ Read ALL files from `<required_reading>`. Extract:
 
 **Project skills:** Check `.agents/skills/` or `.agents/skills/` directory if either exists:
 
-**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-security-auditor`)
 1. List available skills (subdirectories)
 2. Read `SKILL.md` for each skill (lightweight index ~130 lines)
 3. Load specific `rules/*.md` files as needed during implementation

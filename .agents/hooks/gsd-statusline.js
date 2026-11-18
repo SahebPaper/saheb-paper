@@ -1,7 +1,15 @@
 #!/usr/bin/env node
-// gsd-hook-version: 1.13.0
+// gsd-hook-version: 1.21.0
 // Claude Code Statusline - GSD Edition
 // Shows: model | current task (or GSD state) | directory | context usage
+
+// #5183: Node's on-disk compile cache, so later runs reuse V8's compiled code
+// for unchanged modules. Only as the entry (a test require() is unaffected),
+// skipped under V8 coverage, optional (Bun stubs it), and never fatal.
+// NODE_DISABLE_COMPILE_CACHE (any value) turns it off.
+if (require.main === module && !process.env.NODE_V8_COVERAGE) {
+  try { require('node:module').enableCompileCache?.(); } catch { /* optimization only */ }
+}
 
 const fs = require('fs');
 const path = require('path');
@@ -10,6 +18,8 @@ const os = require('os');
 // monkeypatching childProcess.execFileSync.
 const childProcess = require('child_process');
 const { HOOK_ON_CRASH, allow, crash } = require('./lib/hook-exit.js');
+const { readConfigFileBounded } = require('./lib/config-read.js');
+const { gitEnv } = require('./lib/git-probe.js');
 
 // This hook's build-seam outer catch (require.main guard just below) has
 // always exited 0 (fail open — the statusline renders on EVERY prompt, so a
@@ -42,6 +52,11 @@ if (require.main === module) {
 const { isSemverNewer } = require('../gsd-core/bin/lib/semver-compare.cjs');
 const { PACKAGE_NAME, updateCacheFileName } = require('../gsd-core/bin/lib/package-identity.cjs');
 const { normalizeStateStatus } = require('../gsd-core/bin/lib/state-document.cjs');
+const { locateFrontmatterFence } = require('../gsd-core/bin/lib/frontmatter-fence.cjs');
+const {
+  renderBracketPhaseDisplay,
+  renderBracketMilestoneDisplay,
+} = require('../gsd-core/bin/lib/phase-id-display.cjs');
 // #2850: reuse the existing workstream resolution seams rather than
 // re-implementing CLI>env>store precedence or path construction inline.
 // peekActiveWorkstream is the read-only sibling of the store-tier lookup
@@ -67,7 +82,7 @@ function readGsdConfig(dir) {
     const candidate = path.join(current, '.planning', 'config.json');
     if (fs.existsSync(candidate)) {
       try {
-        return JSON.parse(fs.readFileSync(candidate, 'utf8')) || {};
+        return JSON.parse(readConfigFileBounded(candidate, { required: true })) || {};
       } catch (e) {
         return {};
       }
@@ -155,6 +170,303 @@ function readStateFileOrNull(statePath) {
   } catch (e) {
     return null;
   }
+}
+
+/**
+ * The env vars Claude Code itself consults to switch auto-compaction off, and
+ * the values it accepts as true. Both are taken from the shipped binary's own
+ * resolution — `Boolean(truthy(DISABLE_COMPACT) || DISABLE_AUTO_COMPACT)`, and
+ * only when that is false does `autoCompactEnabled` decide — rather than
+ * guessed: an invented name reads as "not disabled" forever, which is exactly
+ * the defect this gate exists to close.
+ *
+ * The truthy set applies to both keys: in the binary (claude 2.1.292) the
+ * second operand is the env registry's `D.bool()` field, which runs the same
+ * `["1","true","yes","on"]` helper as `DISABLE_COMPACT`.
+ */
+const AUTO_COMPACT_DISABLE_ENV_KEYS = ['DISABLE_AUTO_COMPACT', 'DISABLE_COMPACT'];
+const AUTO_COMPACT_ENV_TRUTHY = ['1', 'true', 'yes', 'on'];
+
+/**
+ * Is Claude Code's auto-compact switched off for this session? When it is,
+ * the auto-compact buffer is ordinary usable context, so the meter's 100% is
+ * the model window — otherwise the bar pins at 100% early and the last of
+ * the window is invisible.
+ *
+ * The sources and their precedence mirror Claude Code's own resolution —
+ * either env var wins over the setting, and only then does the setting decide:
+ *   1. env: DISABLE_AUTO_COMPACT, or DISABLE_COMPACT (which switches off
+ *      manual `/compact` as well). Truthy is `1` / `true` / `yes` / `on`,
+ *      trimmed and case-insensitive — Claude Code's own accepted set.
+ *   2. <dir>/.agents/settings.local.json, <dir>/.agents/settings.json
+ *   3. (CLAUDE_CONFIG_DIR || ~/.claude)/settings.local.json, settings.json
+ * reading the boolean `autoCompactEnabled`. Fail-soft: anything unreadable
+ * or absent means "not disabled" (current behaviour).
+ */
+function isAutoCompactDisabled(dir, env = process.env) {
+  for (const key of AUTO_COMPACT_DISABLE_ENV_KEYS) {
+    const v = env[key];
+    if (typeof v === 'string' && AUTO_COMPACT_ENV_TRUTHY.includes(v.trim().toLowerCase())) return true;
+  }
+  return readClaudeSetting(dir, env, 'autoCompactEnabled', v => typeof v === 'boolean') === false;
+}
+
+/**
+ * The first value of `key` that `accept` takes, reading the Claude Code
+ * settings files highest precedence first:
+ *   <dir>/.agents/settings.local.json, <dir>/.agents/settings.json,
+ *   (CLAUDE_CONFIG_DIR || ~/.claude)/settings.local.json, settings.json.
+ * Fail-soft: an absent or unparseable file is skipped; nothing found is
+ * `undefined`.
+ */
+function readClaudeSetting(dir, env, key, accept) {
+  // Lazy: stop at the first file that answers, so a lower file is never read.
+  for (const file of claudeSettingsPaths(dir, env)) {
+    const settings = readSettingsFile(file);
+    if (settings && accept(settings[key])) return settings[key];
+  }
+  return undefined;
+}
+
+/**
+ * The parsed Claude Code settings files, highest precedence first. An absent,
+ * unparseable or non-object file is left out.
+ */
+function readClaudeSettingsFiles(dir, env) {
+  return claudeSettingsPaths(dir, env).map(readSettingsFile).filter(Boolean);
+}
+
+/**
+ * A settings file larger than this is treated as absent. Claude Code's own
+ * settings files are a few kilobytes; the cap keeps a hostile project's
+ * `.agents/settings.json` from bloating a read that runs on every render.
+ */
+const SETTINGS_FILE_MAX_BYTES = 1024 * 1024;
+
+/**
+ * The parsed settings object in `file`, or null. Only a regular file of at
+ * most SETTINGS_FILE_MAX_BYTES is read: the project's `.agents/` is
+ * repository content, and a FIFO there would block the statusline forever.
+ * The file is opened non-blocking and checked through its own descriptor,
+ * so the check and the read see the same file, and at most the checked size
+ * is read: a file that grew or shrank after the check is absent. A symlink
+ * is followed — a settings file linked in from a dotfiles repo is ordinary.
+ */
+function readSettingsFile(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0) | (fs.constants.O_NOCTTY || 0));
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > SETTINGS_FILE_MAX_BYTES) return null;
+    // One byte past the checked size, so growth after the check shows as a longer read.
+    const buf = Buffer.alloc(st.size + 1);
+    let n = 0;
+    for (let r; n < buf.length && (r = fs.readSync(fd, buf, n, buf.length - n, n)) > 0;) n += r;
+    if (n !== st.size) return null;
+    const settings = JSON.parse(buf.toString('utf8', 0, n));
+    return settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : null;
+  } catch (e) {
+    return null; // absent, unreadable or unparseable — keep looking
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch (e) { /* already closed */ }
+    }
+  }
+}
+
+/**
+ * The Claude Code settings file paths, highest precedence first:
+ *   <dir>/.agents/settings.local.json, <dir>/.agents/settings.json,
+ *   (CLAUDE_CONFIG_DIR || ~/.claude)/settings.local.json, settings.json.
+ */
+function claudeSettingsPaths(dir, env) {
+  const candidates = [];
+  if (dir) {
+    candidates.push(path.join(dir, '.agents', 'settings.local.json'));
+    candidates.push(path.join(dir, '.agents', 'settings.json'));
+  }
+  let claudeDir;
+  try {
+    claudeDir = env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.agents');
+  } catch (e) {
+    claudeDir = null;
+  }
+  if (claudeDir) {
+    candidates.push(path.join(claudeDir, 'settings.local.json'));
+    candidates.push(path.join(claudeDir, 'settings.json'));
+  }
+  return candidates;
+}
+
+/**
+ * Claude Code's settings key for a model: its canonical name, which also
+ * matches the dated, `[1m]`, Bedrock and Vertex spellings of it
+ * (`claude-opus-5-5[1m]`, `us.anthropic.claude-opus-5-5-v1:0` and
+ * `claude-opus-5-5@20260101` all key as `claude-opus-5-5`). A Bedrock
+ * revision suffix is stripped only after a version or date segment, so a
+ * model whose own name ends in `-v<n>` (`anthropic.claude-v2`) keeps it.
+ * The rules repeat until nothing changes, so a key is its own key: one pass
+ * left `x[1m][1m]` as `x[1m]`. Lowercasing runs once, before the loop (it
+ * can lengthen a string: `İ` becomes two characters); inside the loop every
+ * rule only removes characters, so it ends. A key longer than
+ * MODEL_KEY_MAX_LENGTH is no model's — '' — which also bounds the loop's
+ * work on a hostile settings file. '' for a non-string.
+ */
+const MODEL_KEY_MAX_LENGTH = 256;
+
+function canonicalModelKey(id) {
+  if (typeof id !== 'string') return '';
+  let key = id.toLowerCase();
+  if (key.length > MODEL_KEY_MAX_LENGTH) return '';
+  for (let prev; prev !== key;) {
+    prev = key;
+    key = key.trim()
+      .replace(/(?:\[1m\])+$/, '')
+      .replace(/^(?:[a-z]+\.)?anthropic\./, '')
+      .replace(/(\d)-v\d+(?::\d+)?$/, '$1')
+      .replace(/@\d{8}$/, '')
+      .replace(/-\d{8}$/, '');
+  }
+  return key;
+}
+
+function isAutoCompactWindowValue(v) {
+  return v === 'auto' ||
+    (Number.isInteger(v) && v >= AUTO_COMPACT_WINDOW_MIN && v <= AUTO_COMPACT_WINDOW_MAX);
+}
+
+/**
+ * The `autoCompactWindow` setting for this model, merged across the settings
+ * files the way Claude Code merges it (claude 2.1.292): lowest precedence
+ * first, each file's `modelSettings.<model>.autoCompactWindow` entries
+ * layer over the lower files', and a file that sets a top-level
+ * `autoCompactWindow` replaces the default and drops the lower files'
+ * per-model entries. The model's own entry wins over the default.
+ * `/autocompact` saves the per-model entry; older versions saved the
+ * top-level one. `"auto"` (Claude Code's tuned window) and an absent setting
+ * are null, so the caller falls back to the model window. An invalid value
+ * is treated as absent.
+ */
+function readAutoCompactWindowSetting(dir, env, modelId) {
+  let fallback;
+  let byModel = {};
+  for (const settings of readClaudeSettingsFiles(dir, env).reverse()) {
+    const own = {};
+    const perModel = settings.modelSettings;
+    if (perModel && typeof perModel === 'object' && !Array.isArray(perModel)) {
+      for (const [name, entry] of Object.entries(perModel)) {
+        const v = entry && typeof entry === 'object' ? entry.autoCompactWindow : undefined;
+        if (!isAutoCompactWindowValue(v)) continue;
+        const key = canonicalModelKey(name);
+        // A canonically spelled key wins over another spelling of it.
+        if (name === key || !Object.hasOwn(own, key)) own[key] = v;
+      }
+    }
+    if (isAutoCompactWindowValue(settings.autoCompactWindow)) {
+      fallback = settings.autoCompactWindow;
+      byModel = own;
+    } else {
+      byModel = { ...byModel, ...own };
+    }
+  }
+  const key = canonicalModelKey(modelId);
+  const value = key && Object.hasOwn(byModel, key) ? byModel[key] : fallback;
+  return Number.isInteger(value) ? value : null;
+}
+
+/**
+ * Where Claude Code auto-compacts (#4985). The meter's 100% is this token
+ * count, so it has to be resolved the way Claude Code resolves it:
+ *
+ *   window     CLAUDE_CODE_AUTO_COMPACT_WINDOW (an unparseable or non-positive
+ *              value is ignored; capped at 1M, raised to 100k), else the
+ *              `autoCompactWindow` setting `/autocompact` saves, per model or
+ *              top-level (an integer in 100k–1M; see
+ *              readAutoCompactWindowSetting), else the model window. Always
+ *              capped at the model window.
+ *   threshold  window − min(model max output, 20,000) − 13,000, lowered to
+ *              floor((window − 20,000) × pct / 100) when
+ *              CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (0 < pct ≤ 100) is lower.
+ *
+ * `/context` shows the 33,000 as "Autocompact buffer". The hardcoded 16.5%
+ * this replaces is 33,000 / 200,000, so it was right only on a 200K window
+ * with nothing configured. Every current model's max output is at least
+ * 20,000, so the reserve is taken as 20,000.
+ *
+ * Not visible to a statusline, so not modelled: the `--autocompact` launch
+ * flag, managed-policy settings, and Claude Code's server-side and per-model
+ * window defaults (what `"auto"` resolves to). Those sessions fall back to
+ * the model window.
+ */
+const AUTO_COMPACT_WINDOW_MIN = 100_000;
+const AUTO_COMPACT_WINDOW_MAX = 1_000_000;
+const AUTO_COMPACT_OUTPUT_RESERVE = 20_000;
+const AUTO_COMPACT_SUMMARY_BUFFER = 13_000;
+
+function parseAutoCompactWindowEnv(raw) {
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  const s = raw.trim();
+  const n = /^\d[\d_,]*$/.test(s) ? parseInt(s.replace(/[_,]/g, ''), 10) : parseInt(s, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(AUTO_COMPACT_WINDOW_MIN, Math.min(AUTO_COMPACT_WINDOW_MAX, n));
+}
+
+/**
+ * The token count at which Claude Code auto-compacts this session, or null
+ * when auto-compaction is off (see isAutoCompactDisabled).
+ */
+function resolveAutoCompactThreshold(modelWindow, dir, env = process.env, modelId) {
+  if (!(modelWindow > 0) || isAutoCompactDisabled(dir, env)) return null;
+  let window = parseAutoCompactWindowEnv(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
+  if (window === null) {
+    window = readAutoCompactWindowSetting(dir, env, modelId) ?? modelWindow;
+  }
+  const effective = Math.min(window, modelWindow) - AUTO_COMPACT_OUTPUT_RESERVE;
+  let threshold = effective - AUTO_COMPACT_SUMMARY_BUFFER;
+  const pct = parseFloat(env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
+  if (Number.isFinite(pct) && pct > 0 && pct <= 100) {
+    threshold = Math.min(threshold, Math.floor(effective * (pct / 100)));
+  }
+  return threshold > 0 ? threshold : null;
+}
+
+/**
+ * The context meter, in one scale: `used` + `remaining` = 100, where 100% is
+ * the auto-compact threshold, or the model window when compaction is off.
+ * `usedTokens` is Claude Code's own count (input + cache creation + cache
+ * read of the last turn, the sum /context reports) and `limitTokens` the
+ * token count 100% stands for.
+ *
+ * Taken from token counts, not by re-scaling `remaining_percentage`: that
+ * value is already rounded against the model window, which loses up to 5,000
+ * tokens on a 1M model. Without `current_usage` the tokens are recovered
+ * from the percentage; without `context_window_size` the window is unknown,
+ * so the meter shows Claude Code's own percentage unscaled. Returns null
+ * when there is no usage yet.
+ */
+function contextMeter(contextWindow, dir, env = process.env, modelId) {
+  if (!contextWindow || typeof contextWindow !== 'object') return null;
+  const size = Number(contextWindow.context_window_size);
+  const usage = contextWindow.current_usage;
+  const remainingPct = contextWindow.remaining_percentage;
+  if (size > 0) {
+    let usedTokens = null;
+    if (usage && typeof usage === 'object') {
+      usedTokens = (Number(usage.input_tokens) || 0) +
+        (Number(usage.cache_creation_input_tokens) || 0) +
+        (Number(usage.cache_read_input_tokens) || 0);
+    } else if (remainingPct != null) {
+      usedTokens = Math.round(((100 - remainingPct) * size) / 100);
+    }
+    if (usedTokens !== null) {
+      const limitTokens = resolveAutoCompactThreshold(size, dir, env, modelId) ?? size;
+      const used = Math.max(0, Math.min(100, Math.round((usedTokens / limitTokens) * 100)));
+      return { used, remaining: 100 - used, usedTokens, limitTokens };
+    }
+  }
+  if (remainingPct == null) return null;
+  const used = Math.max(0, Math.min(100, Math.round(100 - remainingPct)));
+  return { used, remaining: 100 - used, usedTokens: null, limitTokens: null };
 }
 
 /**
@@ -246,13 +558,12 @@ function readGsdState(dir, opts = {}) {
 function parseStateMd(content) {
   const state = {};
 
-  // YAML frontmatter between --- markers (anchored at file start).
-  // #2754: \r?\n (not literal \n) so a CRLF STATE.md (Windows-authored) parses
-  // identically to LF — pre-fix the literal-\n fence dropped the ENTIRE block.
-  // Mirrors the CRLF-safe extractFrontmatter in src/frontmatter.cts.
-  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (fmMatch) {
-    const fm = fmMatch[1];
+  // YAML frontmatter: the block the one fence owner finds (`locateFrontmatterFence`), so a
+  // CRLF STATE.md (#2754), a BOM, and a `---` inside a value read exactly as every other
+  // STATE.md reader reads them (found while implementing #5105).
+  const fence = locateFrontmatterFence(content);
+  if (fence && fence.closed) {
+    const fm = content.slice(fence.openEnd, fence.bodyEnd);
     // Top-level scalar key: value
     for (const line of fm.split(/\r?\n/)) {
       const m = line.match(/^(\w+):\s*(.+)/);
@@ -359,16 +670,26 @@ function renderProgressBar(percent) {
  * Progress bar is opt-in: appended to the milestone segment only when
  * progress.percent is present in frontmatter; absent → empty string.
  */
-function formatGsdState(s) {
+function formatGsdState(s, opts = {}) {
   // #2850: workstream mode with nothing resolvable — an observable signal,
   // never silent emptiness (distinguishes from "GSD isn't installed here").
   if (s.noActiveWorkstream) return NO_ACTIVE_WORKSTREAM_LABEL;
 
   const parts = [];
+  const bracket = opts.convention === 'bracket';
+  const bracketMilestone = bracket
+    ? renderBracketMilestoneDisplay(s.milestone, opts.projectCode)
+    : null;
+  const phaseLabel = (phase) => {
+    const display = bracket
+      ? renderBracketPhaseDisplay(s.milestone, phase, opts.projectCode)
+      : null;
+    return display ?? `Phase ${phase}`;
+  };
 
   // Milestone segment: version + name + (opt-in) progress bar
   if (s.milestone || s.milestoneName) {
-    const ver = s.milestone || '';
+    const ver = bracketMilestone ?? s.milestone ?? '';
     const name = (s.milestoneName && s.milestoneName !== 'milestone') ? s.milestoneName : '';
     const bar = renderProgressBar(s.percent);
     const pieces = [ver, name, bar].filter(Boolean);
@@ -384,7 +705,8 @@ function formatGsdState(s) {
     // stage = whichever lifecycle status was written by the orchestrator
     //   (discussing / planning / executing / verifying)
     const stage = s.status || '';
-    parts.push(stage ? `Phase ${s.activePhase} ${stage}` : `Phase ${s.activePhase}`);
+    const phase = phaseLabel(s.activePhase);
+    parts.push(stage ? `${phase} ${stage}` : phase);
   } else if (s.nextAction && phasesStr) {
     // Scene 2: idle + a recommended next command is visible to the user.
     // Surfaces "what to run next" without the user opening STATE.md.
@@ -402,9 +724,16 @@ function formatGsdState(s) {
     // earlier so no existing project's status-line changes shape.
     if (s.status) parts.push(s.status);
     if (s.phaseNum && s.phaseTotal) {
+      const bracketPhase = bracket
+        ? renderBracketPhaseDisplay(s.milestone, s.phaseNum, opts.projectCode)
+        : null;
       const phase = s.phaseName
-        ? `${s.phaseName} (${s.phaseNum}/${s.phaseTotal})`
-        : `ph ${s.phaseNum}/${s.phaseTotal}`;
+        ? bracketPhase
+          ? `${bracketPhase} ${s.phaseName} (${s.phaseNum}/${s.phaseTotal})`
+          : `${s.phaseName} (${s.phaseNum}/${s.phaseTotal})`
+        : bracketPhase
+          ? `${bracketPhase} (${s.phaseNum}/${s.phaseTotal})`
+          : `ph ${s.phaseNum}/${s.phaseTotal}`;
       parts.push(phase);
     }
   }
@@ -449,13 +778,17 @@ function contextTokenSuffix(currentUsage) {
 // --- Compact state format (opt-in) ---------------------------------------------
 
 /**
- * Collapse GSD's free-text status (often a multi-sentence narrative) to a
- * single keyword, built on the canonical normalizer (#2162 approval
- * condition): normalizeStateStatus() in state-document.cjs owns the status
- * vocabulary (discussing / planning / executing / verifying / completed /
- * paused) so the two can't drift. "paused" — the canonical stuck state — is
- * uppercased to PAUSED, the one state worth shouting about. Statuses the
- * normalizer passes through unrecognized fall back to their first word,
+ * Collapse GSD's status value to a single keyword, built on the canonical
+ * normalizer (#2162 approval condition): normalizeStateStatus() in
+ * state-document.cjs owns the status vocabulary (discussing / planning /
+ * executing / verifying / completed / paused) so the two can't drift.
+ * #4186: the normalizer recognizes the DECLARED vocabulary by anchored
+ * whole-field match — vocabulary values (the state writer persists tokens)
+ * collapse to their keyword; free-text narratives are no longer
+ * keyword-guessed from substrings (a `.planning/` mention in non-English
+ * prose used to render `planning`), and pass through unrecognized to the
+ * first-word fallback below. "paused" — the canonical stuck state — is
+ * uppercased to PAUSED, the one state worth shouting about. The fallback is
  * capped at 16 chars so a rogue STATE.md can't blow up the line.
  * Returns null for empty input.
  */
@@ -486,17 +819,24 @@ function shortGsdStatus(status) {
  * default format — and collapses narrative statuses via shortGsdStatus().
  * The default "full" format is untouched.
  */
-function formatGsdStateCompact(s) {
+function formatGsdStateCompact(s, opts = {}) {
   // #2850: mirrors formatGsdState's observable "nothing resolvable" signal.
   if (s.noActiveWorkstream) return NO_ACTIVE_WORKSTREAM_LABEL;
 
   const parts = [];
+  const bracket = opts.convention === 'bracket';
+  const bracketMilestone = bracket
+    ? renderBracketMilestoneDisplay(s.milestone, opts.projectCode)
+    : null;
 
-  if (s.milestone) parts.push(s.milestone);
+  if (s.milestone) parts.push(bracketMilestone ?? s.milestone);
 
   const phaseId = s.activePhase || s.phaseNum;
   if (phaseId) {
-    parts.push(s.phaseTotal ? `P${phaseId}/${s.phaseTotal}` : `P${phaseId}`);
+    const bracketPhase = bracket
+      ? renderBracketPhaseDisplay(s.milestone, phaseId, opts.projectCode)
+      : null;
+    parts.push(bracketPhase ?? (s.phaseTotal ? `P${phaseId}/${s.phaseTotal}` : `P${phaseId}`));
   }
 
   // Scene exclusivity mirrors formatGsdState's if/else chain: an in-flight
@@ -551,7 +891,39 @@ function compactModelName(name) {
 // are a fixed array, and the workspace dir is passed via -C. Fails silently
 // (segment absent) outside a repo, without git, or on timeout.
 
+// #5048: bound for the `git status` spawn below. With GIT_OPTIONAL_LOCKS=0 the
+// spawn no longer writes the refreshed index back, so what is left is reading
+// the index and stat-ing the tracked paths. The bound keeps a hung network
+// filesystem from stalling a render for long while leaving room for a cold stat
+// cache on a large repo. The figure was chosen, not measured: time
+// `git status --porcelain=v2 --branch` on a large tree with a cold cache before
+// changing it. Exported so the test can pin the bound instead of restating the
+// literal (which is how the constant and its assertion drifted before).
 const GIT_STATUS_TIMEOUT_MS = 1500;
+
+/**
+ * #5048: env for the read-only git spawn in this file.
+ *
+ * By default `git status` refreshes the index and takes an *optional*
+ * `.git/index.lock` to write the refreshed copy back. That is a write the
+ * caller never asked for, and it turns a pure read into a contender for the
+ * lock a real `git add` / `git commit` needs — a read-only statusline render
+ * can then make a concurrent commit fail with
+ * `Unable to create '.git/index.lock': File exists`. The statusline spawns
+ * git on every render, so the lock is re-created continuously.
+ *
+ * The env block itself is owned by src/read-only-git-env.cts and shared with
+ * every other read-only seam (`execGit` in src/shell-command-projection.cts,
+ * `readGitSignals` in src/smart-entry.cts, `gitExec` in
+ * src/pristine-baseline.cts, the two blocking guards). This hook reads it per
+ * call rather than snapshotting at load, so a later `process.env` mutation is
+ * visible and the seams behave identically.
+ *
+ * Deliberately NOT applied to the `git rev-list` spawn in
+ * readStateHeadCommits(): that walks the commit graph and never opens the
+ * index, so the variable would be a no-op there.
+ */
+const { readOnlyGitEnv } = require('../gsd-core/bin/lib/read-only-git-env.cjs');
 
 /**
  * Run `git status --porcelain=v2 --branch` in dir.
@@ -564,7 +936,7 @@ function readGitStatus(dir) {
     // or untracked files; overflow still degrades safely to segment-absent via
     // the catch below.
     return childProcess.execFileSync('git', ['-C', dir, 'status', '--porcelain=v2', '--branch'],
-      { encoding: 'utf8', timeout: GIT_STATUS_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+      { encoding: 'utf8', timeout: GIT_STATUS_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, env: readOnlyGitEnv(gitEnv()) });
   } catch (e) {
     return null;
   }
@@ -657,9 +1029,9 @@ function isValidStateHeadStamp(raw) {
  */
 function readStateHeadCommits(root, stamp) {
   try {
-    return childProcess.execFileSync('git',
+    return childProcess.execFileSync('git', // allow-index-refresh: rev-list walks the commit graph and never opens the index
       ['-C', root, 'rev-list', '--left-right', '--count', `${stamp}...HEAD`],
-      { encoding: 'utf8', timeout: STATE_FRESHNESS_GIT_TIMEOUT_MS,
+      { env: gitEnv(), encoding: 'utf8', timeout: STATE_FRESHNESS_GIT_TIMEOUT_MS,
         stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
   } catch (e) {
     return null;
@@ -743,7 +1115,7 @@ function formatStateFreshness(fresh) {
  * entry points — this collapses both onto one resolver.
  *
  * @param {object} cfg — parsed .planning/config.json (readGsdConfig())
- * @returns {{ showLastCommand: boolean, position: 'end'|'front', stateFormat: 'full'|'compact', showGit: boolean, showStateFreshness: boolean }}
+ * @returns {{ showLastCommand: boolean, position: 'end'|'front', stateFormat: 'full'|'compact', showGit: boolean, showStateFreshness: boolean, convention: string|null, projectCode: string|null }}
  */
 function resolveStatuslineOptions(cfg) {
   const showLastCommand = getConfigValue(cfg, 'statusline.show_last_command') === true;
@@ -755,7 +1127,22 @@ function resolveStatuslineOptions(cfg) {
   const stateFormat = getConfigValue(cfg, 'statusline.state_format') === 'compact' ? 'compact' : 'full';
   const showGit = getConfigValue(cfg, 'statusline.show_git') === true;
   const showStateFreshness = getConfigValue(cfg, 'statusline.show_state_freshness') === true;
-  return { showLastCommand, position, stateFormat, showGit, showStateFreshness };
+  const convention = getConfigValue(cfg, 'phase_id_convention') === 'bracket'
+    ? 'bracket'
+    : null;
+  const projectCodeValue = getConfigValue(cfg, 'project_code');
+  const projectCode = typeof projectCodeValue === 'string' && projectCodeValue !== ''
+    ? projectCodeValue
+    : null;
+  return {
+    showLastCommand,
+    position,
+    stateFormat,
+    showGit,
+    showStateFreshness,
+    convention,
+    projectCode,
+  };
 }
 
 // --- stdin ------------------------------------------------------------------
@@ -774,28 +1161,22 @@ function runStatusline() {
     const model = compactModelName(data.model?.display_name || 'Claude');
     const dir = data.workspace?.current_dir || process.cwd();
     const session = data.session_id || '';
-    const remaining = data.context_window?.remaining_percentage;
 
     // Read .planning config once — used by the context meter (token suffix)
     // and the last-command/position block below. Fail-soft to {}.
     let cfg = {};
     try { cfg = readGsdConfig(dir); } catch (e) {}
 
-    // Context window display (shows USED percentage scaled to usable context)
-    // Claude Code reserves a buffer for autocompact. By default this is ~16.5%
-    // of the total window, but users can override it via CLAUDE_CODE_AUTO_COMPACT_WINDOW
-    // (a token count). When the env var is set, compute the buffer % dynamically so
-    // the meter correctly reflects early-compaction configurations (#2219).
-    const totalCtx = data.context_window?.total_tokens || 1_000_000;
-    const acw = parseInt(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '0', 10);
-    const AUTO_COMPACT_BUFFER_PCT = acw > 0
-      ? Math.min(100, Math.max(0, (1 - acw / totalCtx) * 100))
-      : 16.5;
+    // Context window display: USED percentage of the auto-compact threshold,
+    // so 100% is where Claude Code compacts — resolved from
+    // CLAUDE_CODE_AUTO_COMPACT_WINDOW, the `autoCompactWindow` setting, or the
+    // model window (#2219, #4985). With auto-compact disabled (#4844) 100% is
+    // the model window. Project settings are read from workspace.project_dir,
+    // Claude Code's launch directory, not the current directory.
+    const meter = contextMeter(data.context_window, data.workspace?.project_dir || dir, process.env, data.model?.id);
     let ctx = '';
-    if (remaining != null) {
-      // Normalize: subtract buffer from remaining, scale to usable range
-      const usableRemaining = Math.max(0, ((remaining - AUTO_COMPACT_BUFFER_PCT) / (100 - AUTO_COMPACT_BUFFER_PCT)) * 100);
-      const used = Math.max(0, Math.min(100, Math.round(100 - usableRemaining)));
+    if (meter) {
+      const { used } = meter;
 
       // Write context metrics to bridge file for the context-monitor PostToolUse hook.
       // The monitor reads this file to inject agent-facing warnings when context is low.
@@ -805,15 +1186,20 @@ function runStatusline() {
       if (sessionSafe) {
         try {
           const bridgePath = path.join(os.tmpdir(), `claude-ctx-${session}.json`);
-          // used_pct written to the bridge must match CC's native /context reporting:
-          // raw used = 100 - remaining_percentage (no buffer normalization applied).
-          // The normalized `used` value is correct for the statusline progress bar but
-          // inflates the context monitor warning messages by ~13 points (#2451).
-          const rawUsedPct = Math.round(100 - remaining);
+          // The bridge is on the bar's scale: remaining_percentage counts down
+          // to the auto-compact threshold, so the monitor's WARNING/CRITICAL
+          // fire before compaction rather than after it (#4985). The token
+          // counts let its message match /context, which is what #2451 kept
+          // the bridge raw for; they are absent when the payload has no
+          // context_window_size.
           const bridgeData = JSON.stringify({
             session_id: session,
-            remaining_percentage: remaining,
-            used_pct: rawUsedPct,
+            remaining_percentage: meter.remaining,
+            used_pct: used,
+            ...(meter.usedTokens !== null && {
+              used_tokens: meter.usedTokens,
+              threshold_tokens: meter.limitTokens,
+            }),
             timestamp: Math.floor(Date.now() / 1000)
           });
           fs.writeFileSync(bridgePath, bridgeData);
@@ -930,7 +1316,9 @@ function runStatusline() {
     // freshness git spawn here would spend a subprocess on discarded output.
     if (!task) {
       const state = readGsdState(dir, { stateFreshness: options.showStateFreshness }) || {};
-      gsdStateStr = options.stateFormat === 'compact' ? formatGsdStateCompact(state) : formatGsdState(state);
+      gsdStateStr = options.stateFormat === 'compact'
+        ? formatGsdStateCompact(state, options)
+        : formatGsdState(state, options);
     }
 
     // Output
@@ -1038,6 +1426,11 @@ module.exports = {
   STATE_HEAD_ADVISORY_COMMITS, isValidStateHeadStamp,
   readStateHeadCommits, parseRevListCounts, deriveStateFreshness,
   formatStateFreshness, resolveStatuslineOptions,
+  renderBracketPhaseDisplay, renderBracketMilestoneDisplay,
+  isAutoCompactDisabled, AUTO_COMPACT_DISABLE_ENV_KEYS, AUTO_COMPACT_ENV_TRUTHY,
+  resolveAutoCompactThreshold, contextMeter, SETTINGS_FILE_MAX_BYTES,
+  parseAutoCompactWindowEnv, canonicalModelKey, isAutoCompactWindowValue,
+  GIT_STATUS_TIMEOUT_MS,
 };
 
 /**
@@ -1055,7 +1448,15 @@ function renderStatusline(data) {
   // key from reaching only one of them.
   let lastCmdSuffix = '';
   let gitSuffix = '';
-  let options = { showLastCommand: false, position: 'end', stateFormat: 'full', showGit: false, showStateFreshness: false };
+  let options = {
+    showLastCommand: false,
+    position: 'end',
+    stateFormat: 'full',
+    showGit: false,
+    showStateFreshness: false,
+    convention: null,
+    projectCode: null,
+  };
   try {
     const cfg = readGsdConfig(dir);
     options = resolveStatuslineOptions(cfg);
@@ -1071,7 +1472,9 @@ function renderStatusline(data) {
   } catch (e) { /* swallow */ }
 
   const state = readGsdState(dir, { stateFreshness: options.showStateFreshness }) || {};
-  const gsdStateStr = options.stateFormat === 'compact' ? formatGsdStateCompact(state) : formatGsdState(state);
+  const gsdStateStr = options.stateFormat === 'compact'
+    ? formatGsdStateCompact(state, options)
+    : formatGsdState(state, options);
   const middle = gsdStateStr ? `\x1b[2m${gsdStateStr}\x1b[0m` : null;
   return composeStatusline({ model, ctx: '', middle, dirname, lastCmdSuffix, gitSuffix, position: options.position });
 }

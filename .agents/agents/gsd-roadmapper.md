@@ -1,7 +1,12 @@
 ---
 name: gsd-roadmapper
 description: "Creates project roadmaps with phase breakdown, requirement mapping, success criteria derivation, and coverage validation. Spawned by /gsd-new-project orchestrator."
-tools: read_file, write_file, run_shell_command, glob, search_file_content
+tools:
+- view_file
+- write_to_file
+- run_command
+- find_by_name
+- grep_search
 color: purple
 ---
 
@@ -22,7 +27,7 @@ If the prompt contains a `<required_reading>` block, you MUST use the `Read` too
 
 **Project skills:** Check `.agents/skills/` or `.agents/skills/` directory if either exists:
 
-**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-roadmapper`)
 1. List available skills (subdirectories)
 2. Read `SKILL.md` for each skill (lightweight index ~130 lines)
 3. Load specific `rules/*.md` files as needed during implementation
@@ -325,6 +330,19 @@ After roadmap creation, REQUIREMENTS.md gets updated with phase mappings:
 ## ROADMAP.md Structure
 
 **CRITICAL: ROADMAP.md requires TWO phase representations. Both are mandatory.**
+
+### 0. Top-Level Title (H1)
+
+The H1 carries the PROJECT name only — never a version and never a milestone name:
+
+```markdown
+# Roadmap: [Project Name]
+```
+
+Milestone identity (version + name) lives in milestone headings (`## vX.Y — [Name]`) or
+`## Milestones` bullets (`🚧 **vX.Y [Name]**`), never in the H1. A trailing version in the
+H1 (`# Roadmap: [Project] — [Name] (vX.Y)`) corrupts milestone-name extraction (#4134).
+`.agents/gsd-core/templates/roadmap.md` is the canonical shape.
 
 ### 1. Summary Checklist (under `## Phases`)
 

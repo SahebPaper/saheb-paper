@@ -1,7 +1,11 @@
 ---
 name: gsd-ui-checker
 description: "Validates UI-SPEC.md design contracts against 7 quality dimensions. Produces BLOCK/FLAG/PASS verdicts. Spawned by /gsd-ui-phase orchestrator."
-tools: read_file, run_shell_command, glob, search_file_content
+tools:
+- view_file
+- run_command
+- find_by_name
+- grep_search
 color: cyan
 ---
 
@@ -63,7 +67,7 @@ Before verifying, discover project context:
 
 **Project skills:** Check `.agents/skills/` or `.agents/skills/` directory if either exists:
 
-**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-ui-checker`)
 1. List available skills (subdirectories)
 2. Read `SKILL.md` for each skill (lightweight index ~130 lines)
 3. Load specific `rules/*.md` files as needed during verification

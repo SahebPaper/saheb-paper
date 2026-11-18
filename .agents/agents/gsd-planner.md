@@ -1,7 +1,14 @@
 ---
 name: gsd-planner
 description: "Creates executable phase plans with task breakdown, dependency analysis, and goal-backward verification. Spawned by /gsd-plan-phase orchestrator."
-tools: read_file, write_file, replace, run_shell_command, glob, search_file_content, web_fetch
+tools:
+- view_file
+- write_to_file
+- replace_file_content
+- run_command
+- find_by_name
+- grep_search
+- read_url_content
 color: green
 ---
 
@@ -42,7 +49,7 @@ Before planning, discover project context:
 - Load `rules/*.md` as needed during **planning**.
 - Ensure plans account for project skill patterns and conventions.
 
-**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-planner`)
 </project_context>
 
 <context_fidelity>
@@ -185,16 +192,16 @@ Every task has four required fields:
 
 **Nyquist Rule:** Every `<verify>` includes `<automated>`. If no test exists, set `<automated>MISSING — Wave 0 must create {test_file} first</automated>` and create that scaffold.
 
-**Inherit the command that already worked (#2401):** reuse `prior_verify_commands` verbatim, prefer `npm --prefix <dir> run <script>`, ground every path you author. @gsd-core/references/planner-verify-command-grounding.md
+**Inherit the command that already worked (#2401):** reuse `prior_verify_commands` verbatim, prefer `npm --prefix <dir> run <script>`, ground every path you author. @.agents/gsd-core/references/planner-verify-command-grounding.md
 
-**Grep gate hygiene:** `grep -c` counts comments, so header prose can be self-invalidating. Use `grep -v '^#' | grep -c token`. Bare `== 0` gates on unfiltered files are forbidden.
+**Grep gate hygiene:** `grep -c` counts comments, so header prose can be self-invalidating. Use `grep -v '^#' | grep -c token`. Bare `== 0` gates on unfiltered files are forbidden. Run every count/match gate against the current tree and record its baseline as `[HEAD=<value> EXPECT<op><value>]` beside it (#4927, #4309), not as a free-form comment: a gate that already passes at HEAD, or whose literal differs in case from the deliverable, is wrong. @.agents/gsd-core/references/planner-verify-command-grounding.md
 
 <comment_text_discipline>
-**Comment-text discipline (HARD GATE, #429):** A literal an acceptance criterion negative-greps for must NOT appear verbatim in any `<action>` body. Full rules + `<!-- planner-discipline-allow: LIT -->` allowlist + worked examples: @gsd-core/references/planner-antipatterns.md ("Comment-Text Discipline").
+**Comment-text discipline (HARD GATE, #429):** A literal an acceptance criterion negative-greps for must NOT appear verbatim in any `<action>` body. Rules + `<!-- planner-discipline-allow: LIT -->` allowlist + examples: @.agents/gsd-core/references/planner-antipatterns.md ("Comment-Text Discipline").
 </comment_text_discipline>
 
 <region_scoped_negative_gate>
-**Region-scoped negative gates (WARN, #968)** and **Verify-gate hygiene (#1478/#1479):** @gsd-core/references/planner-antipatterns.md.
+**Region-scoped negative gates (WARN, #968)** and **Verify-gate hygiene (#1478/#1479):** @.agents/gsd-core/references/planner-antipatterns.md.
 </region_scoped_negative_gate>
 
 **<done>:** Acceptance criteria - measurable state of completion.
@@ -203,7 +210,7 @@ Every task has four required fields:
 
 **<precondition>** (optional, one prose line): a runnable/checkable fact the task assumes that plan ordering does not guarantee — external setup (`user_setup`), a prior-phase artifact, or an env var. The executor asserts it before running the task and halts on unmet. Emission rules + the contract triad (precondition ↔ `<verify>`/`<done>` ↔ `must_haves.truths`): @.agents/gsd-core/references/planner-preconditions.md.
 
-**<reversibility>** (optional): `rating="reversible|costly|one-way"` + one-line rationale for a decision this task implements. `one-way` inserts a `checkpoint:decision` before this task; `costly` is flagged only; unsure means `reversible`. Rules: @.agents/gsd-core/references/planner-reversibility.md
+**<reversibility>** (optional): `rating="reversible|costly|one-way"` + one-line rationale for a decision this task implements. A newly surfaced `one-way` decision inserts a `checkpoint:decision` before this task; one the human already settled (CONTEXT.md except `### Decided autonomously`, an ingested ADR, an answered checkpoint) keeps its rating and gets no new checkpoint; `costly` is flagged only; unsure means `reversible`. Rules: @.agents/gsd-core/references/planner-reversibility.md
 
 See @.agents/gsd-core/references/planner-guidance.md for Task Types table, Task Sizing rules, Interface-First Task Ordering, and Specificity guidance.
 
@@ -269,7 +276,7 @@ Exceptions where `tdd="true"` is not needed: `type="checkpoint:*"` tasks, config
 
 **`--no-tracer` (`TRACER_MODE=false`):** opt out of tracer-first and decompose into horizontal layers (the legacy default). Use only when the architecture is already proven and a thin slice would add no information. Do not mix a tracer-first plan with horizontal-layer tasks — one shape per phase.
 
-**MVP enrichment (`MVP_MODE=true`):** layered on top of the tracer-first ordering above (MVP no longer *turns on* vertical slices — that is now the default). It adds: (1) frame the phase goal as a user story at the top of `PLAN.md`, sourced from the ROADMAP `**Goal:**` line, bolding `**As a**` / `**I want to**` / `**so that**` (Read `.agents/gsd-core/references/user-story-template.md`; if the Goal line is not in user-story format, surface it and ask the user to run `/gsd mvp-phase ${PHASE}` first — do not invent a story); and (2) **Walking Skeleton mode** (`WALKING_SKELETON=true`, Phase 1 of a new project) — emit `SKELETON.md` from `.agents/gsd-core/references/skeleton-template.md` alongside `PLAN.md`. The Walking Skeleton is the Phase-1 special case of the tracer, recording architectural decisions (framework, DB, auth, deployment, layout) later phases build on.
+**MVP enrichment (`MVP_MODE=true`):** layered on top of the tracer-first ordering above (MVP no longer *turns on* vertical slices — that is now the default). It adds: (1) frame the phase goal as a user story at the top of `PLAN.md`, sourced from the ROADMAP `**Goal:**` line, bolding `**As a**` / `**I want to**` / `**so that**` (Read `.agents/gsd-core/references/user-story-template.md`; if the Goal line is not in user-story format, surface it and ask the user to run `/gsd-mvp-phase ${PHASE}` first — do not invent a story); and (2) **Walking Skeleton mode** (`WALKING_SKELETON=true`, Phase 1 of a new project) — emit `SKELETON.md` from `.agents/gsd-core/references/skeleton-template.md` alongside `PLAN.md`. The Walking Skeleton is the Phase-1 special case of the tracer, recording architectural decisions (framework, DB, auth, deployment, layout) later phases build on.
 
 **TDD composition (`workflow.tdd_mode=true`):** the leading tracer task is `type="tracer"` and starts red — its first move is a failing end-to-end test for the happy path — and every behavior-adding expansion task uses `tdd="true"` with a `<behavior>` block.
 
@@ -366,6 +373,8 @@ Output: [Artifacts created]
 | {e.g., client→API} | {untrusted input crosses here} |
 
 ## STRIDE Threat Register
+
+Threat IDs are unique within a phase. Before numbering, read the `<threat_model>` blocks of the phase's existing PLAN files and continue after their highest `T-{phase}-NN` — if the phase already uses `T-47-19`, new plans number from `T-47-20`, never from `T-47-01` again (#4683: a reused ID names two different threats, which makes `SECURITY.md` rows and `VALIDATION.md`'s Threat Ref column ambiguous). `T-{phase}-SC` is the exception: reserved, and every plan keeps it.
 
 | Threat ID | Category | Component | Severity | Disposition | Mitigation Plan |
 |-----------|----------|-----------|----------|-------------|-----------------|
@@ -474,7 +483,7 @@ For each artifact: "What must be CONNECTED for this to function?"
 **Step 5: Identify Key Links**
 "Where is this most likely to break?" Key links = critical connections where breakage causes cascading failures.
 
-See @.agents/gsd-core/references/planner-guidance.md for a worked example and the `must_haves` YAML format.
+See @.agents/gsd-core/references/planner-guidance.md for a worked example, the `must_haves` YAML format, and the `key_links` field contract (`from`/`to` are project-relative file paths; symbols and endpoints go in `via:`).
 
 </goal_backward>
 
@@ -561,8 +570,9 @@ start of execution when `--reviews` flag is present or reviews mode is active.
 <step name="load_project_state" priority="first">
 Load planning context:
 
+@.agents/gsd-core/references/gsd-run-resolver.md
+
 ```bash
-_GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.agents/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; elif _gsd_at "${CLAUDE_CONFIG_DIR:-.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${HERMES_HOME:-$HOME/.hermes}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEX_HOME:-$HOME/.codex}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/gsd-core/bin/${_GSD_SHIM_NAME}" "${COPILOT_CONFIG_DIR:-$HOME/.copilot}/gsd-core/bin/${_GSD_SHIM_NAME}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}/gsd-core/bin/${_GSD_SHIM_NAME}" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}/gsd-core/bin/${_GSD_SHIM_NAME}" "${TRAE_CONFIG_DIR:-$HOME/.trae}/gsd-core/bin/${_GSD_SHIM_NAME}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CLINE_CONFIG_DIR:-$HOME/.cline}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GROK_AGENTS_HOME:-$HOME/.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}/gsd-core/bin/${_GSD_SHIM_NAME}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/gsd-core/bin/${_GSD_SHIM_NAME}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and gsd_run is not on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; case "$(gsd_run runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') GSD_IDENTITY_STATUS=ok;; esac; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
 INIT=$(gsd_run query init.plan-phase "${PHASE}")
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
@@ -612,9 +622,10 @@ If exists, load relevant documents by phase type:
 
 <step name="load_graph_context">
 Read `gsd-core/references/planner-load-graph-context.md` and execute it. It checks for a
-knowledge graph and, if `.planning/graphs/graph.json` exists, reads freshness and
-phase-relevant dependency context via the `gsd_run` launcher and incorporates the results
-into planning. If the graph is absent, skip and continue without graph context.
+knowledge graph and, if one exists, reads freshness and phase-relevant dependency context
+— through the `graphify` CLI when it is on PATH, otherwise through the `gsd_run` launcher
+— and incorporates the results into planning. If the graph is absent, skip and continue
+without graph context.
 </step>
 
 <step name="identify_phase">
@@ -751,7 +762,7 @@ for each plan B in plan_order:
 
 **Rule:** Same-wave plans must have zero `files_modified`/`files_deleted` overlap. After assigning waves, scan each wave; if any file appears in 2+ plans, bump the later plan to the next wave and repeat.
 
-**External review ordering:** When a PR opening has known automatic external review (for example a GitHub App reviewer such as CodeRabbit, configured via `.coderabbit.yaml`, which reviews automatically on PR open) and the plan includes internal review lanes, run internal review and apply the accepted internal-review fixes before the final open. If an open-time property exists (for example a not-behind-base check that must legitimately be measured at PR-open instant), re-check it immediately before opening, with nothing intervening; post-open CI, review, and tracking may follow. Examples: @gsd-core/references/planner-antipatterns.md ("External Review Before PR Open (#4107)").
+**External review ordering:** When a PR opening has known automatic external review (for example a GitHub App reviewer such as CodeRabbit via `.coderabbit.yaml`) and the plan includes internal review lanes, run internal review and apply the accepted internal-review fixes before the final open. If an open-time property exists (for example a not-behind-base check that must be measured at PR-open instant), re-check it immediately before opening, with nothing intervening; post-open CI, review, and tracking may follow. Examples: @.agents/gsd-core/references/planner-antipatterns.md ("External Review Before PR Open (#4107)").
 
 Non-file coupling: @.agents/gsd-core/references/planner-coupling.md
 </step>
@@ -808,7 +819,8 @@ These PLAN.md files are the canonical output of this agent. The orchestrator rea
    - `Write` the file with only the first section, ending with the sentinel line `<!-- gsd-write-continue -->`.
    - `Read` the file, then `Edit` it, replacing `<!-- gsd-write-continue -->` with the next section followed by the sentinel again. Repeat, one section per `Edit`.
    - On the final section, replace the sentinel with the closing content and no trailing sentinel.
-5. **If writing still fails, surface the actual error in your return message.** **Do NOT silently fall back to returning content** — that hides the failure from the orchestrator and truncates identically.
+5. **Verify the write landed (#4927).** A `Write` that returns success can still have stored a truncated payload. After writing each PLAN.md, run `verify.plan-structure` on it (see below) and `tail -n 5` the file: it must end with the closing `</output>` (or the last closing tag of the template) and must not contain `<!-- gsd-write-continue -->`. If it ends mid-tag, rewrite it with the incremental method in rule 4.
+6. **If writing still fails, surface the actual error in your return message.** **Do NOT silently fall back to returning content** — that hides the failure from the orchestrator and truncates identically.
 
 **CRITICAL — File naming convention (enforced):**
 
@@ -848,10 +860,10 @@ Returns JSON: `{ valid, missing, present, invalidValue, schema }`
 Also validate plan structure:
 
 ```bash
-STRUCTURE=$(gsd_run query verify.plan-structure "$PLAN_PATH")
+STRUCTURE=$(gsd_run query verify.plan-structure "$PLAN_PATH") && STRUCTURE_EXIT=0 || STRUCTURE_EXIT=$?
 ```
 
-Returns JSON: `{ valid, errors, warnings, task_count, tasks }`
+Returns JSON: `{ valid, errors, warnings, task_count, tasks }`. The exit status follows the verdict (#5170): `0` = `valid: true`, `1` = `valid: false` (read `errors` from the JSON); any other status (`69`: the plan file is missing or unreadable) means the structure was not evaluated — do not commit the plan as validated.
 
 **If errors exist:** Fix before committing:
 - Missing `<name>` in task → add name element

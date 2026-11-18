@@ -856,6 +856,7 @@ const VALID_CONVERTER_NAMES = new Set([
   'convertClaudeCommandToKimiSkill',
   'convertClaudeCommandToKimiCodeSkill',
   'convertClaudeCommandToOpencodeSkill',
+  'convertClaudeCommandToPiSkill',
   'convertClaudeCommandToTraeSkill',
   'convertClaudeCommandToWindsurfSkill',
   'convertClaudeCommandToWindsurfWorkflow',
@@ -879,6 +880,8 @@ const VALID_CONVERTER_NAMES = new Set([
   // and the kilo/opencode agent converters (shared with those runtimes'
   // commands-kind entries, options-bag signature `(content, {isAgent, modelOverride})`).
   'convertClaudeAgentToHermesAgent',
+  // #5569 (ADR-5559 §3) — the role file Pi's gsd_dispatch loads.
+  'convertClaudeAgentToPiAgent',
   'convertClaudeToKiloFrontmatter',
   'convertClaudeToOpencodeFrontmatter',
 ]);
@@ -1233,6 +1236,20 @@ function validateArtifactKindEntry(capId, entry, prefix) {
   if (entry.recursive !== undefined) {
     if (typeof entry.recursive !== 'boolean') {
       errors.push(ctx + '.recursive must be a boolean if present (got: ' + typeof entry.recursive + ')');
+    }
+  }
+
+  // excludeSuffixes — optional; filename suffixes the agents staging skips (#5569: Pi omits .compact.md)
+  if (entry.excludeSuffixes !== undefined) {
+    if (!Array.isArray(entry.excludeSuffixes)) {
+      errors.push(ctx + '.excludeSuffixes must be an array of non-empty strings if present');
+    } else {
+      for (let i = 0; i < entry.excludeSuffixes.length; i++) {
+        const s = entry.excludeSuffixes[i];
+        if (typeof s !== 'string' || s.length === 0 || s.includes('/') || s.includes('\\')) {
+          errors.push(ctx + '.excludeSuffixes[' + i + '] must be a non-empty string without path separators');
+        }
+      }
     }
   }
 
@@ -1857,6 +1874,11 @@ const KNOWN_REVIEWER_FIELDS = new Set([
   // effort", which emits no effort argument at all.
   'effortConfigKey',
   'defaultEffort',
+  // `contextWindowTokens` / `contextWindowConfigKey` added by #4559, same optional/backward-compatible
+  // shape as `promptBudgetKey`: a manifest authored before they existed keeps validating, and an
+  // absent or non-positive window resolves to "no derived prompt cap" at the invocation boundary.
+  'contextWindowTokens',
+  'contextWindowConfigKey',
   'handler',
 ]);
 
@@ -1899,6 +1921,10 @@ const REVIEWER_EFFORT_LEVELS = new Set(['minimal', 'low', 'medium', 'high', 'xhi
  * silently rot away from reality (DEFECT.GENERATIVE-FIX).
  */
 const KNOWN_HOST_BEHAVIORS = new Set([
+  // #2586: declares runtime-level feature axes GSD does not/cannot support on
+  // omitting the key on every other runtime carries no inverted meaning.
+  // this host (e.g. Codex's `["context-warnings","phase-lifecycle-display"]`)
+  // — present-and-populated / absent-is-unsupported-empty convention, so
   'agentFileExtension',
   'agentFrontmatterExtensions',
   'agentManifestStyle',
@@ -1906,11 +1932,17 @@ const KNOWN_HOST_BEHAVIORS = new Set([
   'attributionConfigResolver',
   'attributionSource',
   'authorsCanonicalWorkflow',
+  'bakedAgentFileExtensions',
+  'bakesStaticAgentModel',
+  'bareStemSkillsCleanup',
   'brandingRewrites',
+  'categoryContainerCleanup',
   'cleanupSkillSidecars',
   'clineRulesSurface',
   'combinedFamilyInstall',
   'commandBodyConverter',
+  'contentRewriteProfile',
+  'defaultHomeIncludeRoot',
   'doneBannerStyle',
   'flatCommandDir',
   'frontmatterDialect',
@@ -1923,6 +1955,7 @@ const KNOWN_HOST_BEHAVIORS = new Set([
   'legacyCommandsGsdInstallMigration',
   'legacyCommandsGsdUninstall',
   'legacyDevinSkillsCleanup',
+  'legacyFlatSkillsCleanup',
   'localCommandsViaRules',
   'localInstallDeferred',
   'localInstallStyle',
@@ -1930,32 +1963,45 @@ const KNOWN_HOST_BEHAVIORS = new Set([
   'managedHookEvents',
   'mcpCompanion',
   'namedSubagentsSupported',
+  'nativeCliPlugin',
   'nativeModelAliases',
   'nativePlugin',
   'noPathRewrite',
+  'omitBashRunnerOnWindows',
+  'opencodePathPrefix',
   'ownsClaudePaths',
   'permissionsSchema',
   'pluginOnlyInstall',
+  'powershellHooksOnWindows',
   'projectInstructionFile',
   'reapplyCommand',
+  'reclaimsKimiLegacyHooksRoot',
   'reportCommandsDir',
   'reportSkillsCount',
+  'requiresSubagentPair',
+  'restoreAtRefTildeInAgents',
+  'restoreAtRefTildeInSpecTree',
+  'retargetsGsdCoreProsePath',
   'retiredArtifacts',
+  'rewriteClaudeAtIncludes',
   'settingsFileByScope',
   'sharedHooksDirName',
   'skillFrontmatterVersion',
   'skillPriorityFrontmatter',
   'skillsGlobalOnboarding',
   'skillsManifestPrefix',
-  'skipCodexSkillsManifest',
+  'skipCompactAgents',
   'skipHomePrefixSubstitution',
+  'skipRuntimeDefaultsStamp',
   'skipSettingsUi',
   'skipSharedHooksInstall',
   'skipUpdateBannerCommand',
   'soloStageMetadata',
   'sourceMarkerFile',
+  'specRootSkillPass',
   'tomlConfigInstall',
   'trackCategoryDescription',
+  'unsupportedFeatures',
   'verificationStyle',
   'writeCategoryDescription',
 ]);
@@ -2465,6 +2511,16 @@ function validateReviewerBodyFields(cap) {
     );
   }
 
+  // #4559: optional. Absent or null is "no declared window"; a present key must be a dotted
+  // config key string. The window's VALUE is narrowed (never rejected) by `resolveLaneCap`.
+  if (r.contextWindowConfigKey !== undefined && r.contextWindowConfigKey !== null
+      && (typeof r.contextWindowConfigKey !== 'string' || r.contextWindowConfigKey.length === 0)) {
+    errors.push(
+      ctx + ' reviewer.contextWindowConfigKey must be a dotted config key or null ' +
+      '(got: ' + describeValue(r.contextWindowConfigKey) + ')',
+    );
+  }
+
   // ── handler (D6) — closed first-party enum; null is the default ────────────
   if (r.handler !== null && !VALID_LANE_HANDLERS.has(r.handler)) {
     errors.push(
@@ -2796,7 +2852,7 @@ function materializeHookFragments(cap, capDir) {
 
       const abs = path.resolve(capDir, fragment.path);
       const capRoot = path.resolve(capDir);
-      if (abs !== capRoot && !abs.startsWith(capRoot + path.sep)) {
+      if (abs !== capRoot && !abs.startsWith(capRoot + path.sep)) { // allow-handrolled-containment: committed pre-build .cjs; compiled security.cjs is untracked build output
         errors.push(
           cap.id + '/' + groupName + '[' + i + '].fragment.path escapes capability directory: ' +
           fragment.path,
@@ -2946,6 +3002,14 @@ function validateStep(step, prefix, declaredSkills, declaredAgents) {
 
   if (step.pointFrom !== undefined && typeof step.pointFrom !== 'string') {
     errors.push(prefix + '.pointFrom must be a string if present');
+  }
+
+  // #4209 DISP-02: strict optional boolean opt-in trait. Absent or false is
+  // inert; only a literal `true` reaches the projected active hook. Reject
+  // every other type (including truthy non-boolean values) so a typo can
+  // never silently opt a step into reviewer-lane dispatch.
+  if (step.supportsReviewerLanes !== undefined && typeof step.supportsReviewerLanes !== 'boolean') {
+    errors.push(prefix + '.supportsReviewerLanes must be a boolean if present');
   }
 
   if (step.fragment !== undefined) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gsd-hook-version: 1.13.0
+# gsd-hook-version: 1.21.0
 # gsd-validate-commit.sh — PreToolUse hook: enforce Conventional Commits format
 # Blocks git commit commands with non-conforming messages (exit 2).
 # Allows conforming messages and all non-commit commands (exit 0).
@@ -16,6 +16,21 @@ set -euo pipefail
 # Idempotent and failure-proof by construction: unset vars expand to "" (a
 # no-op rm -f target), and `|| true` guarantees the trap itself never changes
 # the script's exit status.
+# Subprocess exit statuses, pre-initialised so they can never be inherited from
+# the ambient environment. Each is captured as `... || VAR=$?`, which assigns
+# ONLY on the failure branch; on success the variable keeps whatever it already
+# held, and `${VAR:-0}` defaults only when unset or empty. So an EXPORTED
+# CONFIG_STATUS / CMD_STATUS / CLASSIFY_STATUS — from a CI wrapper, a .envrc, or
+# another hook — survived into the success path and was read as "the subprocess
+# failed". Measured: `CLASSIFY_STATUS=3 git commit -m "nope: bad"` printed
+# "validator disabled for this call" and exited 0, silently accepting a
+# non-conforming commit. Same for CONFIG_STATUS and CMD_STATUS. Found by the
+# security review of #4429; the gate is fail-open by design on a genuine
+# subprocess failure (#3838), which is exactly what made this bypass quiet.
+CONFIG_STATUS=0
+CMD_STATUS=0
+CLASSIFY_STATUS=0
+
 ENABLED_ERR=""
 CMD_ERR=""
 CLASSIFY_ERR=""
@@ -23,6 +38,27 @@ cleanup_temp_files() {
   rm -f "${ENABLED_ERR:-}" "${CMD_ERR:-}" "${CLASSIFY_ERR:-}" 2>/dev/null || true
 }
 trap cleanup_temp_files EXIT
+
+# The first line of $1 (everything before the first newline), matched BYTE-wise.
+#
+# `${1%%$'\n'*}` is a longest-suffix glob match, and on bash 3.2 (macOS's
+# /bin/bash) in a multibyte locale such as en_US.UTF-8 it costs ~3.5 s on a
+# 112KB value (#5473, measured inside the macOS conformance job: the same hook
+# on the same 114750-byte command took ~5.6 s under LC_ALL=en_US.UTF-8 and
+# ~0.55 s under LC_ALL=C, and a trace put 3.5 s of it on this expansion). A
+# newline is the same single byte in every locale, so matching it byte-wise
+# changes no result.
+#
+# ONLY call this inside a command substitution, `SUBJECT=$(gsd_first_line "$MSG")`:
+# the substitution's subshell is what keeps LC_ALL=C from leaking into the rest
+# of the hook, whose regexes and length arithmetic keep the caller's locale. A
+# substitution is a fork with no pipe between two processes, so it keeps the
+# property the pure-expansion form was chosen for (no `head -1` SIGPIPE race
+# under `set -euo pipefail`, #4429); printf is a builtin, so no exec either.
+gsd_first_line() {
+  LC_ALL=C
+  printf '%s' "${1%%$'\n'*}"
+}
 
 # The 10 built-in Conventional Commits types — the SINGLE declaration (#3811
 # review finding: this was previously hand-typed a second time inside the
@@ -61,6 +97,12 @@ if [ -f .planning/config.json ]; then
       process.exit(3);
     }
   " 2>"$ENABLED_ERR") || CONFIG_STATUS=$?
+  # Pre-initialised, NOT left to `${...:-0}` alone: the capture below only
+  # assigns on the `||` branch, so on SUCCESS the variable keeps whatever it
+  # already held — and an EXPORTED variable of this name is inherited from the
+  # ambient environment. `${VAR:-0}` defaults only when unset/empty, so
+  # `CONFIG_STATUS=3 git commit …` made this hook print "validator disabled" and exit 0,
+  # silently accepting a non-conforming commit. Found by review of #4429.
   CONFIG_STATUS=${CONFIG_STATUS:-0}
   if [ "$CONFIG_STATUS" != "0" ]; then
     # Could not determine the opt-in flag at all (node missing, JSON parse
@@ -69,7 +111,11 @@ if [ -f .planning/config.json ]; then
     echo "gsd-validate-commit.sh: could not read .planning/config.json (opt-in check) — validator disabled for this call. $(cat "$ENABLED_ERR")" >&2
     exit 0
   fi
-  ENABLED=$(printf '%s\n' "$CONFIG_OUT" | head -1)
+  # Pure parameter expansion, not `printf ... | head -1`: same SIGPIPE race
+  # class as the SUBJECT extraction below (`echo "$MSG" | head -1`) — CONFIG_OUT
+  # is multi-line whenever extra commit types are configured, and `head -1`
+  # closing early can SIGPIPE `printf` under `set -euo pipefail`.
+  ENABLED="${CONFIG_OUT%%$'\n'*}"
   if [ "$ENABLED" != "1" ]; then exit 0; fi
   # Remaining lines (if any) are the sanitized, deduped configured commit
   # types beyond the 10 built-ins (#3811). Read into a bash-3.2-safe array —
@@ -99,6 +145,12 @@ CMD=$(echo "$INPUT" | node -e "
     }
   });
 " 2>"$CMD_ERR") || CMD_STATUS=$?
+# Pre-initialised, NOT left to `${...:-0}` alone: the capture below only
+# assigns on the `||` branch, so on SUCCESS the variable keeps whatever it
+# already held — and an EXPORTED variable of this name is inherited from the
+# ambient environment. `${VAR:-0}` defaults only when unset/empty, so
+# `CMD_STATUS=3 git commit …` made this hook print "validator disabled" and exit 0,
+# silently accepting a non-conforming commit. Found by review of #4429.
 CMD_STATUS=${CMD_STATUS:-0}
 if [ "$CMD_STATUS" != "0" ]; then
   # Could not extract tool_input.command at all (node missing, malformed
@@ -123,6 +175,12 @@ GIT_CMD_LIB="$HOOK_DIR/lib/git-cmd.js" node -e "
     process.exit(3);
   }
 " "$CMD" 2>"$CLASSIFY_ERR" || CLASSIFY_STATUS=$?
+# Pre-initialised, NOT left to `${...:-0}` alone: the capture below only
+# assigns on the `||` branch, so on SUCCESS the variable keeps whatever it
+# already held — and an EXPORTED variable of this name is inherited from the
+# ambient environment. `${VAR:-0}` defaults only when unset/empty, so
+# `CLASSIFY_STATUS=3 git commit …` made this hook print "validator disabled" and exit 0,
+# silently accepting a non-conforming commit. Found by review of #4429.
 CLASSIFY_STATUS=${CLASSIFY_STATUS:-0}
 if [ "$CLASSIFY_STATUS" != "0" ] && [ "$CLASSIFY_STATUS" != "1" ]; then
   # 0 = is a git commit (validate below); 1 = genuinely not a git commit
@@ -214,7 +272,24 @@ if [ "$CLASSIFY_STATUS" = "0" ]; then
       # the message — the window a guard must use when the token it scans for
       # is also legal English inside a commit message, but may legally appear
       # on EITHER side of the message on the command line.
-      MSG_SUFFIX="${CMD#*"$MSG_MATCH"}"
+      # Indexed, not searched (#4492). `${CMD#*"$MSG_MATCH"}` is quadratic in
+      # the message: bash walks every prefix length and compares the whole
+      # matched literal at each one, and MSG_MATCH is BASH_REMATCH[0] — the
+      # entire `-m "..."` — so the cost grows with the thing being scanned.
+      # Measured on the path EVERY commit takes (conforming and non-conforming
+      # cost the same): 10.0 s at a 64 KB message, 22.0 s at 96 KB, 30.2 s at
+      # 112 KB. Sizes stop there deliberately — a single argument above Linux's
+      # MAX_ARG_STRLEN (131072 on a 4 KB-page kernel) never reaches this code
+      # at all, because execve fails and the hook fails open, so a larger
+      # "measurement" would be timing the wrong thing.
+      #
+      # MSG_PREFIX above has already located the match, so the suffix is
+      # arithmetic rather than a search: skip the prefix and the match. This
+      # removes the quadratic SEARCH; the expansion still counts characters and
+      # materialises a substring, so it is linear in the command, not O(1).
+      # Same first-occurrence assumption both expansions here always made —
+      # MSG_MATCH is a literal substring of CMD by construction.
+      MSG_SUFFIX="${CMD:$(( ${#MSG_PREFIX} + ${#MSG_MATCH} ))}"
       # LINE CONTINUATIONS ARE NOT SEPARATORS (review of #3816, rounds 8 and 9).
       # `git commit \` newline `  -m "$(cat <<'EOF' …` is an ordinary way to
       # spread an invocation over lines, and every guard below reads a newline in
@@ -521,13 +596,23 @@ if [ "$CLASSIFY_STATUS" = "0" ]; then
       SUBJECT=$(GIT_CMD_LIB="$HOOK_DIR/lib/git-cmd.js" MSG="$MSG" node -e "
         const {resolveCommitSubject}=require(process.env.GIT_CMD_LIB);
         process.stdout.write(resolveCommitSubject(process.env.MSG));
-      " 2>/dev/null) || SUBJECT=$(echo "$MSG" | head -1)
+      " 2>/dev/null) || SUBJECT=$(gsd_first_line "$MSG")
     else
-      SUBJECT=$(echo "$MSG" | head -1)
+      # Pure parameter expansion (in gsd_first_line), not
+      # `echo "$MSG" | head -1`: that pipeline
+      # raced a SIGPIPE under `set -euo pipefail` whenever $MSG had a body
+      # (the common case) — `head -1` can close its read end as soon as it
+      # has the first line, and if `echo`'s write lands after that close,
+      # `echo` dies with signal 13 (exit 141), which is NOT suppressed by
+      # `set -e` and aborted the whole hook intermittently (observed in
+      # tests/hooks-opt-in.test.cjs's --fixup=HEAD "round 7" case). No pipe
+      # means no race surface. Equivalent to
+      # `head -1` for single-line, multi-line, and trailing-newline input.
+      SUBJECT=$(gsd_first_line "$MSG")
     fi
     # Single source of truth for the accepted commit-type list (#3811): the
     # 10 built-ins plus whatever passed the safe-token filter above. Both the
-    # regex alternation and the human-readable error text below are derived
+    # membership test and the human-readable error text below are derived
     # from this ONE array — no hand-synced second copy.
     #
     # The `"${EXTRA_COMMIT_TYPES[@]+"${EXTRA_COMMIT_TYPES[@]}"}"` form (not
@@ -538,7 +623,6 @@ if [ "$CLASSIFY_STATUS" = "0" ]; then
     # /bin/bash 3.2.57 on macOS. The `${arr[@]+word}` form is the
     # nounset-safe idiom for "expand if set, empty otherwise" on empty arrays.
     COMMIT_TYPES=("${BUILTIN_COMMIT_TYPES[@]}" "${EXTRA_COMMIT_TYPES[@]+"${EXTRA_COMMIT_TYPES[@]}"}")
-    COMMIT_TYPE_ALT=$(IFS='|'; echo "${COMMIT_TYPES[*]}")
     COMMIT_TYPE_LIST=$(printf '%s, ' "${COMMIT_TYPES[@]}")
     COMMIT_TYPE_LIST="${COMMIT_TYPE_LIST%, }"
     # Typed `valid_types` array (#3811 review finding): CONTRIBUTING.md bans
@@ -550,8 +634,35 @@ if [ "$CLASSIFY_STATUS" = "0" ]; then
     # or `\`.
     COMMIT_TYPES_JSON=$(printf '"%s",' "${COMMIT_TYPES[@]}")
     COMMIT_TYPES_JSON="[${COMMIT_TYPES_JSON%,}]"
-    # Validate Conventional Commits format
-    if ! [[ "$SUBJECT" =~ ^($COMMIT_TYPE_ALT)(\(.+\))?:[[:space:]].+ ]]; then
+    # Validate Conventional Commits format.
+    #
+    # #4429: do NOT build `^(type1|type2|...)` out of COMMIT_TYPES. That
+    # alternation grows with the CONFIGURED list, and how large a pattern can be
+    # compiled is a property of the platform's regex engine. bash 3.2.57 / BSD
+    # libc (macOS, this file's stated target) caps it at 64 KiB - bisected: a
+    # 65504-byte alternation compiles, 65515 fails. bash 5.2 / glibc has no
+    # reachable cap, so this half never bit Linux. Past a cap `[[ =~ ]]`
+    # returns 2, and `if !` cannot tell a COMPILE ERROR from "the subject does
+    # not conform" - so a valid `feat(auth): ...` was blocked with
+    # CONVENTIONAL_COMMITS_VIOLATION while `feat` sat in its own valid_types.
+    #
+    # Match the SHAPE with a fixed-size pattern, then test membership against
+    # the array. The regex no longer depends on how many types are configured,
+    # and the loop adds no subprocess or pipe (the #4429 hazard this file
+    # already avoids elsewhere). The character class is exactly the safe-token
+    # filter `^[a-z][a-z0-9-]*$` applied above, so it captures every type that
+    # can legally reach COMMIT_TYPES and no token that cannot.
+    SUBJECT_TYPE=''
+    if [[ "$SUBJECT" =~ ^([a-z][a-z0-9-]*)(\(.+\))?:[[:space:]].+ ]]; then
+      SUBJECT_TYPE="${BASH_REMATCH[1]}"
+    fi
+    COMMIT_TYPE_OK=0
+    if [ -n "$SUBJECT_TYPE" ]; then
+      for _known_type in "${COMMIT_TYPES[@]}"; do
+        if [ "$_known_type" = "$SUBJECT_TYPE" ]; then COMMIT_TYPE_OK=1; break; fi
+      done
+    fi
+    if [ "$COMMIT_TYPE_OK" -ne 1 ]; then
       # Emit typed `code` and `valid_types` fields alongside `reason` (#2974,
       # #3811). Tests assert on the stable code string and the typed array;
       # the reason is the human-readable copy, never grepped by tests.

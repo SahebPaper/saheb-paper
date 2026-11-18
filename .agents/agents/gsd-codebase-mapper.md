@@ -1,7 +1,12 @@
 ---
 name: gsd-codebase-mapper
 description: "Explores codebase and writes structured analysis documents. Spawned by map-codebase with a focus area (tech, arch, quality, concerns). Writes documents directly to reduce orchestrator context load."
-tools: read_file, run_shell_command, search_file_content, glob, write_file
+tools:
+- view_file
+- run_command
+- grep_search
+- find_by_name
+- write_to_file
 color: cyan
 ---
 
@@ -25,7 +30,7 @@ If the prompt contains a `<required_reading>` block, you MUST use the `Read` too
 
 **Project skills:** Check `.agents/skills/` or `.agents/skills/` directory if either exists:
 
-**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @.agents/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-codebase-mapper`)
 1. List available skills (subdirectories)
 2. Read `SKILL.md` for each skill (lightweight index ~130 lines)
 3. Load specific `rules/*.md` files as needed during implementation

@@ -116,3 +116,119 @@ export function playNotificationSound(): void {
     console.warn('[NotificationSound] Audio playback error:', e);
   }
 }
+
+/**
+ * Play a deep warning / deletion tone (low bass thump)
+ * with mobile haptic feedback.
+ */
+export function playDeepDeleteSound(): void {
+  // 1. Heavy haptic vibration on mobile
+  try {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate([180, 80, 220]);
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2. Synthesize deep bass sound via Web Audio API
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const executeDeepTone = (audioContext: AudioContext) => {
+      try {
+        const now = audioContext.currentTime;
+
+        // Low frequency oscillator (140Hz downward sweep to 55Hz)
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+
+        osc.type = 'triangle'; // warmer, deeper bass timbre than pure sine
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(55, now + 0.35);
+
+        gain.gain.setValueAtTime(0.7, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.35);
+      } catch (err) {
+        console.warn('[NotificationSound] Deep tone synthesis error:', err);
+      }
+    };
+
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(() => executeDeepTone(ctx)).catch(() => {});
+    } else {
+      executeDeepTone(ctx);
+    }
+  } catch (e) {
+    console.warn('[NotificationSound] Deep delete sound error:', e);
+  }
+}
+
+/**
+ * Play a distinctive error buzz / alert beep (dual low buzzy tones 220Hz / 180Hz)
+ * with warning haptic vibration on mobile devices.
+ */
+export function playErrorBeepSound(): void {
+  // 1. Dual haptic pulse for mobile devices
+  try {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate([120, 60, 160]);
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2. Synthesize double error buzz via Web Audio API
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const executeErrorBuzz = (audioContext: AudioContext) => {
+      try {
+        const now = audioContext.currentTime;
+
+        // Tone 1: 220 Hz sawtooth buzz (0.14s)
+        const osc1 = audioContext.createOscillator();
+        const gain1 = audioContext.createGain();
+        osc1.type = 'sawtooth';
+        osc1.frequency.setValueAtTime(220, now);
+        gain1.gain.setValueAtTime(0.35, now);
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+        osc1.connect(gain1);
+        gain1.connect(audioContext.destination);
+        osc1.start(now);
+        osc1.stop(now + 0.14);
+
+        // Tone 2: 175 Hz slightly lower buzz (0.2s)
+        const osc2 = audioContext.createOscillator();
+        const gain2 = audioContext.createGain();
+        osc2.type = 'sawtooth';
+        osc2.frequency.setValueAtTime(175, now + 0.16);
+        gain2.gain.setValueAtTime(0.4, now + 0.16);
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+        osc2.connect(gain2);
+        gain2.connect(audioContext.destination);
+        osc2.start(now + 0.16);
+        osc2.stop(now + 0.38);
+      } catch (err) {
+        console.warn('[NotificationSound] Error buzz synthesis error:', err);
+      }
+    };
+
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(() => executeErrorBuzz(ctx)).catch(() => {});
+    } else {
+      executeErrorBuzz(ctx);
+    }
+  } catch (e) {
+    console.warn('[NotificationSound] Error buzz sound error:', e);
+  }
+}
+

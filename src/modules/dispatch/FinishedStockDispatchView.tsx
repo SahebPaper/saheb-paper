@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/AuthContext';
 import { FinishStockView } from '../finish-stock/FinishStockView';
-import { PrintLabelModal } from '../../components/PrintLabelModal';
 import { AlertTriangle } from 'lucide-react';
 
 export const FinishedStockDispatchView: React.FC = () => {
   const { t } = useTranslation();
   const { user, isViewer } = useAuth();
+  const navigate = useNavigate();
 
   const isUserAdmin = user?.role === 'Admin' || (user?.roles && user.roles.includes('Admin'));
 
@@ -19,15 +20,10 @@ export const FinishedStockDispatchView: React.FC = () => {
     return 'stock_category';
   });
 
-  const [showPrintLabelModal, setShowPrintLabelModal] = useState(false);
-  const [selectedReelForPrint, setSelectedReelForPrint] = useState<any>(null);
-  const [selectedCodeForPrint, setSelectedCodeForPrint] = useState<string>('');
-
   const handleOpenPrintStudio = (reel?: any, code?: string) => {
     if (isViewer) return;
-    setSelectedReelForPrint(reel || null);
-    setSelectedCodeForPrint(code || (reel ? reel.reelNo : ''));
-    setShowPrintLabelModal(true);
+    const target = reel?.reelNo || code || '';
+    navigate(target ? `/label-studio?reel=${encodeURIComponent(target)}` : '/label-studio');
   };
 
   if (!canAccessFinishStock && !canAccessDispatch) {
@@ -45,15 +41,6 @@ export const FinishedStockDispatchView: React.FC = () => {
       <div className="pt-1">
         {activeTab === 'stock_category' && canAccessFinishStock && <FinishStockView hideHeader={true} />}
       </div>
-
-      {/* 5. UNIVERSAL PRINT LABEL MODAL */}
-      <PrintLabelModal
-        isOpen={showPrintLabelModal}
-        onClose={() => setShowPrintLabelModal(false)}
-        initialReel={selectedReelForPrint}
-        initialCode={selectedCodeForPrint}
-      />
-
     </div>
   );
 };

@@ -28,6 +28,7 @@ import {
   Check,
   Lock,
   ArrowLeft,
+  ChevronLeft,
   ChevronRight,
   ChevronDown,
   Loader2,
@@ -37,6 +38,7 @@ import {
 import { COMPANY_CONFIG } from '../../config/company';
 import { MobileToast, type ToastMessage } from '../../components/MobileToast';
 import { formatDiaInCm } from '../../components/ReelPrintLabel';
+import { playDeepDeleteSound, playNotificationSound } from '../../utils/notificationSound';
 
 import { WorkflowStepBadge, WORKFLOW_STEPS } from '../../components/WorkflowStepBadge';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -73,13 +75,13 @@ export const RewinderView: React.FC = () => {
         value: `${p}:::A`,
         label: p,
         badge: 'Grade A',
-        badgeColor: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+        badgeColor: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700',
       });
       options.push({
         value: `${p}:::B`,
         label: p,
         badge: 'Grade B',
-        badgeColor: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30',
+        badgeColor: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60',
       });
     });
     return options;
@@ -245,18 +247,23 @@ export const RewinderView: React.FC = () => {
     brokeKg: '0',
   });
 
-  // Manual Reel Modal State
+  // Manual Reel Batch Modal State
+  interface ManualReelRowItem {
+    id: string;
+    reelNo: string;
+    weightKg: string;
+  }
+
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
-  const [manualReelForm, setManualReelForm] = useState({
-    reelNo: '',
+  const [manualBatchSpecs, setManualBatchSpecs] = useState({
     productName: '',
     grade: 'A' as 'A' | 'B',
     gsm: '',
-    size: '',
-    ply: '1',
-    weightKg: '',
+    size: '32',
+    ply: '2',
     joint: '0',
   });
+  const [manualReelRows, setManualReelRows] = useState<ManualReelRowItem[]>([]);
 
   const rollOptions1 = useMemo(() => {
     return availableRolls.map(roll => ({
@@ -301,6 +308,38 @@ export const RewinderView: React.FC = () => {
   const [recentlyGenerated, setRecentlyGenerated] = useState<Reel[]>([]);
   const [showQRModal, setShowQRModal] = useState(false);
   const [printFormat, setPrintFormat] = useState<'tsc_4x3' | 'tsc_3x2' | 'tsc_2x2' | 'a4_grid'>('tsc_4x3');
+
+  // Mobile accordion / expand states for reel groups
+  const [expandedGradeABatches, setExpandedGradeABatches] = useState<Set<string>>(new Set());
+  const [expandedGradeBBatches, setExpandedGradeBBatches] = useState<Set<string>>(new Set());
+  const [expandedAllGradeBBatches, setExpandedAllGradeBBatches] = useState<Set<string>>(new Set());
+
+  const toggleGradeAAll = (batchId: string) => {
+    setExpandedGradeABatches(prev => {
+      const next = new Set(prev);
+      if (next.has(batchId)) next.delete(batchId);
+      else next.add(batchId);
+      return next;
+    });
+  };
+
+  const toggleGradeBOpen = (batchId: string) => {
+    setExpandedGradeBBatches(prev => {
+      const next = new Set(prev);
+      if (next.has(batchId)) next.delete(batchId);
+      else next.add(batchId);
+      return next;
+    });
+  };
+
+  const toggleGradeBAll = (batchId: string) => {
+    setExpandedAllGradeBBatches(prev => {
+      const next = new Set(prev);
+      if (next.has(batchId)) next.delete(batchId);
+      else next.add(batchId);
+      return next;
+    });
+  };
 
   useMobileBackHandler(isAddModalOpen, () => setIsAddModalOpen(false), 'rewinderAddModal');
   useMobileBackHandler(showQRModal, () => setShowQRModal(false), 'rewinderQRModal');
@@ -480,8 +519,8 @@ export const RewinderView: React.FC = () => {
         weight: weightNum,
         dia: existingReel?.dia || 0,
         joint: parseInt(editingSingleReel.joint, 10) || 0,
-        status: editingSingleReel.grade === 'B' ? 'IN_STOCK_B' : (existingReel?.status === 'DISPATCHED' ? 'DISPATCHED' : 'IN_STOCK'),
-        qcGrade: editingSingleReel.grade === 'B' ? 'B' : 'A',
+        status: editingSingleReel.grade === 'B' ? 'IN_STOCK_B' : (existingReel?.status === 'IN_STOCK_B' ? 'QC_PENDING' : (existingReel?.status || 'QC_PENDING')),
+        qcGrade: editingSingleReel.grade,
         productionDate: existingReel?.productionDate || new Date().toISOString(),
         notes: existingReel?.notes,
         challanNo: existingReel?.challanNo,
@@ -552,6 +591,7 @@ export const RewinderView: React.FC = () => {
 
     const res = deleteSingleReel(reel.reelNo, user?.displayName || 'Operator');
     if (res.success) {
+      playDeepDeleteSound();
       setReels(getReels());
       setToast({
         type: 'success',
@@ -637,6 +677,37 @@ export const RewinderView: React.FC = () => {
     if (timeframe === 'month') return `Month (${selectedDate.substring(0, 7)})`;
     return 'All-Time Total';
   }, [timeframe, selectedDate]);
+
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  const todayReels = useMemo(() => {
+    return reels.filter(r => r.productionDate === todayStr || (timeframe === 'day' && isDateInTimeframe(r.productionDate, selectedDate, 'day')));
+  }, [reels, selectedDate, todayStr, timeframe]);
+
+  const summaryReelsCount = useMemo(() => {
+    return todayReels.length;
+  }, [todayReels]);
+
+  const summaryNetWeightKg = useMemo(() => {
+    return todayReels.reduce((sum, r) => sum + (Number(r.weight) || 0), 0);
+  }, [todayReels]);
+
+  const summaryBrokeKg = useMemo(() => {
+    const rollReelsMap = new Map<string, number>();
+    todayReels.forEach(r => {
+      const p = (r.parentRollNo || 'UNKNOWN').trim();
+      rollReelsMap.set(p, (rollReelsMap.get(p) || 0) + (Number(r.weight) || 0));
+    });
+
+    let totalBroke = 0;
+    rollReelsMap.forEach((reelsSum, parentRollNo) => {
+      const rollWeight = getParentRollWeight(parentRollNo);
+      if (rollWeight > 0) {
+        totalBroke += Math.max(0, rollWeight - reelsSum);
+      }
+    });
+    return totalBroke;
+  }, [todayReels, rolls]);
 
   // Cascading Filter States
   const [showCascadingModal, setShowCascadingModal] = useState(false);
@@ -896,18 +967,69 @@ export const RewinderView: React.FC = () => {
     const latestReels = getReels();
     const nextNo = getInitialReelNo(latestReels, 0);
 
-    setManualReelForm({
-      reelNo: nextNo,
+    setManualBatchSpecs({
       productName: '',
       grade: 'A',
       gsm: '',
       size: '32',
       ply: '2',
-      weightKg: '',
       joint: '0',
     });
+
+    setManualReelRows([
+      {
+        id: `manual-row-${Date.now()}-0`,
+        reelNo: nextNo,
+        weightKg: '',
+      },
+    ]);
     setIsManualModalOpen(true);
   };
+
+  const handleAddManualReelRow = () => {
+    setManualReelRows(prev => {
+      const lastNo = prev[prev.length - 1]?.reelNo || getInitialReelNo(getReels(), 0);
+      const nextNo = parseAndIncrementReelNo(lastNo);
+      return [
+        ...prev,
+        {
+          id: `manual-row-${Date.now()}-${prev.length}`,
+          reelNo: nextNo,
+          weightKg: '',
+        },
+      ];
+    });
+  };
+
+  const handleRemoveManualReelRow = (id: string) => {
+    setManualReelRows(prev => {
+      if (prev.length <= 1) return prev;
+      return prev.filter(r => r.id !== id);
+    });
+  };
+
+  const handleUpdateManualReelRow = (id: string, field: 'reelNo' | 'weightKg', value: string) => {
+    setManualReelRows(prev => {
+      const idx = prev.findIndex(r => r.id === id);
+      if (idx === -1) return prev;
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], [field]: value };
+
+      // When operator modifies a reel number, auto-increment following rows for sequential batching
+      if (field === 'reelNo' && value.trim()) {
+        let running = value.trim();
+        for (let i = idx + 1; i < updated.length; i++) {
+          running = parseAndIncrementReelNo(running);
+          updated[i] = { ...updated[i], reelNo: running };
+        }
+      }
+      return updated;
+    });
+  };
+
+  const manualBatchTotalWeight = useMemo(() => {
+    return manualReelRows.reduce((sum, r) => sum + (parseFloat(r.weightKg) || 0), 0);
+  }, [manualReelRows]);
 
   const handleSaveManualReel = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -920,46 +1042,94 @@ export const RewinderView: React.FC = () => {
       return;
     }
 
-    const { reelNo, productName, grade, gsm, size, ply, weightKg, joint } = manualReelForm;
+    const { productName, grade, gsm, size, ply, joint } = manualBatchSpecs;
 
-    if (!reelNo.trim() || !productName.trim() || !gsm || !size || !weightKg) {
-      setModalError('Please fill in all required fields.');
+    if (!productName.trim() || !gsm || !size) {
+      setModalError('Please fill in Product & Grade, GSM, and Size (cm).');
       return;
+    }
+
+    if (manualReelRows.length === 0) {
+      setModalError('Please add at least 1 reel entry.');
+      return;
+    }
+
+    // Validate all reel rows
+    for (let i = 0; i < manualReelRows.length; i++) {
+      const row = manualReelRows[i];
+      if (!row.reelNo.trim()) {
+        setModalError(`Reel row #${i + 1} has an empty Reel Number.`);
+        return;
+      }
+      const w = parseFloat(row.weightKg);
+      if (isNaN(w) || w <= 0) {
+        setModalError(`Please enter a valid weight (> 0 kg) for Reel #${row.reelNo}.`);
+        return;
+      }
+    }
+
+    // Check for duplicate reel numbers within this batch
+    const batchNos = manualReelRows.map(r => r.reelNo.trim().toUpperCase());
+    const uniqueNos = new Set(batchNos);
+    if (uniqueNos.size !== batchNos.length) {
+      setModalError('Duplicate Reel Numbers found in this batch! Each reel must have a unique number.');
+      return;
+    }
+
+    // Check if any reel number already exists in stock
+    const existingReels = getReels();
+    const existingNosSet = new Set(existingReels.map(r => r.reelNo.trim().toUpperCase()));
+    for (const no of batchNos) {
+      if (existingNosSet.has(no)) {
+        setModalError(`Reel #${no} already exists in stock! Please use a unique reel number.`);
+        return;
+      }
     }
 
     try {
       setIsSubmitting(true);
-      const record: Reel = {
-        reelNo: reelNo.trim(),
-        parentRollNo: 'MANUAL',
-        product: cleanProductName(productName),
-        gsm: parseFloat(gsm),
-        size: parseFloat(size),
-        ply: parseInt(ply) || 1,
-        weight: parseFloat(weightKg),
-        dia: 0, // Manual entries might not have dia
-        joint: parseInt(joint) || 0,
-        status: grade === 'B' ? 'IN_STOCK_B' : 'IN_STOCK',
-        qcGrade: grade === 'B' ? 'B' : 'A',
-        productionDate: `${new Date().toISOString().substring(0, 10)} ${new Date().toLocaleTimeString('en-US', { hour12: false }).substring(0, 5)}`,
-      };
+      const nowStr = `${new Date().toISOString().substring(0, 10)} ${new Date().toLocaleTimeString('en-US', { hour12: false }).substring(0, 5)}`;
+      const savedRecords: Reel[] = [];
 
-      saveSingleReel(record, 0, user?.displayName || 'System');
+      for (let i = 0; i < manualReelRows.length; i++) {
+        const row = manualReelRows[i];
+        const record: Reel = {
+          reelNo: row.reelNo.trim().toUpperCase(),
+          parentRollNo: 'MANUAL',
+          product: cleanProductName(productName),
+          gsm: parseFloat(gsm),
+          size: parseFloat(size),
+          ply: parseInt(ply) || 1,
+          weight: parseFloat(row.weightKg),
+          dia: 0,
+          joint: parseInt(joint) || 0,
+          status: grade === 'B' ? 'IN_STOCK_B' : 'QC_PENDING',
+          qcGrade: grade,
+          productionDate: nowStr,
+        };
+
+        saveSingleReel(record, 0, user?.displayName || 'Operator');
+        savedRecords.push(record);
+      }
 
       const updatedReels = getReels();
       setReels(updatedReels);
       setIsManualModalOpen(false);
 
-      setHighlightedReelNos(new Set([record.reelNo]));
+      const savedNos = new Set(savedRecords.map(r => r.reelNo));
+      setHighlightedReelNos(savedNos);
       setTimeout(() => setHighlightedReelNos(new Set()), 5000);
+
+      playNotificationSound();
+      const totalWeight = savedRecords.reduce((sum, r) => sum + r.weight, 0);
       setToast({
         type: 'success',
-        title: 'Manual Reel Added',
-        message: `Manual Reel #${record.reelNo} has been logged successfully.`,
+        title: savedRecords.length > 1 ? `${savedRecords.length} Manual Reels Added` : 'Manual Reel Added',
+        message: `${savedRecords.length} reel(s) logged to stock (${totalWeight.toLocaleString()} kg total).`,
         duration: 3500,
       });
     } catch (err: any) {
-      setModalError(err.message || 'Error saving manual reel.');
+      setModalError(err.message || 'Error saving manual reels.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1039,11 +1209,11 @@ export const RewinderView: React.FC = () => {
     }
 
     if (!reelForm.runningRollNo.trim()) {
-      setModalError('Please enter a Machine Roll No');
+      setModalError('Please enter a Running Roll No');
       setToast({
         type: 'warning',
         title: 'Input Required',
-        message: 'Please enter a machine roll to cut into reels.',
+        message: 'Please enter a running roll to cut into reels.',
       });
       return;
     }
@@ -1051,15 +1221,15 @@ export const RewinderView: React.FC = () => {
     const plyVal = parseInt(reelForm.ply) || 1;
     if (plyVal === 2) {
       if (!reelForm.runningRollNo2.trim()) {
-        setModalError('Please select Machine Roll No 2');
+        setModalError('Please select Running Roll No 2');
         return;
       }
       if (reelForm.runningRollNo.trim().toLowerCase() === reelForm.runningRollNo2.trim().toLowerCase()) {
-        setModalError('Machine Roll 1 and Machine Roll 2 cannot be the same roll!');
+        setModalError('Running Roll 1 and Running Roll 2 cannot be the same roll!');
         setToast({
           type: 'warning',
           title: 'Duplicate Rolls',
-          message: 'Machine Roll 1 and Machine Roll 2 cannot be the same roll.',
+          message: 'Running Roll 1 and Running Roll 2 cannot be the same roll.',
         });
         return;
       }
@@ -1113,7 +1283,7 @@ export const RewinderView: React.FC = () => {
         weight: weightKg,
         dia: diaVal,
         joint: parseInt(item.joint) || 0,
-        status: itemGrade === 'B' ? 'IN_STOCK_B' : 'IN_STOCK',
+        status: itemGrade === 'B' ? 'IN_STOCK_B' : 'QC_PENDING',
         qcGrade: itemGrade === 'B' ? 'B' : 'A',
         productionDate: `${new Date().toISOString().substring(0, 10)} ${new Date().toLocaleTimeString('en-US', { hour12: false }).substring(0, 5)}`,
       };
@@ -1321,8 +1491,8 @@ export const RewinderView: React.FC = () => {
           weight: weightNum,
           dia: Number(editingBatch.dia) || orig?.dia || 0,
           joint: jointNum,
-          status: itemGrade === 'B' ? 'IN_STOCK_B' : (orig?.status === 'DISPATCHED' ? 'DISPATCHED' : 'IN_STOCK'),
-          qcGrade: itemGrade === 'B' ? 'B' : 'A',
+          status: itemGrade === 'B' ? 'IN_STOCK_B' : (orig?.status === 'IN_STOCK_B' ? 'QC_PENDING' : (orig?.status || 'QC_PENDING')),
+          qcGrade: itemGrade,
           productionDate: orig?.productionDate || new Date().toISOString(),
           notes: orig?.notes,
           challanNo: orig?.challanNo,
@@ -1457,7 +1627,11 @@ export const RewinderView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 font-sans pb-12 text-left">
+    <>
+    {/* ============================================================ */}
+    {/* 1. DESKTOP / PC VIEW (Visible on >= 768px screens)           */}
+    {/* ============================================================ */}
+    <div className="hidden md:block space-y-6 font-sans pb-12 text-left">
       {/* TOP BANNER STAT CARDS (4 Hero Scorecards - Hidden on mobile for clean focused log view) */}
       <div className="hidden sm:grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <div className="neumorphic-card p-4 sm:p-5 flex items-center gap-3.5">
@@ -1515,30 +1689,36 @@ export const RewinderView: React.FC = () => {
               <h3 className="text-base font-black text-slate-900 dark:text-white tracking-tight">Rewinder Reel Production Log</h3>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-              {timeframe === 'day'
-                ? `Date: ${selectedDate.split('-').reverse().join('/')}`
-                : timeframe === 'week'
-                  ? 'Timeframe: Weekly Production'
-                  : timeframe === 'month'
-                    ? `Timeframe: Month (${selectedDate.substring(0, 7)})`
-                    : 'Timeframe: All Time'
+              {timeframe === 'day' 
+                ? `Date: ${selectedDate.split('-').reverse().join('/')}` 
+                : timeframe === 'week' 
+                ? 'Timeframe: Weekly Production' 
+                : timeframe === 'month' 
+                ? `Timeframe: Month (${selectedDate.substring(0, 7)})` 
+                : 'Timeframe: All Time'
               } &bull; Broke automatically increases Raw Material Stock (Rule 6)
             </p>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
-              onClick={handleOpenManualReelModal}
-              className="btn-primary-gradient px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 shrink-0 whitespace-nowrap rounded-xl shadow-sm text-white"
+              onClick={handleOpenAddModal}
+              className="btn-primary-gradient px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 shrink-0 whitespace-nowrap rounded-xl shadow-sm"
             >
               <Plus className="h-4 w-4 text-white" />
+              <span className="hidden xs:inline">Add Reel Entry</span>
+              <span className="xs:hidden">Add Reel</span>
+            </button>
+            <button
+              onClick={handleOpenManualReelModal}
+              className="px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 shrink-0 whitespace-nowrap rounded-xl border border-primary bg-white dark:bg-slate-800 text-primary dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
               <span className="hidden xs:inline">Add Manual Reel</span>
               <span className="xs:hidden">Manual</span>
             </button>
           </div>
         </div>
-
-
 
         {/* Search & Filter Controls */}
         <div className="space-y-3 bg-slate-50/80 dark:bg-slate-900/50 p-3.5 rounded-2xl border border-slate-200/60 dark:border-slate-800">
@@ -1547,7 +1727,7 @@ export const RewinderView: React.FC = () => {
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search Reel No, Roll No, GSM, Decal..."
+                placeholder="Search Reel No, Running Roll, GSM, Decal..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 sm:py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#5E3BE8] shadow-2xs"
@@ -1563,10 +1743,11 @@ export const RewinderView: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsFilterModalOpen(true)}
-              className={`flex items-center gap-2 px-3.5 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition border cursor-pointer shrink-0 shadow-2xs ${activeFilterCount > 0
-                ? 'bg-purple-50 dark:bg-purple-950/60 border-purple-300 dark:border-purple-800 text-[#5E3BE8] dark:text-purple-300'
-                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-750'
-                }`}
+              className={`flex items-center gap-2 px-3.5 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition border cursor-pointer shrink-0 shadow-2xs ${
+                activeFilterCount > 0
+                  ? 'bg-purple-50 dark:bg-purple-950/60 border-purple-300 dark:border-purple-800 text-[#5E3BE8] dark:text-purple-300'
+                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-750'
+              }`}
             >
               <SlidersHorizontal className="h-4 w-4 text-[#5E3BE8] dark:text-purple-400" />
               <span>Filters</span>
@@ -1683,7 +1864,7 @@ export const RewinderView: React.FC = () => {
         {isFilterModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
             <div className="w-full max-w-lg bg-white dark:bg-[#11192e] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-150">
-
+              
               {/* Modal Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
                 <div className="flex items-center gap-2 text-slate-900 dark:text-white font-black text-sm">
@@ -1701,7 +1882,7 @@ export const RewinderView: React.FC = () => {
 
               {/* Modal Body */}
               <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
-
+                
                 {/* Paper Type / Product Section */}
                 <div>
                   <label className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider block mb-2.5">
@@ -1714,10 +1895,11 @@ export const RewinderView: React.FC = () => {
                         setSelectedProductFilter('all');
                         setFilterProduct('ALL');
                       }}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${selectedProductFilter === 'all'
-                        ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                        }`}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        selectedProductFilter === 'all'
+                          ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
                     >
                       All Paper Types ({reels.filter(r => r.status !== 'DISPATCHED').length})
                     </button>
@@ -1732,17 +1914,19 @@ export const RewinderView: React.FC = () => {
                             setSelectedProductFilter(p);
                             setFilterProduct(p);
                           }}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${isSelected
-                            ? 'bg-[#5E3BE8] text-white shadow-sm'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                            }`}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#5E3BE8] text-white shadow-sm'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                          }`}
                         >
                           <span>{p}</span>
                           <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${isSelected
-                              ? 'bg-white/25 text-white'
-                              : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                              }`}
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
+                              isSelected
+                                ? 'bg-white/25 text-white'
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                            }`}
                           >
                             {count}
                           </span>
@@ -1770,10 +1954,11 @@ export const RewinderView: React.FC = () => {
                           key={st.id}
                           type="button"
                           onClick={() => setStatusFilter(st.id)}
-                          className={`px-3 py-2 rounded-xl text-xs font-bold text-center transition cursor-pointer border ${isSelected
-                            ? 'bg-[#5E3BE8] text-white border-[#5E3BE8] shadow-sm'
-                            : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
-                            }`}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold text-center transition cursor-pointer border ${
+                            isSelected
+                              ? 'bg-[#5E3BE8] text-white border-[#5E3BE8] shadow-sm'
+                              : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
+                          }`}
                         >
                           {st.label}
                         </button>
@@ -1791,20 +1976,22 @@ export const RewinderView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setTimeframe('day')}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold text-center transition cursor-pointer border ${timeframe !== 'all'
-                        ? 'bg-[#5E3BE8] text-white border-[#5E3BE8] shadow-sm'
-                        : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
-                        }`}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold text-center transition cursor-pointer border ${
+                        timeframe !== 'all'
+                          ? 'bg-[#5E3BE8] text-white border-[#5E3BE8] shadow-sm'
+                          : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
+                      }`}
                     >
                       Calendar Date ({selectedDate.split('-').reverse().join('/')})
                     </button>
                     <button
                       type="button"
                       onClick={() => setTimeframe('all')}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold text-center transition cursor-pointer border ${timeframe === 'all'
-                        ? 'bg-[#5E3BE8] text-white border-[#5E3BE8] shadow-sm'
-                        : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
-                        }`}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold text-center transition cursor-pointer border ${
+                        timeframe === 'all'
+                          ? 'bg-[#5E3BE8] text-white border-[#5E3BE8] shadow-sm'
+                          : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
+                      }`}
                     >
                       All Dates (All-Time)
                     </button>
@@ -1860,96 +2047,6 @@ export const RewinderView: React.FC = () => {
           </div>
         )}
 
-        <div className="hidden"><div><div>
-
-          <button
-            type="button"
-            onClick={() => setShowCascadingModal(true)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition border cursor-pointer ${activeCascadingFilterCount > 0
-              ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-300 dark:border-blue-800 text-primary dark:text-blue-400 shadow-2xs'
-              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50'
-              }`}
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5 text-primary dark:text-blue-400" />
-            <span>Cascading Filter</span>
-            {activeCascadingFilterCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-primary text-white text-[10px] font-black">
-                {activeCascadingFilterCount}
-              </span>
-            )}
-          </button>
-
-          <div className="w-44">
-            <CustomSearchableSelect
-              size="sm"
-              value={selectedProductFilter}
-              onChange={setSelectedProductFilter}
-              options={productOptions}
-              placeholder="Paper Type"
-            />
-          </div>
-
-          <div className="w-36">
-            <CustomSearchableSelect
-              size="sm"
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { value: 'all', label: 'All QC Status' },
-                { value: 'QC_PENDING', label: 'QC Pending' },
-                { value: 'GRADE_A', label: 'Grade A Passed' },
-                { value: 'GRADE_B', label: 'Grade B' },
-              ]}
-              placeholder="Status"
-              hideSearch
-            />
-          </div>
-
-          <div className="w-36">
-            <CustomSearchableSelect
-              size="sm"
-              value={timeframe === 'all' ? 'all' : 'calendar'}
-              onChange={val => {
-                if (val === 'all') {
-                  setTimeframe('all');
-                } else {
-                  setTimeframe('day');
-                }
-              }}
-              options={[
-                {
-                  value: 'calendar',
-                  label: timeframe === 'day'
-                    ? `Day (${selectedDate.split('-').reverse().join('/')})`
-                    : timeframe === 'week'
-                      ? 'Week View'
-                      : timeframe === 'month'
-                        ? `Month (${selectedDate.substring(0, 7)})`
-                        : 'Calendar Date',
-                  badge: timeframe === 'all' ? undefined : 'Active',
-                  badgeColor: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30'
-                },
-                { value: 'all', label: 'All Dates' },
-              ]}
-              placeholder="Date Window"
-              hideSearch
-            />
-          </div>
-
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={handleClearFilters}
-              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition cursor-pointer"
-              title="Clear all filters"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-        </div>
-        </div>
-
         {/* Recovery Banner for Missing Reels (Restores reels lost from batch edit bug) */}
         {missingReelsList.length > 0 && (
           <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -1996,7 +2093,7 @@ export const RewinderView: React.FC = () => {
           <div className="p-12 text-center text-slate-400 dark:text-slate-500">
             <RotateCw className="h-10 w-10 mx-auto opacity-30 mb-3" />
             <p className="font-bold text-sm">No rewound reels found matching the current filters.</p>
-            <p className="text-xs mt-1">Click &quot;+ Add Manual Reel&quot; above to log reels.</p>
+            <p className="text-xs mt-1">Click &quot;+ Add Reel Entry&quot; above to log reels from available machine rolls.</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -2008,326 +2105,126 @@ export const RewinderView: React.FC = () => {
               const weightGradeB = gradeBReels.reduce((sum, r) => sum + (Number(r.weight) || 0), 0);
 
               return (
-                <div
-                  key={batch.batchId}
-                  className="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs"
-                >
-                  {/* Batch Header Bar */}
-                  <div className="px-4 py-3 bg-slate-50/80 dark:bg-slate-850 border-b border-slate-200/60 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <span className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-primary dark:text-blue-400 font-mono font-black text-xs border border-blue-200/60 dark:border-blue-800/60">
-                        Roll #{batch.parentRollNo}
-                      </span>
-                      <span className="font-extrabold text-xs text-slate-900 dark:text-white">
-                        {cleanProductName(batch.product)}
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-medium">
-                        &bull; {batch.reels.length} {batch.reels.length === 1 ? 'Reel Cut' : 'Reels Cut'}
-                      </span>
+              <div
+                key={batch.batchId}
+                className="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs"
+              >
+                {/* Batch Header Bar */}
+                <div className="px-4 py-3 bg-slate-50/80 dark:bg-slate-850 border-b border-slate-200/60 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-primary dark:text-blue-400 font-mono font-black text-xs border border-blue-200/60 dark:border-blue-800/60">
+                      Roll #{batch.parentRollNo}
+                    </span>
+                    <span className="font-extrabold text-xs text-slate-900 dark:text-white">
+                      {cleanProductName(batch.product)}
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      &bull; {batch.reels.length} {batch.reels.length === 1 ? 'Reel Cut' : 'Reels Cut'}
+                    </span>
 
-                      {/* Distinct Grade Badges in Header */}
-                      {gradeAReels.length > 0 && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                          {gradeAReels.length} Grade A ({weightGradeA.toLocaleString()} kg)
-                        </span>
-                      )}
-                      {gradeBReels.length > 0 && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                          {gradeBReels.length} Grade B ({weightGradeB.toLocaleString()} kg)
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 text-xs font-mono font-bold flex-wrap">
-                      <span className="text-slate-600 dark:text-slate-300">
-                        Roll: <strong>{batch.rollWeight > 0 ? `${batch.rollWeight.toLocaleString()} kg` : 'N/A'}</strong>
+                    {/* Distinct Grade Badges in Header */}
+                    {gradeAReels.length > 0 && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        {gradeAReels.length} Grade A ({weightGradeA.toLocaleString()} kg)
                       </span>
-                      <span className="text-emerald-600 dark:text-emerald-400">
-                        Net: <strong>{batch.totalWeight.toLocaleString()} kg</strong>
+                    )}
+                    {gradeBReels.length > 0 && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        {gradeBReels.length} Grade B ({weightGradeB.toLocaleString()} kg)
                       </span>
-                      <span className="text-red-500">
-                        Broke: <strong>+{batch.totalBroke.toLocaleString()} kg</strong>
-                      </span>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Desktop Reels Table for this Batch */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="text-slate-500 dark:text-slate-400 uppercase tracking-wider font-extrabold text-[10px] border-b border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900">
-                          <th className="py-3 px-4">REEL NO</th>
-                          <th className="py-3 px-4">PRODUCT &amp; GRADE</th>
-                          <th className="py-3 px-4">GSM / SIZE / PLY</th>
-                          <th className="py-3 px-4">JOINT</th>
-                          <th className="py-3 px-4 text-right font-black">REEL WEIGHT</th>
-                          <th className="py-3 px-4 text-center">ACTION</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-semibold text-slate-800 dark:text-slate-200">
-                        {/* Grade A Reels Section */}
-                        {gradeAReels.length > 0 && (
-                          <>
-                            {gradeBReels.length > 0 && (
-                              <tr className="bg-emerald-50/70 dark:bg-emerald-950/40 border-y border-emerald-200/80 dark:border-emerald-800/60">
-                                  <td colSpan={6} className="py-2 px-4">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-600 text-white shadow-2xs">
-                                          Grade A Reels
-                                        </span>
-                                        <span className="text-xs font-black text-emerald-800 dark:text-emerald-200">
-                                          {gradeAReels.length} {gradeAReels.length === 1 ? 'Reel' : 'Reels'}
-                                        </span>
-                                      </div>
-                                      <span className="text-xs font-black font-mono text-emerald-700 dark:text-emerald-300">
-                                        Subtotal: {weightGradeA.toLocaleString()} kg
-                                      </span>
-                                    </div>
-                                  </td>
-                              </tr>
-                            )}
-                            {gradeAReels.map(reel => {
-                              const isHighlighted = highlightedReelNos.has(reel.reelNo);
-                              return (
-                                <tr
-                                  key={reel.reelNo}
-                                  className={`transition duration-150 ${isHighlighted
-                                    ? 'bg-purple-50/90 dark:bg-purple-950/40 ring-2 ring-primary/40'
-                                    : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
-                                    }`}
-                                >
-                                  <td className="py-3.5 px-4 font-black text-primary dark:text-blue-400 font-mono text-xs flex items-center gap-1.5">
-                                    <span>{reel.reelNo}</span>
-                                    {isHighlighted && (
-                                      <span className="px-1.5 py-0.2 rounded bg-primary text-white text-[9px] font-bold uppercase animate-pulse">
-                                        ✓ New
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span>{cleanProductName(reel.product)}</span>
-                                      <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                                        Grade A
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
-                                    {reel.gsm} GSM | {reel.size} cm | {reel.ply} Ply
-                                  </td>
-                                  <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
-                                    {reel.joint} Joint
-                                  </td>
-                                  <td className="py-3.5 px-4 text-right font-black text-slate-900 dark:text-white font-mono text-xs">
-                                    {reel.weight.toLocaleString()} kg
-                                  </td>
-                                  <td className="py-3.5 px-4 text-center">
-                                    {!isViewer && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => handleOpenReelMenu(reel, e)}
-                                        className="p-1.5 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer active:scale-95"
-                                        title={`Options for Reel #${reel.reelNo}`}
-                                        aria-label={`Options for Reel #${reel.reelNo}`}
-                                      >
-                                        <MoreVertical className="h-4 w-4" />
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </>
-                        )}
+                  <div className="flex items-center gap-3 text-xs font-mono font-bold flex-wrap">
+                    <span className="text-slate-600 dark:text-slate-300">
+                      Roll: <strong>{batch.rollWeight > 0 ? `${batch.rollWeight.toLocaleString()} kg` : 'N/A'}</strong>
+                    </span>
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      Net: <strong>{batch.totalWeight.toLocaleString()} kg</strong>
+                    </span>
+                    <span className="text-red-500">
+                      Broke: <strong>+{batch.totalBroke.toLocaleString()} kg</strong>
+                    </span>
+                  </div>
+                </div>
 
-                        {/* Grade B Reels Section */}
-                        {gradeBReels.length > 0 && (
-                          <>
-                            <tr className="bg-amber-50/80 dark:bg-amber-950/40 border-y border-amber-200/80 dark:border-amber-800/60">
-                                <td colSpan={6} className="py-2 px-4">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
-                                        Grade B Reels
-                                      </span>
-                                      <span className="text-xs font-black text-amber-800 dark:text-amber-200">
-                                        {gradeBReels.length} {gradeBReels.length === 1 ? 'Reel' : 'Reels'}
-                                      </span>
-                                    </div>
-                                    <span className="text-xs font-black font-mono text-amber-700 dark:text-amber-300">
-                                      Subtotal: {weightGradeB.toLocaleString()} kg
+                {/* Desktop Reels Table for this Batch */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="text-slate-500 dark:text-slate-400 uppercase tracking-wider font-extrabold text-[10px] border-b border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900">
+                        <th className="py-3 px-4">REEL NO</th>
+                        <th className="py-3 px-4">RUNNING ROLL</th>
+                        <th className="py-3 px-4">PRODUCT &amp; GRADE</th>
+                        <th className="py-3 px-4">GSM / SIZE / PLY</th>
+                        <th className="py-3 px-4">JOINT</th>
+                        <th className="py-3 px-4 text-right font-black">REEL WEIGHT</th>
+                        <th className="py-3 px-4 text-center">ACTION</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-semibold text-slate-800 dark:text-slate-200">
+                      {/* Grade A Reels Section */}
+                      {gradeAReels.length > 0 && (
+                        <>
+                          {gradeBReels.length > 0 && (
+                            <tr className="bg-emerald-50/70 dark:bg-emerald-950/40 border-y border-emerald-200/80 dark:border-emerald-800/60">
+                              <td colSpan={7} className="py-2 px-4">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-600 text-white shadow-2xs">
+                                      Grade A Reels
+                                    </span>
+                                    <span className="text-xs font-black text-emerald-800 dark:text-emerald-200">
+                                      {gradeAReels.length} {gradeAReels.length === 1 ? 'Reel' : 'Reels'}
                                     </span>
                                   </div>
-                                </td>
+                                  <span className="text-xs font-black font-mono text-emerald-700 dark:text-emerald-300">
+                                    Subtotal: {weightGradeA.toLocaleString()} kg
+                                  </span>
+                                </div>
+                              </td>
                             </tr>
-                            {gradeBReels.map(reel => {
-                              const isHighlighted = highlightedReelNos.has(reel.reelNo);
-                              return (
-                                <tr
-                                  key={reel.reelNo}
-                                  className={`transition duration-150 ${isHighlighted
+                          )}
+                          {gradeAReels.map(reel => {
+                            const isHighlighted = highlightedReelNos.has(reel.reelNo);
+                            return (
+                              <tr
+                                key={reel.reelNo}
+                                className={`transition duration-150 ${
+                                  isHighlighted
                                     ? 'bg-purple-50/90 dark:bg-purple-950/40 ring-2 ring-primary/40'
-                                    : 'bg-amber-50/20 dark:bg-amber-950/10 hover:bg-amber-50/40 dark:hover:bg-amber-950/20'
-                                    }`}
-                                >
-                                  <td className="py-3.5 px-4 font-black text-amber-600 dark:text-amber-400 font-mono text-xs flex items-center gap-1.5">
-                                    <span>{reel.reelNo}</span>
-                                    {isHighlighted && (
-                                      <span className="px-1.5 py-0.2 rounded bg-primary text-white text-[9px] font-bold uppercase animate-pulse">
-                                        ✓ New
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span>{cleanProductName(reel.product)}</span>
-                                      <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                                        Grade B
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
-                                    {reel.gsm} GSM | {reel.size} cm | {reel.ply} Ply
-                                  </td>
-                                  <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
-                                    {reel.joint} Joint
-                                  </td>
-                                  <td className="py-3.5 px-4 text-right font-black text-slate-900 dark:text-white font-mono text-xs">
-                                    {reel.weight.toLocaleString()} kg
-                                  </td>
-                                  <td className="py-3.5 px-4 text-center">
-                                    {!isViewer && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => handleOpenReelMenu(reel, e)}
-                                        className="p-1.5 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer active:scale-95"
-                                        title={`Options for Reel #${reel.reelNo}`}
-                                        aria-label={`Options for Reel #${reel.reelNo}`}
-                                      >
-                                        <MoreVertical className="h-4 w-4" />
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Mobile View Stacked Cards for this Batch */}
-                  <div className="block md:hidden p-3 space-y-3">
-                    {/* Grade A Reels */}
-                    {gradeAReels.length > 0 && (
-                      <div className="space-y-2">
-                        {gradeBReels.length > 0 && (
-                          <div className="flex items-center justify-between px-3 py-1.5 bg-emerald-50/80 dark:bg-emerald-950/40 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40">
-                            <span className="text-xs font-black uppercase text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                              Grade A ({gradeAReels.length} Reels)
-                            </span>
-                            <span className="text-xs font-bold font-mono text-emerald-700 dark:text-emerald-300">
-                              {weightGradeA.toLocaleString()} kg
-                            </span>
-                          </div>
-                        )}
-                        {gradeAReels.map(reel => {
-                          const isHighlighted = highlightedReelNos.has(reel.reelNo);
-                          return (
-                            <div
-                              key={reel.reelNo}
-                              className={`p-3.5 rounded-2xl border transition space-y-2 text-xs ${isHighlighted
-                                ? 'bg-purple-50/90 dark:bg-purple-950/40 border-primary ring-2 ring-primary/30 shadow-md shadow-purple-500/10'
-                                : 'bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                                    : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
                                 }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-mono font-black text-primary dark:text-blue-400">{reel.reelNo}</span>
+                              >
+                                <td className="py-3.5 px-4 font-black text-primary dark:text-blue-400 font-mono text-xs flex items-center gap-1.5">
+                                  <span>{reel.reelNo}</span>
                                   {isHighlighted && (
                                     <span className="px-1.5 py-0.2 rounded bg-primary text-white text-[9px] font-bold uppercase animate-pulse">
                                       ✓ New
                                     </span>
                                   )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold px-2 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 text-[10px]">
-                                    Weight: {reel.weight.toLocaleString()} kg
-                                  </span>
-                                  {!isViewer && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => handleOpenReelMenu(reel, e)}
-                                      className="p-1.5 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer active:scale-95"
-                                      title={`Options for Reel #${reel.reelNo}`}
-                                      aria-label={`Options for Reel #${reel.reelNo}`}
-                                    >
-                                      <MoreVertical className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
-                                <div>
-                                  <span className="text-slate-500 dark:text-slate-400 block text-[9px] uppercase font-bold">Product &amp; Grade</span>
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 font-mono text-xs">{reel.parentRollNo}</td>
+                                <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-extrabold text-slate-900 dark:text-white">{cleanProductName(reel.product)}</span>
-                                    <span className="px-1.5 py-0.2 rounded-md text-[9px] font-black uppercase bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                    <span>{cleanProductName(reel.product)}</span>
+                                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                                       Grade A
                                     </span>
                                   </div>
-                                </div>
-                                <div>
-                                  <span className="text-slate-500 dark:text-slate-400 block text-[9px] uppercase font-bold">Roll / Specs</span>
-                                  <span className="font-bold text-slate-900 dark:text-white">{reel.parentRollNo} &bull; {reel.gsm}GSM &bull; {reel.size}cm</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Grade B Reels */}
-                    {gradeBReels.length > 0 && (
-                      <div className="space-y-2 pt-1">
-                        <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50/80 dark:bg-amber-950/40 rounded-xl border border-amber-200/60 dark:border-amber-800/40">
-                          <span className="text-xs font-black uppercase text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-amber-500" />
-                            Grade B ({gradeBReels.length} Reels)
-                          </span>
-                          <span className="text-xs font-bold font-mono text-amber-700 dark:text-amber-300">
-                            {weightGradeB.toLocaleString()} kg
-                          </span>
-                        </div>
-                        {gradeBReels.map(reel => {
-                          const isHighlighted = highlightedReelNos.has(reel.reelNo);
-                          return (
-                            <div
-                              key={reel.reelNo}
-                              className={`p-3.5 rounded-2xl border transition space-y-2 text-xs ${isHighlighted
-                                ? 'bg-purple-50/90 dark:bg-purple-950/40 border-primary ring-2 ring-primary/30 shadow-md shadow-purple-500/10'
-                                : 'bg-amber-50/20 dark:bg-amber-950/15 border-amber-200 dark:border-amber-800/60 shadow-2xs'
-                                }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-mono font-black text-amber-600 dark:text-amber-400">{reel.reelNo}</span>
-                                  {isHighlighted && (
-                                    <span className="px-1.5 py-0.2 rounded bg-primary text-white text-[9px] font-bold uppercase animate-pulse">
-                                      ✓ New
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 text-[10px]">
-                                    Weight: {reel.weight.toLocaleString()} kg
-                                  </span>
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
+                                  {reel.gsm} GSM | {reel.size} cm | {reel.ply} Ply
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
+                                  {reel.joint} Joint
+                                </td>
+                                <td className="py-3.5 px-4 text-right font-black text-slate-900 dark:text-white font-mono text-xs">
+                                  {reel.weight.toLocaleString()} kg
+                                </td>
+                                <td className="py-3.5 px-4 text-center">
                                   {!isViewer && (
                                     <button
                                       type="button"
@@ -2339,35 +2236,691 @@ export const RewinderView: React.FC = () => {
                                       <MoreVertical className="h-4 w-4" />
                                     </button>
                                   )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </>
+                      )}
+
+                      {/* Grade B Reels Section */}
+                      {gradeBReels.length > 0 && (
+                        <>
+                          <tr className="bg-amber-50/80 dark:bg-amber-950/40 border-y border-amber-200/80 dark:border-amber-800/60">
+                            <td colSpan={7} className="py-2 px-4">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
+                                    Grade B Reels
+                                  </span>
+                                  <span className="text-xs font-black text-amber-800 dark:text-amber-200">
+                                    {gradeBReels.length} {gradeBReels.length === 1 ? 'Reel' : 'Reels'}
+                                  </span>
                                 </div>
+                                <span className="text-xs font-black font-mono text-amber-700 dark:text-amber-300">
+                                  Subtotal: {weightGradeB.toLocaleString()} kg
+                                </span>
                               </div>
-                              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
-                                <div>
-                                  <span className="text-slate-500 dark:text-slate-400 block text-[9px] uppercase font-bold">Product &amp; Grade</span>
+                            </td>
+                          </tr>
+                          {gradeBReels.map(reel => {
+                            const isHighlighted = highlightedReelNos.has(reel.reelNo);
+                            return (
+                              <tr
+                                key={reel.reelNo}
+                                className={`transition duration-150 ${
+                                  isHighlighted
+                                    ? 'bg-purple-50/90 dark:bg-purple-950/40 ring-2 ring-primary/40'
+                                    : 'bg-amber-50/20 dark:bg-amber-950/10 hover:bg-amber-50/40 dark:hover:bg-amber-950/20'
+                                }`}
+                              >
+                                <td className="py-3.5 px-4 font-black text-amber-600 dark:text-amber-400 font-mono text-xs flex items-center gap-1.5">
+                                  <span>{reel.reelNo}</span>
+                                  {isHighlighted && (
+                                    <span className="px-1.5 py-0.2 rounded bg-primary text-white text-[9px] font-bold uppercase animate-pulse">
+                                      ✓ New
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 font-mono text-xs">{reel.parentRollNo}</td>
+                                <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-extrabold text-slate-900 dark:text-white">{cleanProductName(reel.product)}</span>
-                                    <span className="px-1.5 py-0.2 rounded-md text-[9px] font-black uppercase bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                    <span>{cleanProductName(reel.product)}</span>
+                                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                                       Grade B
                                     </span>
                                   </div>
-                                </div>
-                                <div>
-                                  <span className="text-slate-500 dark:text-slate-400 block text-[9px] uppercase font-bold">Roll / Specs</span>
-                                  <span className="font-bold text-slate-900 dark:text-white">{reel.parentRollNo} &bull; {reel.gsm}GSM &bull; {reel.size}cm</span>
-                                </div>
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
+                                  {reel.gsm} GSM | {reel.size} cm | {reel.ply} Ply
+                                </td>
+                                <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
+                                  {reel.joint} Joint
+                                </td>
+                                <td className="py-3.5 px-4 text-right font-black text-slate-900 dark:text-white font-mono text-xs">
+                                  {reel.weight.toLocaleString()} kg
+                                </td>
+                                <td className="py-3.5 px-4 text-center">
+                                  {!isViewer && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleOpenReelMenu(reel, e)}
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer active:scale-95"
+                                      title={`Options for Reel #${reel.reelNo}`}
+                                      aria-label={`Options for Reel #${reel.reelNo}`}
+                                    >
+                                      <MoreVertical className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+
+      {/* ============================================================ */}
+      {/* 2. MOBILE VIEW (Visible on < 768px screens, e.g. 390px mobile) */}
+      {/* ============================================================ */}
+      <div className="md:hidden min-h-screen bg-[#F3F4FA] font-['Inter',sans-serif] text-[#1B1F3B] pb-28 pt-2.5 text-left">
+        <div className="max-w-[420px] mx-auto px-4 space-y-3">
+          {/* Summary Strip (3 white cards) */}
+          <div className="grid grid-cols-3 gap-2.5">
+          <div className="bg-white rounded-[16px] p-3 shadow-xs">
+            <div className="text-[11px] font-medium text-[#4A5270]">Reels today</div>
+            <div className="text-[26px] font-black text-[#1B1F3B] mt-1 leading-none">
+              {summaryReelsCount}
+            </div>
+          </div>
+          <div className="bg-white rounded-[16px] p-3 shadow-xs">
+            <div className="text-[11px] font-medium text-[#4A5270]">Net weight</div>
+            <div className="text-[26px] font-black text-[#0B6B3A] mt-1 leading-none flex items-baseline gap-1">
+              <span>{summaryNetWeightKg.toLocaleString()}</span>
+              <span className="text-xs font-bold text-[#0B6B3A]">kg</span>
+            </div>
+          </div>
+          <div className="bg-white rounded-[16px] p-3 shadow-xs">
+            <div className="text-[11px] font-medium text-[#4A5270]">Broke</div>
+            <div className="text-[26px] font-black text-[#B3261E] mt-1 leading-none flex items-baseline gap-1">
+              <span>{summaryBrokeKg.toLocaleString()}</span>
+              <span className="text-xs font-bold text-[#B3261E]">kg</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Big Action Button */}
+        <div className="space-y-1 pt-1">
+          <button
+            type="button"
+            onClick={handleOpenAddModal}
+            className="w-full h-[58px] bg-[#4B32C3] hover:bg-[#3E27A8] active:scale-[0.98] text-white font-extrabold text-base tracking-wide rounded-[18px] flex items-center justify-center gap-2 shadow-md shadow-[#4B32C3]/25 transition cursor-pointer"
+          >
+            <Plus className="w-5 h-5 stroke-[3]" />
+            <span>ADD REEL</span>
+          </button>
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={handleOpenManualReelModal}
+              className="text-xs font-bold text-[#4B32C3] hover:underline min-h-[44px] flex items-center justify-center px-4 cursor-pointer"
+            >
+              Manual entry (without roll)
+            </button>
+          </div>
+        </div>
+
+        {/* Missing Reels Alert */}
+        {missingReelsList.length > 0 && (
+          <div className="bg-[#FFF4DC] border border-[#F2C14E] rounded-[16px] p-3.5 space-y-2.5 shadow-xs">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-[#A84B00] shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-[#542B00]">
+                  {missingReelsList.length} reel{missingReelsList.length > 1 ? 's' : ''} missing from stock
+                </div>
+                <div className="text-xs text-[#7A3F00] font-normal mt-0.5 break-words">
+                  {missingReelsList.map(r => `#${r.reelNo}`).slice(0, 3).join(' and ')}
+                  {missingReelsList.length > 3 ? ` +${missingReelsList.length - 3} more` : ''} are in the audit log only.
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2.5 pt-0.5">
+              <button
+                type="button"
+                onClick={handleDismissMissingReels}
+                className="flex-1 min-h-[44px] bg-white border border-[#E8BF6A] rounded-xl text-xs font-bold text-[#6B3500] hover:bg-amber-50 active:scale-95 transition flex items-center justify-center cursor-pointer"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={handleRestoreMissingReels}
+                disabled={isRestoringMissing || isViewer}
+                className="flex-1 min-h-[44px] bg-[#A84B00] hover:bg-[#8F3F00] text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isRestoringMissing ? 'animate-spin' : ''}`} />
+                <span>{isRestoringMissing ? 'Restoring...' : `Restore ${missingReelsList.length} reel${missingReelsList.length > 1 ? 's' : ''}`}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Search & Filters Row */}
+        <div className="flex items-center gap-2 pt-1">
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7B82A0]" />
+            <input
+              type="text"
+              placeholder="Reel no, Roll, GSM..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-3 h-12 bg-white border border-[#DDE0EE] rounded-2xl text-xs font-medium text-[#1B1F3B] placeholder-[#7B82A0] focus:outline-none focus:ring-2 focus:ring-[#4B32C3] shadow-xs"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsFilterModalOpen(true)}
+            className={`h-12 px-3.5 rounded-2xl flex items-center gap-1.5 text-xs font-bold border transition cursor-pointer active:scale-95 shrink-0 ${
+              activeFilterCount > 0
+                ? 'bg-[#EDE9FD] border-[#D4CBF8] text-[#3A25A8]'
+                : 'bg-white border-[#DDE0EE] text-[#4A5270] hover:bg-slate-50'
+            }`}
+          >
+            <SlidersHorizontal className="w-4 h-4 text-[#4B32C3]" />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="w-5 h-5 rounded-full bg-[#4B32C3] text-white text-[10px] font-black flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Active Filter Chips */}
+        {(activeFilterCount > 0 || searchTerm) && (
+          <div className="flex items-center gap-2 flex-wrap pt-0.5">
+            {timeframe === 'all' && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFF1D6] text-[#6B3500] border border-[#FFE2A8] text-xs font-bold">
+                <span>All Dates View</span>
+                <button
+                  type="button"
+                  onClick={() => setTimeframe('day')}
+                  className="hover:text-red-500 cursor-pointer p-0.5"
+                  title="Return to selected day"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedProductFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EDE9FD] text-[#4B32C3] border border-[#D4CBF8] text-xs font-bold">
+                <span>{selectedProductFilter}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedProductFilter('all');
+                    setFilterProduct('ALL');
+                  }}
+                  className="hover:text-red-500 cursor-pointer p-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {statusFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold">
+                <span>{statusFilter === 'QC_PENDING' ? 'QC Pending' : statusFilter === 'GRADE_A' ? 'Grade A' : 'Grade B'}</span>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('all')}
+                  className="hover:text-red-500 cursor-pointer p-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {activeCascadingFilterCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold">
+                <span>Specs ({activeCascadingFilterCount})</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterProduct('ALL');
+                    setFilterGsm('ALL');
+                    setFilterSize('ALL');
+                    setFilterPly('ALL');
+                  }}
+                  className="hover:text-red-500 cursor-pointer p-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className="text-xs font-bold text-[#B3261E] hover:underline cursor-pointer ml-auto"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+
+        {/* Filter Pop-up Modal */}
+        {isFilterModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="w-full max-w-lg bg-white dark:bg-[#11192e] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-150">
+              
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                <div className="flex items-center gap-2 text-slate-900 dark:text-white font-black text-sm">
+                  <SlidersHorizontal className="w-4 h-4 text-[#5E3BE8]" />
+                  <span>Filter Rewinder Reels</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterModalOpen(false)}
+                  className="p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+                
+                {/* Paper Type / Product Section */}
+                <div>
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider block mb-2.5">
+                    Paper Type / Product
+                  </label>
+                  <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedProductFilter('all');
+                        setFilterProduct('ALL');
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        selectedProductFilter === 'all'
+                          ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      All Paper Types ({reels.filter(r => r.status !== 'DISPATCHED').length})
+                    </button>
+                    {availableProducts.map(p => {
+                      const count = reels.filter(r => cleanProductName(r.product) === p && r.status !== 'DISPATCHED').length;
+                      const isSelected = selectedProductFilter === p;
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => {
+                            setSelectedProductFilter(p);
+                            setFilterProduct(p);
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-[#5E3BE8] text-white shadow-sm'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          <span>{p}</span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
+                              isSelected
+                                ? 'bg-white/25 text-white'
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                            }`}
+                          >
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* QC Status Filter */}
+                <div>
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider block mb-2.5">
+                    QC Status
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { id: 'all', label: 'All Status' },
+                      { id: 'QC_PENDING', label: 'QC Pending' },
+                      { id: 'GRADE_A', label: 'Grade A Passed' },
+                      { id: 'GRADE_B', label: 'Grade B' },
+                    ].map(st => {
+                      const isSelected = statusFilter === st.id;
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() => setStatusFilter(st.id)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold text-center transition cursor-pointer border ${
+                            isSelected
+                              ? 'bg-[#5E3BE8] text-white border-[#5E3BE8] shadow-sm'
+                              : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
+                          }`}
+                        >
+                          {st.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Date Window */}
+                <div>
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider block mb-2.5">
+                    Date Window
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTimeframe('day')}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold text-center transition cursor-pointer border ${
+                        timeframe !== 'all'
+                          ? 'bg-[#5E3BE8] text-white border-[#5E3BE8] shadow-sm'
+                          : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
+                      }`}
+                    >
+                      Calendar Date ({selectedDate.split('-').reverse().join('/')})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTimeframe('all')}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold text-center transition cursor-pointer border ${
+                        timeframe === 'all'
+                          ? 'bg-[#5E3BE8] text-white border-[#5E3BE8] shadow-sm'
+                          : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
+                      }`}
+                    >
+                      All Dates (All-Time)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Advanced Cascading Filter Trigger (GSM, Size, Ply) */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-black text-slate-800 dark:text-slate-200">
+                        Advanced Cascading Specs
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        Filter step-by-step by GSM, Decal (mm), and Ply
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsFilterModalOpen(false);
+                        setShowCascadingModal(true);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-xs font-bold text-[#5E3BE8] dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      <span>{activeCascadingFilterCount > 0 ? `Specs (${activeCascadingFilterCount})` : 'Open Specs'}</span>
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+                <button
+                  type="button"
+                  onClick={handleClearFilters}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer"
+                >
+                  Reset All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterModalOpen(false)}
+                  className="btn-primary-gradient px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-wider text-white shadow-md active:scale-95 cursor-pointer"
+                >
+                  Apply & Close
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+
+
+        {/* Roll Groups */}
+        {groupedBatches.length === 0 ? (
+          <div className="bg-white rounded-[18px] p-8 text-center text-[#4A5270] shadow-xs">
+            <RotateCw className="w-8 h-8 mx-auto opacity-30 mb-2" />
+            <p className="font-bold text-sm text-[#1B1F3B]">No reels found matching current filters.</p>
+            <p className="text-xs mt-1">Tap &quot;+ ADD REEL&quot; above to log reels from available rolls.</p>
+          </div>
+        ) : (
+          <div className="space-y-3 pt-1">
+            {groupedBatches.map(batch => {
+              const firstReel = batch.reels[0];
+              const batchGsm = firstReel?.gsm || '';
+              const batchSize = firstReel?.size || '';
+              const batchPly = firstReel?.ply || 1;
+              const isReelGradeB = (r: Reel) => r.qcGrade === 'B' || r.status === 'IN_STOCK_B' || detectProductGrade(r.product) === 'B';
+              const gradeAReels = batch.reels.filter(r => !isReelGradeB(r));
+              const gradeBReels = batch.reels.filter(r => isReelGradeB(r));
+              const weightGradeA = gradeAReels.reduce((sum, r) => sum + (Number(r.weight) || 0), 0);
+              const weightGradeB = gradeBReels.reduce((sum, r) => sum + (Number(r.weight) || 0), 0);
+
+              const isAExpanded = expandedGradeABatches.has(batch.batchId);
+              const isBOpen = expandedGradeBBatches.has(batch.batchId) || (gradeAReels.length === 0 && gradeBReels.length > 0);
+              const isBExpandedAll = expandedAllGradeBBatches.has(batch.batchId);
+
+              // Whether to display separate Grade A bar (shown if > 4 reels or if Grade B exists)
+              const showGradeABar = gradeAReels.length > 4 || gradeBReels.length > 0;
+              const visibleAReels = showGradeABar
+                ? (isAExpanded ? gradeAReels : gradeAReels.slice(0, 4))
+                : gradeAReels;
+
+              const visibleBReels = isBExpandedAll ? gradeBReels : gradeBReels.slice(0, 4);
+
+              return (
+                <div
+                  key={batch.batchId}
+                  className="bg-white rounded-[18px] p-4 shadow-sm border border-slate-100 space-y-3"
+                >
+                  {/* Group Header (Product, GSM, Size, Ply shown ONLY ONCE) */}
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="bg-[#EDE9FD] text-[#4B32C3] font-mono font-bold text-xs px-2.5 py-1 rounded-lg">
+                        Roll #{batch.parentRollNo}
+                      </span>
+                      <span className="text-xs font-medium text-[#4A5270]">
+                        {batch.reels.length} {batch.reels.length === 1 ? 'reel' : 'reels'}
+                      </span>
+                    </div>
+
+                    <h2 className="text-[20px] font-extrabold text-[#1B1F3B] leading-snug mt-1.5">
+                      {cleanProductName(batch.product)}
+                    </h2>
+                    <p className="text-xs font-medium text-[#4A5270] mt-0.5">
+                      {batchGsm ? `${batchGsm} GSM \u00B7 ` : ''}{batchSize ? `${batchSize} cm \u00B7 ` : ''}{batchPly ? `${batchPly} Ply` : '1 Ply'}
+                    </p>
+                  </div>
+
+                  {/* 3-Column Stats Row: Roll, Net (green), Broke (red) */}
+                  <div className="bg-[#F3F4FA] rounded-[12px] p-2.5 grid grid-cols-3 text-center divide-x divide-slate-200/60">
+                    <div className="px-1">
+                      <div className="text-[11px] font-medium text-[#4A5270]">Roll</div>
+                      <div className="text-xs font-extrabold text-[#1B1F3B] mt-0.5">
+                        {batch.rollWeight > 0 ? `${batch.rollWeight.toLocaleString()} kg` : 'N/A'}
+                      </div>
+                    </div>
+                    <div className="px-1">
+                      <div className="text-[11px] font-medium text-[#4A5270]">Net</div>
+                      <div className="text-xs font-extrabold text-[#0B6B3A] mt-0.5">
+                        {batch.totalWeight.toLocaleString()} kg
+                      </div>
+                    </div>
+                    <div className="px-1">
+                      <div className="text-[11px] font-medium text-[#4A5270]">Broke</div>
+                      <div className="text-xs font-extrabold text-[#B3261E] mt-0.5">
+                        +{batch.totalBroke.toLocaleString()} kg
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* GRADE A SECTION */}
+                  {gradeAReels.length > 0 && (
+                    <div className="space-y-1">
+                      {showGradeABar && (
+                        <div className="bg-[#D8F5E5] text-[#0B6B3A] rounded-lg px-3 py-1.5 flex items-center justify-between text-xs font-bold">
+                          <span>Grade A &middot; {gradeAReels.length} {gradeAReels.length === 1 ? 'reel' : 'reels'}</span>
+                          <span>{weightGradeA.toLocaleString()} kg</span>
+                        </div>
+                      )}
+
+                      <div className="divide-y divide-slate-100">
+                        {visibleAReels.map(reel => {
+                          const isHighlighted = highlightedReelNos.has(reel.reelNo);
+                          return (
+                            <div key={reel.reelNo} className="flex items-center justify-between py-2.5 px-0.5 min-h-[44px]">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-extrabold text-[18px] text-[#4B32C3]">
+                                  {reel.reelNo}
+                                </span>
+                                {isHighlighted && (
+                                  <span className="px-1.5 py-0.2 rounded bg-[#4B32C3] text-white text-[9px] font-bold uppercase animate-pulse">
+                                    New
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`font-bold text-[16px] ${!showGradeABar ? 'text-[#0B6B3A]' : 'text-[#1B1F3B]'}`}>
+                                  {reel.weight.toLocaleString()} kg
+                                </span>
+                                {!isViewer && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleOpenReelMenu(reel, e)}
+                                    className="w-10 h-10 rounded-lg flex items-center justify-center text-[#8E95AF] hover:text-[#4B32C3] hover:bg-slate-100 transition cursor-pointer active:scale-95 -mr-1"
+                                    title={`Options for Reel #${reel.reelNo}`}
+                                    aria-label={`Options for Reel #${reel.reelNo}`}
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                  </button>
+                                )}
                               </div>
                             </div>
                           );
                         })}
                       </div>
-                    )}
-                  </div>
+
+                      {showGradeABar && gradeAReels.length > 4 && (
+                        <button
+                          type="button"
+                          onClick={() => toggleGradeAAll(batch.batchId)}
+                          className="w-full py-2.5 min-h-[44px] rounded-xl border border-[#BDB2F2] text-[#4B32C3] font-bold text-xs bg-white hover:bg-[#F3F0FF] active:scale-[0.99] transition flex items-center justify-center cursor-pointer mt-1"
+                        >
+                          {isAExpanded ? 'Show fewer reels' : `Show all ${gradeAReels.length} reels`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* GRADE B SECTION (Collapsed by default, opens on tap) */}
+                  {gradeBReels.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      <div
+                        onClick={() => toggleGradeBOpen(batch.batchId)}
+                        className="bg-[#FFF1D6] text-[#6B3500] rounded-lg px-3 py-1.5 flex items-center justify-between text-xs font-bold cursor-pointer hover:bg-[#FFE8B8] transition select-none min-h-[36px]"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>Grade B &middot; {gradeBReels.length} {gradeBReels.length === 1 ? 'reel' : 'reels'}</span>
+                          <span className="text-[10px] font-medium opacity-80">
+                            {isBOpen ? '(tap to collapse)' : '(tap to view)'}
+                          </span>
+                        </div>
+                        <span>{weightGradeB.toLocaleString()} kg</span>
+                      </div>
+
+                      {isBOpen && (
+                        <>
+                          <div className="divide-y divide-slate-100">
+                            {visibleBReels.map(reel => {
+                              const isHighlighted = highlightedReelNos.has(reel.reelNo);
+                              return (
+                                <div key={reel.reelNo} className="flex items-center justify-between py-2.5 px-0.5 min-h-[44px]">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono font-extrabold text-[18px] text-[#4B32C3]">
+                                      {reel.reelNo}
+                                    </span>
+                                    {isHighlighted && (
+                                      <span className="px-1.5 py-0.2 rounded bg-[#4B32C3] text-white text-[9px] font-bold uppercase animate-pulse">
+                                        New
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-[16px] text-[#1B1F3B]">
+                                      {reel.weight.toLocaleString()} kg
+                                    </span>
+                                    {!isViewer && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleOpenReelMenu(reel, e)}
+                                        className="w-10 h-10 rounded-lg flex items-center justify-center text-[#8E95AF] hover:text-[#4B32C3] hover:bg-slate-100 transition cursor-pointer active:scale-95 -mr-1"
+                                        title={`Options for Reel #${reel.reelNo}`}
+                                        aria-label={`Options for Reel #${reel.reelNo}`}
+                                      >
+                                        <MoreVertical className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {gradeBReels.length > 4 && (
+                            <button
+                              type="button"
+                              onClick={() => toggleGradeBAll(batch.batchId)}
+                              className="w-full py-2.5 min-h-[44px] rounded-xl border border-[#BDB2F2] text-[#4B32C3] font-bold text-xs bg-white hover:bg-[#F3F0FF] active:scale-[0.99] transition flex items-center justify-center cursor-pointer mt-1"
+                            >
+                              {isBExpandedAll ? 'Show fewer reels' : `Show all ${gradeBReels.length} reels`}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               );
             })}
           </div>
         )}
       </div>
+    </div>
 
       {/* ADD MANUAL REEL MODAL */}
       {isManualModalOpen && (
@@ -2407,137 +2960,261 @@ export const RewinderView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveManualReel} className="space-y-4 flex-1 pb-6 sm:pb-0">
+            <form onSubmit={handleSaveManualReel} className="space-y-5 flex-1 pb-6 sm:pb-0">
               {modalError && (
-                <div className="px-3 py-2 bg-red-50 dark:bg-red-950/80 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-xl text-xs font-bold flex items-center gap-2">
+                <div className="px-3.5 py-2.5 bg-red-50 dark:bg-red-950/80 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-xl text-xs font-bold flex items-center gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
                   <span>{modalError}</span>
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Reel No
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={manualReelForm.reelNo}
-                    onChange={e => setManualReelForm(prev => ({ ...prev, reelNo: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
-                  />
+              {/* STEP 1: FIXED BATCH SPECIFICATIONS */}
+              <div className="p-3.5 sm:p-4 bg-slate-100/70 dark:bg-slate-800/60 rounded-2xl border border-slate-200/90 dark:border-slate-700/80 space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-700/70">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-[#4B32C3] dark:text-purple-400">
+                    1. Fixed Batch Specifications (Applied to All Reels)
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                    Product • GSM • Size • Ply • Joint
+                  </span>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Product & Grade
-                  </label>
-                  <CustomSearchableSelect
-                    size="sm"
-                    placeholder="-- Select Product --"
-                    value={manualReelForm.productName ? makeProductSelectKey(manualReelForm.productName, manualReelForm.grade) : ''}
-                    onChange={(val) => {
-                      const { product, grade } = parseProductSelectKey(val);
-                      setManualReelForm(prev => ({ ...prev, productName: product, grade }));
-                    }}
-                    options={productGradeOptions}
-                  />
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2 space-y-1">
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">
+                      Product &amp; Grade <span className="text-red-500">*</span>
+                    </label>
+                    <CustomSearchableSelect
+                      size="sm"
+                      placeholder="-- Select Product & Grade --"
+                      value={manualBatchSpecs.productName ? makeProductSelectKey(manualBatchSpecs.productName, manualBatchSpecs.grade) : ''}
+                      onChange={(val) => {
+                        const { product, grade } = parseProductSelectKey(val);
+                        setManualBatchSpecs(prev => ({ ...prev, productName: product, grade }));
+                      }}
+                      options={productGradeOptions}
+                    />
+                  </div>
 
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    GSM
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    value={manualReelForm.gsm}
-                    onChange={e => setManualReelForm(prev => ({ ...prev, gsm: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
-                    placeholder="e.g. 18"
-                  />
-                </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">
+                        GSM <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        required
+                        placeholder="e.g. 18"
+                        value={manualBatchSpecs.gsm}
+                        onFocus={e => e.target.select()}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                          if (val === '' || /^\d*$/.test(val)) {
+                            setManualBatchSpecs(prev => ({ ...prev, gsm: val }));
+                          }
+                        }}
+                        className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-[#4B32C3] focus:outline-none"
+                      />
+                    </div>
 
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Ply
-                  </label>
-                  <select
-                    value={manualReelForm.ply}
-                    onChange={e => setManualReelForm(prev => ({ ...prev, ply: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary focus:outline-none"
-                  >
-                    <option value="1">1 Ply</option>
-                    <option value="2">2 Ply</option>
-                    <option value="3">3 Ply</option>
-                  </select>
-                </div>
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">
+                        Ply
+                      </label>
+                      <select
+                        value={manualBatchSpecs.ply}
+                        onChange={e => setManualBatchSpecs(prev => ({ ...prev, ply: e.target.value }))}
+                        className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold focus:ring-2 focus:ring-[#4B32C3] focus:outline-none cursor-pointer"
+                      >
+                        <option value="1">1 Ply</option>
+                        <option value="2">2 Ply</option>
+                        <option value="3">3 Ply</option>
+                      </select>
+                    </div>
+                  </div>
 
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Size (cm)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={manualReelForm.size}
-                    onChange={e => setManualReelForm(prev => ({ ...prev, size: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
-                    placeholder="e.g. 32"
-                  />
-                </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">
+                        Size (cm) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        required
+                        placeholder="e.g. 32"
+                        value={manualBatchSpecs.size}
+                        onFocus={e => e.target.select()}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                          if (val === '' || /^\d*$/.test(val)) {
+                            setManualBatchSpecs(prev => ({ ...prev, size: val }));
+                          }
+                        }}
+                        className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-[#4B32C3] focus:outline-none"
+                      />
+                    </div>
 
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Weight (kg)
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    step="any"
-                    value={manualReelForm.weightKg}
-                    onChange={e => setManualReelForm(prev => ({ ...prev, weightKg: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
-                    placeholder="e.g. 500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Joints
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={manualReelForm.joint}
-                    onChange={e => setManualReelForm(prev => ({ ...prev, joint: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
-                  />
+                    <div className="space-y-1">
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">
+                        Joints
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={manualBatchSpecs.joint}
+                        onFocus={e => e.target.select()}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                          if (val === '' || /^\d*$/.test(val)) {
+                            setManualBatchSpecs(prev => ({ ...prev, joint: val }));
+                          }
+                        }}
+                        className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-[#4B32C3] focus:outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="pt-4 flex flex-col sm:flex-row justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
+              {/* STEP 2: REEL NUMBERS & WEIGHTS */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                      2. Reels to Log
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/60 text-[#4B32C3] dark:text-purple-300 font-mono font-black text-[11px] border border-purple-200 dark:border-purple-800">
+                      {manualReelRows.length} {manualReelRows.length === 1 ? 'Reel' : 'Reels'}
+                    </span>
+                  </div>
+                  {manualBatchTotalWeight > 0 && (
+                    <span className="text-xs font-mono font-black text-[#0B6B3A] dark:text-emerald-400">
+                      Total: {manualBatchTotalWeight.toLocaleString()} KG
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-2.5 max-h-[280px] sm:max-h-[340px] overflow-y-auto pr-1 custom-scrollbar">
+                  {manualReelRows.map((row, idx) => (
+                    <div
+                      key={row.id}
+                      className="p-3 rounded-2xl bg-white dark:bg-slate-800/90 border border-slate-200/90 dark:border-slate-700 shadow-2xs flex items-center gap-2.5 transition"
+                    >
+                      <span className="w-7 h-7 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-[#4B32C3] dark:text-purple-300 font-mono font-black text-xs flex items-center justify-center shrink-0 border border-purple-100 dark:border-purple-900">
+                        #{idx + 1}
+                      </span>
+
+                      <div className="flex-1 min-w-0">
+                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-0.5">
+                          Reel No <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={row.reelNo}
+                          onChange={e => handleUpdateManualReelRow(row.id, 'reelNo', e.target.value)}
+                          className="w-full p-2 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-[#4B32C3] dark:text-purple-300 rounded-xl text-xs font-black font-mono focus:ring-2 focus:ring-[#4B32C3] focus:outline-none"
+                          placeholder="Reel No"
+                        />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-0.5">
+                          Weight (kg) <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          required
+                          placeholder="e.g. 500"
+                          value={row.weightKg}
+                          onFocus={e => e.target.select()}
+                          onChange={e => {
+                            let val = e.target.value;
+                            if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                              handleUpdateManualReelRow(row.id, 'weightKg', val);
+                            }
+                          }}
+                          className="w-full p-2 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-[#0B6B3A] dark:text-emerald-400 rounded-xl text-xs font-black font-mono focus:ring-2 focus:ring-[#0B6B3A] focus:outline-none"
+                        />
+                      </div>
+
+                      {manualReelRows.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveManualReelRow(row.id)}
+                          className="w-9 h-9 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center justify-center shrink-0 mt-3.5 transition cursor-pointer"
+                          title="Remove this reel row"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Big + ADD REEL Button */}
                 <button
                   type="button"
-                  onClick={() => setIsManualModalOpen(false)}
-                  className="px-5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
+                  onClick={handleAddManualReelRow}
+                  className="w-full h-11 border-2 border-dashed border-[#4B32C3]/40 hover:border-[#4B32C3] bg-[#EDE9FD]/40 hover:bg-[#EDE9FD]/80 dark:bg-purple-950/20 dark:hover:bg-purple-950/40 text-[#4B32C3] dark:text-purple-300 font-extrabold text-xs uppercase tracking-wider rounded-2xl flex items-center justify-center gap-2 transition cursor-pointer active:scale-[0.99]"
                 >
-                  Cancel
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>+ Add Another Reel (Row #{manualReelRows.length + 1})</span>
                 </button>
-                <button
-                  type="submit"
-                  disabled={isViewer || isSubmitting}
-                  className={`px-6 py-2.5 text-xs uppercase tracking-wider rounded-xl font-black transition flex items-center justify-center gap-1.5 ${isViewer
-                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700 shadow-none'
-                    : isSubmitting
-                      ? 'bg-primary/70 text-white cursor-wait opacity-80'
-                      : 'btn-primary-gradient cursor-pointer active:scale-95'
+              </div>
+
+              {/* MODAL ACTIONS FOOTER */}
+              <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-200 dark:border-slate-800">
+                <div className="text-xs font-bold text-slate-500 dark:text-slate-400 w-full sm:w-auto text-center sm:text-left">
+                  Batch: <span className="text-[#1B1F3B] dark:text-white font-black">{manualReelRows.length} Reel{manualReelRows.length > 1 ? 's' : ''}</span>
+                  {manualBatchTotalWeight > 0 && (
+                    <span className="text-[#0B6B3A] dark:text-emerald-400 ml-1 font-mono font-black">
+                      ({manualBatchTotalWeight.toLocaleString()} KG)
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setIsManualModalOpen(false)}
+                    className="flex-1 sm:flex-initial px-5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 min-h-[44px]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isViewer || isSubmitting}
+                    className={`flex-1 sm:flex-initial px-6 py-2.5 text-xs uppercase tracking-wider rounded-xl font-black transition flex items-center justify-center gap-1.5 min-h-[44px] ${
+                      isViewer
+                        ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700 shadow-none'
+                        : isSubmitting
+                        ? 'bg-[#4B32C3]/70 text-white cursor-wait opacity-80'
+                        : 'bg-[#4B32C3] hover:bg-[#3f29a8] active:scale-[0.98] text-white shadow-md shadow-[#4B32C3]/25 cursor-pointer'
                     }`}
-                >
-                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : isViewer ? <Lock className="h-4 w-4 text-amber-500" /> : null}
-                  <span>{isSubmitting ? 'Saving...' : isViewer ? 'Locked' : 'Save Manual Reel'}</span>
-                </button>
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="h-4 w-4 stroke-[3]" />
+                    )}
+                    <span>
+                      {isSubmitting
+                        ? 'Saving...'
+                        : manualReelRows.length > 1
+                        ? `Save All ${manualReelRows.length} Reels`
+                        : 'Save Manual Reel'}
+                    </span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -2655,7 +3332,7 @@ export const RewinderView: React.FC = () => {
                   {reelForm.ply === '1' ? (
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Machine Roll No
+                        Running Roll No
                       </label>
                       <input
                         type="text"
@@ -2670,7 +3347,7 @@ export const RewinderView: React.FC = () => {
                     <>
                       <div>
                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Machine Roll No 1
+                          Running Roll No 1
                         </label>
                         <input
                           type="text"
@@ -2683,7 +3360,7 @@ export const RewinderView: React.FC = () => {
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Machine Roll No 2
+                          Running Roll No 2
                         </label>
                         <input
                           type="text"
@@ -2748,7 +3425,7 @@ export const RewinderView: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-start">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Roll Size (cm)
+                      Running Size (cm)
                     </label>
                     <input
                       type="text"
@@ -2996,12 +3673,13 @@ export const RewinderView: React.FC = () => {
                   type="submit"
                   disabled={isViewer || isSubmitting}
                   title={isViewer ? 'Viewer Mode: Reel entry saving is locked (Read-Only)' : 'Save Reel Entry'}
-                  className={`px-6 py-2.5 text-xs uppercase tracking-wider rounded-xl font-black transition flex items-center justify-center gap-1.5 ${isViewer
-                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700 shadow-none'
-                    : isSubmitting
+                  className={`px-6 py-2.5 text-xs uppercase tracking-wider rounded-xl font-black transition flex items-center justify-center gap-1.5 ${
+                    isViewer
+                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700 shadow-none'
+                      : isSubmitting
                       ? 'bg-primary/70 text-white cursor-wait opacity-80'
                       : 'btn-primary-gradient cursor-pointer active:scale-95'
-                    }`}
+                  }`}
                 >
                   {isSubmitting ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -3012,8 +3690,8 @@ export const RewinderView: React.FC = () => {
                     {isSubmitting
                       ? 'Logging Cut Reels...'
                       : isViewer
-                        ? 'Save Reel Entry (Locked)'
-                        : 'Save Reel Entry'}
+                      ? 'Save Reel Entry (Locked)'
+                      : 'Save Reel Entry'}
                   </span>
                 </button>
               </div>
@@ -3304,7 +3982,7 @@ export const RewinderView: React.FC = () => {
                   {/* 3rd: Running Roll No (Spans 2 cols on mobile, 1 col on desktop) */}
                   <div className="col-span-2 sm:col-span-1">
                     <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Machine Roll No
+                      Running Roll No
                     </label>
                     <input
                       type="text"
@@ -3478,15 +4156,17 @@ export const RewinderView: React.FC = () => {
                     return (
                       <div
                         key={item.id}
-                        className={`p-3 rounded-2xl border transition duration-150 space-y-2 sm:space-y-0 sm:grid sm:grid-cols-6 sm:gap-2.5 sm:items-center ${isTarget
-                          ? 'bg-blue-50/90 dark:bg-blue-950/40 border-primary ring-2 ring-primary/40 shadow-sm'
-                          : 'bg-white dark:bg-slate-900/90 border-slate-200 dark:border-slate-700/80 hover:border-slate-300 shadow-2xs'
-                          }`}
+                        className={`p-3 rounded-2xl border transition duration-150 space-y-2 sm:space-y-0 sm:grid sm:grid-cols-6 sm:gap-2.5 sm:items-center ${
+                          isTarget
+                            ? 'bg-blue-50/90 dark:bg-blue-950/40 border-primary ring-2 ring-primary/40 shadow-sm'
+                            : 'bg-white dark:bg-slate-900/90 border-slate-200 dark:border-slate-700/80 hover:border-slate-300 shadow-2xs'
+                        }`}
                       >
                         {/* 1. Index & Reel No */}
                         <div className="flex items-center gap-1.5 w-full sm:col-span-1">
-                          <span className={`w-7 h-7 rounded-lg font-mono font-black text-xs flex items-center justify-center shrink-0 ${isTarget ? 'bg-primary text-white shadow-2xs' : 'bg-blue-100 dark:bg-blue-950/60 text-primary dark:text-blue-400'
-                            }`}>
+                          <span className={`w-7 h-7 rounded-lg font-mono font-black text-xs flex items-center justify-center shrink-0 ${
+                            isTarget ? 'bg-primary text-white shadow-2xs' : 'bg-blue-100 dark:bg-blue-950/60 text-primary dark:text-blue-400'
+                          }`}>
                             #{idx + 1}
                           </span>
                           <div className="relative flex-1 min-w-0">
@@ -3503,8 +4183,9 @@ export const RewinderView: React.FC = () => {
                                   return { ...prev, cutReels: updated };
                                 });
                               }}
-                              className={`w-full p-2 bg-slate-50 dark:bg-slate-800 border rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none ${isTarget ? 'border-primary text-primary dark:text-blue-400' : 'border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white'
-                                }`}
+                              className={`w-full p-2 bg-slate-50 dark:bg-slate-800 border rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none ${
+                                isTarget ? 'border-primary text-primary dark:text-blue-400' : 'border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white'
+                              }`}
                             />
                             {isTarget && (
                               <span className="absolute -top-2 right-1 px-1.5 py-0.2 rounded bg-primary text-white text-[8px] font-black uppercase shadow-2xs">
@@ -3690,181 +4371,182 @@ export const RewinderView: React.FC = () => {
               className="bg-white dark:bg-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto print:p-0 print:shadow-none print:max-h-full print:border-none print:w-full print:max-w-none"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center border-b pb-3 dark:border-slate-700 print:hidden">
-                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <CheckCircle className="h-5 w-5 text-emerald-500" />
-                  Print QR Traceability Labels
-                </h3>
-                <button
-                  onClick={() => setShowQRModal(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+            <div className="flex justify-between items-center border-b pb-3 dark:border-slate-700 print:hidden">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                <CheckCircle className="h-5 w-5 text-emerald-500" />
+                Print QR Traceability Labels
+              </h3>
+              <button
+                onClick={() => setShowQRModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border dark:border-slate-700 print:hidden">
+              <div className="flex items-center gap-2">
+                <Printer className="h-4 w-4 text-primary" />
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Select Label Format:</span>
               </div>
-
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border dark:border-slate-700 print:hidden">
-                <div className="flex items-center gap-2">
-                  <Printer className="h-4 w-4 text-primary" />
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Select Label Format:</span>
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setPrintFormat('tsc_4x3')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${printFormat === 'tsc_4x3' ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border'
-                      }`}
-                  >
-                    TSC 4x3&quot;
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPrintFormat('tsc_3x2')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${printFormat === 'tsc_3x2' ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border'
-                      }`}
-                  >
-                    TSC 3x2&quot;
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPrintFormat('a4_grid')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${printFormat === 'a4_grid' ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border'
-                      }`}
-                  >
-                    A4 Grid
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-4 py-2" id="printable-qr-labels">
-                {recentlyGenerated.map(reel => (
-                  <div
-                    key={reel.reelNo}
-                    className="qr-label-card bg-white text-slate-950 border-2 border-slate-900 rounded-2xl p-4 shadow-md text-left select-none print:m-0 print:p-3 print:border-2 print:border-black print:shadow-none print:rounded-none"
-                    style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-                  >
-                    {/* Header */}
-                    <div className="flex items-start justify-between border-b-2 border-slate-900 pb-1.5 mb-2">
-                      <div>
-                        <div className="text-xs font-black tracking-tight text-slate-950 uppercase leading-tight font-heading">
-                          {COMPANY_CONFIG.name}
-                        </div>
-                        <div className="text-[7.5px] font-bold text-slate-600 uppercase tracking-wider">
-                          Plant: Chandisar, Palanpur
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-950 text-white text-[7.5px] font-black uppercase tracking-wider">
-                          <Check className="h-2 w-2 text-emerald-400" />
-                          <span>QC PASSED</span>
-                        </span>
-                        <div className="text-[7px] font-extrabold text-slate-500 mt-0.5">ISO 9001:2015</div>
-                      </div>
-                    </div>
-
-                    {/* QR & Reel Identity */}
-                    <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-300 rounded-xl p-2 mb-2">
-                      <div className="p-1 bg-white border border-slate-900 rounded-lg shrink-0 flex items-center justify-center">
-                        <QRCodeSVG
-                          value={reel.reelNo}
-                          size={68}
-                          level="M"
-                          includeMargin={false}
-                          bgColor="#ffffff"
-                          fgColor="#000000"
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-0.5">
-                        <div className="text-[7.5px] font-black text-slate-400 uppercase tracking-widest">
-                          REEL IDENTIFIER / QR CODE
-                        </div>
-                        <div className="text-sm font-black font-mono tracking-tight text-slate-950 truncate">
-                          {reel.reelNo}
-                        </div>
-                        <div className="text-[10px] font-black text-blue-800 line-clamp-1">
-                          {reel.product}
-                        </div>
-                        <div className="text-[7.5px] font-bold text-slate-500">
-                          Roll #{reel.parentRollNo} &bull; Rewinder #2 &bull; Shift A
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 6-Box Technical Specs Matrix */}
-                    <div className="grid grid-cols-3 gap-1 mb-2 text-center text-[9px]">
-                      <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
-                        <span className="text-[7px] font-black text-slate-500 block uppercase">GSM</span>
-                        <span className="font-black text-slate-950 font-mono text-[10px]">{reel.gsm}</span>
-                      </div>
-                      <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
-                        <span className="text-[7px] font-black text-slate-500 block uppercase">SIZE</span>
-                        <span className="font-black text-slate-950 font-mono text-[10px]">{reel.size} cm</span>
-                      </div>
-                      <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
-                        <span className="text-[7px] font-black text-slate-500 block uppercase">PLY</span>
-                        <span className="font-black text-slate-950 font-mono text-[10px]">{reel.ply || 2} Ply</span>
-                      </div>
-                      <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
-                        <span className="text-[7px] font-black text-slate-500 block uppercase">DIAMETER</span>
-                        <span className="font-black text-slate-950 font-mono text-[10px]">{formatDiaInCm(reel.dia || 1150)}</span>
-                      </div>
-                      <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
-                        <span className="text-[7px] font-black text-slate-500 block uppercase">CORE</span>
-                        <span className="font-black text-slate-950 font-mono text-[10px]">76 mm (3")</span>
-                      </div>
-                      <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
-                        <span className="text-[7px] font-black text-slate-500 block uppercase">JOINTS</span>
-                        <span className="font-black text-slate-950 font-mono text-[10px]">{reel.joint ?? 0} Joints</span>
-                      </div>
-                    </div>
-
-                    {/* Certified Net Weight Hero Banner */}
-                    <div className="bg-slate-950 text-white px-2.5 py-1.5 rounded-xl flex items-center justify-between mb-1.5">
-                      <div>
-                        <span className="text-[7.5px] font-black uppercase tracking-widest text-slate-400 block">
-                          CERTIFIED NET WEIGHT
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-base font-black font-mono tracking-tight text-emerald-400">
-                          {reel.weight} <span className="text-[10px] font-normal text-white">KG</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Footer metadata */}
-                    <div className="flex items-center justify-between text-[7px] font-bold text-slate-500 border-t border-slate-200 pt-1">
-                      <span>Mfg: {reel.productionDate || new Date().toISOString().substring(0, 10)}</span>
-                      <span>100% Recyclable Paper</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="pt-3 border-t dark:border-slate-700 flex justify-end gap-2 print:hidden">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
-                  onClick={() => setShowQRModal(false)}
-                  className="px-4 py-2 rounded-xl border text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={handlePrint}
-                  disabled={isViewer}
-                  title={isViewer ? "Printing is locked for Viewer (Read-Only Mode)" : "Print Labels"}
-                  className={`px-5 py-2 rounded-xl font-extrabold text-xs shadow-md flex items-center gap-2 ${isViewer
-                    ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
-                    : 'bg-primary hover:bg-primary-dark text-white cursor-pointer'
+                  type="button"
+                  onClick={() => setPrintFormat('tsc_4x3')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${printFormat === 'tsc_4x3' ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border'
                     }`}
                 >
-                  {isViewer ? <Lock className="h-4 w-4 text-amber-500" /> : <Printer className="h-4 w-4" />}
-                  <span>{isViewer ? 'Print Labels (Locked)' : 'Print Labels'}</span>
+                  TSC 4x3&quot;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintFormat('tsc_3x2')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${printFormat === 'tsc_3x2' ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border'
+                    }`}
+                >
+                  TSC 3x2&quot;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintFormat('a4_grid')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${printFormat === 'a4_grid' ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border'
+                    }`}
+                >
+                  A4 Grid
                 </button>
               </div>
             </div>
-          </div>,
-          document.body
-        )}
+
+            <div className="space-y-4 py-2" id="printable-qr-labels">
+              {recentlyGenerated.map(reel => (
+                <div
+                  key={reel.reelNo}
+                  className="qr-label-card bg-white text-slate-950 border-2 border-slate-900 rounded-2xl p-4 shadow-md text-left select-none print:m-0 print:p-3 print:border-2 print:border-black print:shadow-none print:rounded-none"
+                  style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between border-b-2 border-slate-900 pb-1.5 mb-2">
+                    <div>
+                      <div className="text-xs font-black tracking-tight text-slate-950 uppercase leading-tight font-heading">
+                        {COMPANY_CONFIG.name}
+                      </div>
+                      <div className="text-[7.5px] font-bold text-slate-600 uppercase tracking-wider">
+                        Plant: Chandisar, Palanpur
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-950 text-white text-[7.5px] font-black uppercase tracking-wider">
+                        <Check className="h-2 w-2 text-emerald-400" />
+                        <span>QC PASSED</span>
+                      </span>
+                      <div className="text-[7px] font-extrabold text-slate-500 mt-0.5">ISO 9001:2015</div>
+                    </div>
+                  </div>
+
+                  {/* QR & Reel Identity */}
+                  <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-300 rounded-xl p-2 mb-2">
+                    <div className="p-1 bg-white border border-slate-900 rounded-lg shrink-0 flex items-center justify-center">
+                      <QRCodeSVG
+                        value={reel.reelNo}
+                        size={68}
+                        level="M"
+                        includeMargin={false}
+                        bgColor="#ffffff"
+                        fgColor="#000000"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="text-[7.5px] font-black text-slate-400 uppercase tracking-widest">
+                        REEL IDENTIFIER / QR CODE
+                      </div>
+                      <div className="text-sm font-black font-mono tracking-tight text-slate-950 truncate">
+                        {reel.reelNo}
+                      </div>
+                      <div className="text-[10px] font-black text-blue-800 line-clamp-1">
+                        {reel.product}
+                      </div>
+                      <div className="text-[7.5px] font-bold text-slate-500">
+                        Roll #{reel.parentRollNo} &bull; Rewinder #2 &bull; Shift A
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 6-Box Technical Specs Matrix */}
+                  <div className="grid grid-cols-3 gap-1 mb-2 text-center text-[9px]">
+                    <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                      <span className="text-[7px] font-black text-slate-500 block uppercase">GSM</span>
+                      <span className="font-black text-slate-950 font-mono text-[10px]">{reel.gsm}</span>
+                    </div>
+                    <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                      <span className="text-[7px] font-black text-slate-500 block uppercase">SIZE</span>
+                      <span className="font-black text-slate-950 font-mono text-[10px]">{reel.size} cm</span>
+                    </div>
+                    <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                      <span className="text-[7px] font-black text-slate-500 block uppercase">PLY</span>
+                      <span className="font-black text-slate-950 font-mono text-[10px]">{reel.ply || 2} Ply</span>
+                    </div>
+                    <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                      <span className="text-[7px] font-black text-slate-500 block uppercase">DIAMETER</span>
+                      <span className="font-black text-slate-950 font-mono text-[10px]">{formatDiaInCm(reel.dia || 1150)}</span>
+                    </div>
+                    <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                      <span className="text-[7px] font-black text-slate-500 block uppercase">CORE</span>
+                      <span className="font-black text-slate-950 font-mono text-[10px]">76 mm (3")</span>
+                    </div>
+                    <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg">
+                      <span className="text-[7px] font-black text-slate-500 block uppercase">JOINTS</span>
+                      <span className="font-black text-slate-950 font-mono text-[10px]">{reel.joint ?? 0} Joints</span>
+                    </div>
+                  </div>
+
+                  {/* Certified Net Weight Hero Banner */}
+                  <div className="bg-slate-950 text-white px-2.5 py-1.5 rounded-xl flex items-center justify-between mb-1.5">
+                    <div>
+                      <span className="text-[7.5px] font-black uppercase tracking-widest text-slate-400 block">
+                        CERTIFIED NET WEIGHT
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-base font-black font-mono tracking-tight text-emerald-400">
+                        {reel.weight} <span className="text-[10px] font-normal text-white">KG</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Footer metadata */}
+                  <div className="flex items-center justify-between text-[7px] font-bold text-slate-500 border-t border-slate-200 pt-1">
+                    <span>Mfg: {reel.productionDate || new Date().toISOString().substring(0, 10)}</span>
+                    <span>100% Recyclable Paper</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-3 border-t dark:border-slate-700 flex justify-end gap-2 print:hidden">
+              <button
+                onClick={() => setShowQRModal(false)}
+                className="px-4 py-2 rounded-xl border text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100"
+              >
+                Close
+              </button>
+              <button
+                onClick={handlePrint}
+                disabled={isViewer}
+                title={isViewer ? "Printing is locked for Viewer (Read-Only Mode)" : "Print Labels"}
+                className={`px-5 py-2 rounded-xl font-extrabold text-xs shadow-md flex items-center gap-2 ${
+                  isViewer
+                    ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+                    : 'bg-primary hover:bg-primary-dark text-white cursor-pointer'
+                }`}
+              >
+                {isViewer ? <Lock className="h-4 w-4 text-amber-500" /> : <Printer className="h-4 w-4" />}
+                <span>{isViewer ? 'Print Labels (Locked)' : 'Print Labels'}</span>
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {/* INVENTORY CASCADING FILTER MODAL (Matching Screenshot) */}
       {showCascadingModal && (
         <div
@@ -4024,71 +4706,39 @@ export const RewinderView: React.FC = () => {
           <div
             style={{
               position: 'fixed',
-              top: `${Math.min(activeReelMenu.top, window.innerHeight - 200)}px`,
+              top: `${Math.min(activeReelMenu.top, window.innerHeight - 120)}px`,
               right: `${Math.max(12, activeReelMenu.right)}px`,
             }}
-            className="z-50 w-44 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-100 select-none"
+            className="z-50 w-40 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200/80 dark:border-slate-700 p-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-100 select-none divide-y divide-slate-100 dark:divide-slate-700/60"
             onClick={e => e.stopPropagation()}
           >
-            <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-700/70 mb-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-mono font-black text-primary dark:text-blue-400">
-                  #{activeReelMenu.reel.reelNo}
-                </span>
-                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                  {activeReelMenu.reel.weight} kg
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                {cleanProductName(activeReelMenu.reel.product)}
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const r = activeReelMenu.reel;
+                setActiveReelMenu(null);
+                handleOpenSingleReelEdit(r);
+              }}
+              disabled={isViewer}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 hover:bg-[#F3F0FF] dark:hover:bg-purple-950/40 hover:text-[#4B32C3] transition cursor-pointer disabled:opacity-40"
+            >
+              <Pencil className="h-4 w-4 text-blue-500 shrink-0" />
+              <span>Edit Reel</span>
+            </button>
 
-            <div className="space-y-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  const r = activeReelMenu.reel;
-                  setActiveReelMenu(null);
-                  handleOpenSingleReelEdit(r);
-                }}
-                disabled={isViewer}
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/50 hover:text-primary dark:hover:text-blue-400 transition cursor-pointer disabled:opacity-40"
-              >
-                <Pencil className="h-4 w-4 text-blue-500 shrink-0" />
-                <span>Edit Reel</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const r = activeReelMenu.reel;
-                  setActiveReelMenu(null);
-                  handlePrintSingleReel(r);
-                }}
-                disabled={isViewer}
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 dark:hover:text-emerald-300 transition cursor-pointer disabled:opacity-40"
-              >
-                <Printer className="h-4 w-4 text-emerald-500 shrink-0" />
-                <span>Print Label</span>
-              </button>
-
-              <div className="my-1 border-t border-slate-100 dark:border-slate-700/70" />
-
-              <button
-                type="button"
-                onClick={() => {
-                  const r = activeReelMenu.reel;
-                  setActiveReelMenu(null);
-                  handleDeleteSingleReelAction(r);
-                }}
-                disabled={isViewer || activeReelMenu.reel.status === 'DISPATCHED'}
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer disabled:opacity-40"
-              >
-                <Trash2 className="h-4 w-4 text-red-500 shrink-0" />
-                <span>{activeReelMenu.reel.status === 'DISPATCHED' ? 'Dispatched (Locked)' : 'Delete Reel'}</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const r = activeReelMenu.reel;
+                setActiveReelMenu(null);
+                handleDeleteSingleReelAction(r);
+              }}
+              disabled={isViewer || activeReelMenu.reel.status === 'DISPATCHED'}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4 text-red-500 shrink-0" />
+              <span>{activeReelMenu.reel.status === 'DISPATCHED' ? 'Dispatched (Locked)' : 'Delete Reel'}</span>
+            </button>
           </div>
         </>,
         document.body
@@ -4096,7 +4746,7 @@ export const RewinderView: React.FC = () => {
 
       {/* Mobile Floating Toast */}
       <MobileToast toast={toast} onClose={() => setToast(null)} />
-    </div>
+    </>
   );
 };
 

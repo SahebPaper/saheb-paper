@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import { getReels, getProducts } from '../../data/index';
 import type { ProductItem, Reel } from '../../data/types';
 import {
@@ -109,6 +110,8 @@ const reelToLabelItem = (reel: StoredReelItem, copies = 1, overrides?: Partial<L
 
 export const LabelStudioView: React.FC = () => {
   const { isViewer } = useAuth();
+  const [searchParams] = useSearchParams();
+  const urlReelParam = searchParams.get('reel');
 
   // Label Size for Thermal Roll
   const [labelSize, setLabelSize] = useState<'4x6' | '3x2' | 'a4' | 'auto'>('4x6');
@@ -227,6 +230,19 @@ export const LabelStudioView: React.FC = () => {
 
   // Active Reel being previewed on the Right Side (empty until a reel is selected/clicked)
   const [previewReelNo, setPreviewReelNo] = useState<string>('');
+
+  // Auto-select reel if passed via URL parameter (?reel=...)
+  useEffect(() => {
+    if (urlReelParam && allStoredReels.length > 0) {
+      const normalized = urlReelParam.trim().toUpperCase();
+      const matched = allStoredReels.find(r => r.reelNo.trim().toUpperCase() === normalized);
+      if (matched) {
+        setStatusFilter('all');
+        setSelectedReelNos([matched.reelNo]);
+        setPreviewReelNo(matched.reelNo);
+      }
+    }
+  }, [urlReelParam, allStoredReels]);
 
   // Toast State
   const [toast, setToast] = useState<ToastMessage | null>(null);

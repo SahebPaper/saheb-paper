@@ -25,7 +25,6 @@ import type {
   VehicleItem,
 } from '../../data/types';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { PrintLabelModal } from '../../components/PrintLabelModal';
 import { useDataSync } from '../../hooks/useDataSync';
 import {
   Camera,
@@ -101,7 +100,13 @@ export const QRScannerViewInner: React.FC<QRScannerViewProps> = ({ onOpenPrintSt
 
   // Inline Edit Reel Spec State
   const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<{
+    reelNo: string;
+    product: string;
+    gsm: string | number;
+    size: string | number;
+    weight: string | number;
+  }>({
     reelNo: '',
     product: '',
     gsm: 18,
@@ -117,17 +122,13 @@ export const QRScannerViewInner: React.FC<QRScannerViewProps> = ({ onOpenPrintSt
   const [dispatchParty, setDispatchParty] = useState(parties[0]?.id || '');
   const [dispatchVehicle, setDispatchVehicle] = useState(vehicles[0]?.vehicleNo || '');
   const [toastMsg, setToastMsg] = useState('');
-  const [showPrintLabelModal, setShowPrintLabelModal] = useState(false);
-  const [printReel, setPrintReel] = useState<Reel | null>(null);
-  const [printCode, setPrintCode] = useState<string>('');
 
   const handleTriggerPrint = (reel?: Reel, code?: string) => {
     if (onOpenPrintStudio) {
       onOpenPrintStudio(reel, code);
     } else {
-      setPrintReel(reel || null);
-      setPrintCode(code || reel?.reelNo || '');
-      setShowPrintLabelModal(true);
+      const target = reel?.reelNo || code || '';
+      navigate(target ? `/label-studio?reel=${encodeURIComponent(target)}` : '/label-studio');
     }
   };
 
@@ -1027,9 +1028,24 @@ export const QRScannerViewInner: React.FC<QRScannerViewProps> = ({ onOpenPrintSt
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Weight (kg)</label>
                       <input
-                        type="number"
-                        value={editForm.weight}
-                        onChange={e => setEditForm({ ...editForm, weight: parseFloat(e.target.value) || 0 })}
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={editForm.weight === 0 || editForm.weight === '0' ? '' : editForm.weight}
+                        onFocus={e => {
+                          if (e.target.value === '0') {
+                            setEditForm(prev => ({ ...prev, weight: '' }));
+                          } else {
+                            e.target.select();
+                          }
+                        }}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setEditForm(prev => ({ ...prev, weight: val }));
+                          }
+                        }}
                         className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold font-mono"
                       />
                     </div>
@@ -1037,18 +1053,34 @@ export const QRScannerViewInner: React.FC<QRScannerViewProps> = ({ onOpenPrintSt
                       <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">GSM &amp; Decal</label>
                       <div className="flex gap-1">
                         <input
-                          type="number"
-                          value={editForm.gsm}
-                          onChange={e => setEditForm({ ...editForm, gsm: parseFloat(e.target.value) || 0 })}
-                          className="w-1/2 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
+                          type="text"
+                          inputMode="numeric"
                           placeholder="GSM"
+                          value={editForm.gsm === 0 || editForm.gsm === '0' ? '' : editForm.gsm}
+                          onFocus={e => e.target.select()}
+                          onChange={e => {
+                            let val = e.target.value;
+                            if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                            if (val === '' || /^\d*$/.test(val)) {
+                              setEditForm(prev => ({ ...prev, gsm: val }));
+                            }
+                          }}
+                          className="w-1/2 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
                         />
                         <input
-                          type="number"
-                          value={editForm.size}
-                          onChange={e => setEditForm({ ...editForm, size: parseFloat(e.target.value) || 0 })}
-                          className="w-1/2 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
+                          type="text"
+                          inputMode="numeric"
                           placeholder="Decal"
+                          value={editForm.size === 0 || editForm.size === '0' ? '' : editForm.size}
+                          onFocus={e => e.target.select()}
+                          onChange={e => {
+                            let val = e.target.value;
+                            if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                            if (val === '' || /^\d*$/.test(val)) {
+                              setEditForm(prev => ({ ...prev, size: val }));
+                            }
+                          }}
+                          className="w-1/2 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
                         />
                       </div>
                     </div>
@@ -1325,7 +1357,12 @@ export const QRScannerViewInner: React.FC<QRScannerViewProps> = ({ onOpenPrintSt
                 {scanResult.reel && !isEditing && (
                   <button
                     type="button"
-                    onClick={() => setIsEditing(true)}
+                    onClick={() => {
+                      setIsEditing(true);
+                      if (editForm.weight === 0 || editForm.weight === '0') {
+                        setEditForm(prev => ({ ...prev, weight: '' }));
+                      }
+                    }}
                     className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-bold py-2.5 px-3 rounded-2xl text-xs uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1.5 border border-slate-200 dark:border-slate-700"
                   >
                     <Pencil className="h-3.5 w-3.5" />
@@ -1422,14 +1459,6 @@ export const QRScannerViewInner: React.FC<QRScannerViewProps> = ({ onOpenPrintSt
           </div>
         </div>
       )}
-
-      {/* THERMAL LABEL PRINT MODAL */}
-      <PrintLabelModal
-        isOpen={showPrintLabelModal}
-        onClose={() => setShowPrintLabelModal(false)}
-        initialReel={printReel}
-        initialCode={printCode}
-      />
 
     </div>
   );

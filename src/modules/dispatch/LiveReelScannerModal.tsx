@@ -14,6 +14,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface LiveReelScannerModalProps {
@@ -47,15 +48,15 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
   const [editSpecsForm, setEditSpecsForm] = useState<{
     reelNo: string;
     product: string;
-    gsm: number;
-    size: number;
-    weight: number;
+    gsm: string | number;
+    size: string | number;
+    weight: string | number;
   }>({
     reelNo: '',
     product: '',
     gsm: 15,
     size: 26,
-    weight: 0,
+    weight: '',
   });
 
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
@@ -434,7 +435,7 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
       product: target.product,
       gsm: target.gsm || 15,
       size: target.size || 26,
-      weight: target.weight || 0,
+      weight: target.weight ? target.weight : '',
     });
     setIsEditingSpecs(false);
     setVerifyingReel(target);
@@ -449,7 +450,7 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
       product: target.product,
       gsm: target.gsm || 15,
       size: target.size || 26,
-      weight: target.weight || 0,
+      weight: target.weight ? target.weight : '',
     });
     setIsEditingSpecs(false);
     setVerifyingReel(target);
@@ -710,7 +711,7 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
                         product: reel.product,
                         gsm: reel.gsm || 15,
                         size: reel.size || 26,
-                        weight: reel.weight || 0,
+                        weight: reel.weight ? reel.weight : '',
                       });
                       setIsEditingSpecs(false);
                       setVerifyingReel(reel);
@@ -784,47 +785,49 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
 
       </div>
 
-      {/* 5. VERIFICATION CONFIRMATION POPUP MODAL (Appears on scan / manual entry matching image media_1793788911457_9b77aaaa.png) */}
+      {/* 5. VERIFICATION CONFIRMATION POPUP BOTTOM SHEET (MOBILE ONLY 390px, Matching User Design) */}
       {verifyingReel && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-3.5 sm:p-4 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-sm sm:max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-2xl space-y-3.5 animate-in zoom-in-95 duration-150 text-slate-900 dark:text-white">
+        <div className="fixed inset-0 z-60 flex flex-col justify-end bg-[#2A2D4A]/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-[420px] mx-auto bg-white rounded-t-[28px] p-4 pb-6 space-y-3.5 shadow-2xl animate-in slide-in-from-bottom duration-200 font-['Inter',sans-serif]">
             
-            {/* Header: Verified In Stock */}
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-purple-50 text-primary border border-purple-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 shrink-0">
-                  <CheckCircle2 className="h-5 w-5" />
+            {/* Top Grab Handle */}
+            <div className="w-11 h-[5px] bg-[#D5D8E8] rounded-full mx-auto" />
+
+            {/* Header: green check circle, title, subtitle, close button (44px) */}
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-[#D8F5E5] flex items-center justify-center shrink-0">
+                  <Check className="w-6 h-6 text-[#0B6B3A] stroke-[2.5]" />
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white uppercase tracking-tight">
-                    REEL VERIFIED IN STOCK
-                  </h4>
-                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                    {scannedReels.length > 1
-                      ? `Reel ${reviewIndex + 1} of ${scannedReels.length} (${totalScannedWeight.toLocaleString()} KG Total)`
-                      : `Reel #${verifyingReel.reelNo} • Ready for Challan`}
+                  <h3 className="text-[19px] sm:text-[20px] font-extrabold text-[#1B1F3B] leading-tight">
+                    Reel verified in stock
+                  </h3>
+                  <p className="text-[13px] sm:text-[14px] font-semibold text-[#4A5270] leading-tight mt-0.5">
+                    Added to Challan
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
+
+              <div className="flex items-center gap-2">
                 {scannedReels.length > 1 && (
-                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-1 bg-[#F3F4FA] px-2 py-1 rounded-xl border border-[#E2E5F0]">
                     <button
                       type="button"
                       disabled={reviewIndex === 0}
                       onClick={() => handleSelectReviewReel(reviewIndex - 1)}
-                      className={`p-1 rounded-lg ${reviewIndex === 0 ? 'text-slate-300 dark:text-slate-600' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white cursor-pointer'}`}
+                      className={`p-1 rounded-lg ${reviewIndex === 0 ? 'text-slate-300' : 'text-slate-600 hover:text-slate-900 cursor-pointer'}`}
                     >
                       <ChevronLeft className="w-3.5 h-3.5" />
                     </button>
-                    <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">
+                    <span className="text-[11px] font-mono font-bold text-slate-700">
                       {reviewIndex + 1}/{scannedReels.length}
                     </span>
                     <button
                       type="button"
                       disabled={reviewIndex === scannedReels.length - 1}
                       onClick={() => handleSelectReviewReel(reviewIndex + 1)}
-                      className={`p-1 rounded-lg ${reviewIndex === scannedReels.length - 1 ? 'text-slate-300 dark:text-slate-600' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white cursor-pointer'}`}
+                      className={`p-1 rounded-lg ${reviewIndex === scannedReels.length - 1 ? 'text-slate-300' : 'text-slate-600 hover:text-slate-900 cursor-pointer'}`}
                     >
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
@@ -833,44 +836,77 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setVerifyingReel(null)}
-                  className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
+                  className="w-11 h-11 rounded-[14px] bg-[#F3F4FA] hover:bg-[#E8EAF2] flex items-center justify-center text-[#1B1F3B] transition cursor-pointer shrink-0"
                 >
-                  <X className="h-5 w-5" />
+                  <X className="w-5 h-5 stroke-[2.5]" />
                 </button>
               </div>
             </div>
 
-            {/* Identifier & Net Weight Card */}
-            <div className="p-3.5 sm:p-4 bg-slate-50 dark:bg-slate-950/80 rounded-2xl border border-slate-200/90 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider block">
-                  REEL / BARCODE IDENTIFIER
-                </span>
-                <span className="text-xl sm:text-2xl font-black font-mono text-primary dark:text-sky-400">
-                  {editSpecsForm.reelNo || verifyingReel.reelNo}
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider block">
-                  NET WEIGHT
-                </span>
-                <span className="text-xl sm:text-2xl font-black font-mono text-slate-900 dark:text-slate-100">
-                  {editSpecsForm.weight || verifyingReel.weight || 0} KG
-                </span>
-              </div>
-            </div>
+            {/* Two Big Boxes: Reel No. & Net Weight */}
+            {(() => {
+              const currentReelNo = editSpecsForm.reelNo || verifyingReel.reelNo;
+              const currentWeight = Number(editSpecsForm.weight !== undefined && editSpecsForm.weight !== '' && editSpecsForm.weight !== null ? editSpecsForm.weight : verifyingReel.weight) || 0;
+              const isZeroWeight = currentWeight <= 0;
 
-            {/* Specs Grid or Inline Edit Form */}
+              return (
+                <>
+                  <div className="flex gap-2.5 items-stretch">
+                    {/* Reel No. Box */}
+                    <div className="flex-[1.3] bg-[#EDE9FD] rounded-[16px] p-3.5 flex flex-col justify-center">
+                      <span className="text-[12px] font-bold text-[#4A5270] block leading-tight">
+                        Reel no.
+                      </span>
+                      <span className="text-[26px] sm:text-[28px] font-black text-[#4B32C3] leading-none mt-1.5 tracking-tight truncate">
+                        {currentReelNo}
+                      </span>
+                    </div>
+
+                    {/* Net Weight Box */}
+                    <div
+                      className={`flex-1 rounded-[16px] p-3.5 flex flex-col justify-center ${
+                        isZeroWeight
+                          ? 'bg-[#FDECEA] border border-[#F0A39B]'
+                          : 'bg-[#F3F4FA] border border-[#E2E5F0]'
+                      }`}
+                    >
+                      <span className="text-[12px] font-bold text-[#4A5270] block leading-tight">
+                        Net weight
+                      </span>
+                      <span
+                        className={`text-[26px] sm:text-[28px] font-black leading-none mt-1.5 tracking-tight truncate ${
+                          isZeroWeight ? 'text-[#B3261E]' : 'text-[#1B1F3B]'
+                        }`}
+                      >
+                        {isZeroWeight ? '0 kg' : `${currentWeight.toLocaleString()} kg`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Warning Bar for 0 kg */}
+                  {isZeroWeight && (
+                    <div className="bg-[#FFF4DC] border border-[#F2C14E] rounded-[14px] p-2.5 sm:p-3 flex items-center gap-2.5">
+                      <AlertTriangle className="w-5 h-5 text-[#6B3500] shrink-0" />
+                      <span className="text-[13px] font-bold text-[#6B3500] leading-snug">
+                        Weight shows 0 kg. Please check before you confirm.
+                      </span>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
+            {/* 4 Small Info Boxes (2x2) or Edit Specs Form */}
             {isEditingSpecs ? (
-              <div className="space-y-3 p-3.5 bg-slate-50 dark:bg-slate-950/90 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs">
-                <div className="flex justify-between items-center pb-1.5 border-b border-slate-200 dark:border-slate-800">
-                  <span className="font-black text-primary dark:text-sky-400 uppercase text-[10px] tracking-wider">
+              <div className="space-y-3 p-3.5 bg-[#F3F4FA] rounded-[16px] border border-[#DDE0EE] text-xs">
+                <div className="flex justify-between items-center pb-2 border-b border-[#DDE0EE]">
+                  <span className="font-extrabold text-[#4B32C3] uppercase text-[11px] tracking-wider">
                     Edit Reel Specs
                   </span>
                   <button
                     type="button"
                     onClick={() => setIsEditingSpecs(false)}
-                    className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white text-xs font-semibold cursor-pointer"
+                    className="text-[#4A5270] hover:text-[#1B1F3B] text-xs font-bold cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -878,45 +914,76 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
 
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
-                      Product Quality
+                    <label className="block text-[11px] font-bold text-[#4A5270] uppercase mb-1">
+                      Product
                     </label>
                     <input
                       type="text"
                       value={editSpecsForm.product}
                       onChange={e => setEditSpecsForm({ ...editSpecsForm, product: e.target.value })}
-                      className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white outline-none focus:border-primary"
+                      className="w-full p-2.5 bg-white border border-[#DDE0EE] rounded-xl font-bold text-xs text-[#1B1F3B] outline-none focus:border-[#4B32C3]"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                    <label className="block text-[11px] font-bold text-[#4A5270] uppercase mb-1">
                       Net Weight (KG)
                     </label>
                     <input
-                      type="number"
-                      value={editSpecsForm.weight}
-                      onChange={e => setEditSpecsForm({ ...editSpecsForm, weight: parseFloat(e.target.value) || 0 })}
-                      className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono font-bold text-xs text-slate-900 dark:text-white outline-none focus:border-primary"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={editSpecsForm.weight === 0 || editSpecsForm.weight === '0' ? '' : editSpecsForm.weight}
+                      onFocus={e => {
+                        if (e.target.value === '0') {
+                          setEditSpecsForm(prev => ({ ...prev, weight: '' }));
+                        } else {
+                          e.target.select();
+                        }
+                      }}
+                      onChange={e => {
+                        let val = e.target.value;
+                        if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          setEditSpecsForm(prev => ({ ...prev, weight: val }));
+                        }
+                      }}
+                      className="w-full p-2.5 bg-white border border-[#DDE0EE] rounded-xl font-mono font-bold text-xs text-[#1B1F3B] outline-none focus:border-[#4B32C3]"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
-                      GSM &amp; Decal (mm)
+                    <label className="block text-[11px] font-bold text-[#4A5270] uppercase mb-1">
+                      GSM &amp; Size (cm)
                     </label>
                     <div className="flex gap-1.5">
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="numeric"
                         placeholder="GSM"
-                        value={editSpecsForm.gsm}
-                        onChange={e => setEditSpecsForm({ ...editSpecsForm, gsm: parseFloat(e.target.value) || 0 })}
-                        className="w-1/2 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white outline-none focus:border-primary"
+                        value={editSpecsForm.gsm === 0 || editSpecsForm.gsm === '0' ? '' : editSpecsForm.gsm}
+                        onFocus={e => e.target.select()}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                          if (val === '' || /^\d*$/.test(val)) {
+                            setEditSpecsForm(prev => ({ ...prev, gsm: val }));
+                          }
+                        }}
+                        className="w-1/2 p-2.5 bg-white border border-[#DDE0EE] rounded-xl font-bold text-xs text-[#1B1F3B] outline-none focus:border-[#4B32C3]"
                       />
                       <input
-                        type="number"
-                        placeholder="Decal"
-                        value={editSpecsForm.size}
-                        onChange={e => setEditSpecsForm({ ...editSpecsForm, size: parseFloat(e.target.value) || 0 })}
-                        className="w-1/2 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white outline-none focus:border-primary"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Size"
+                        value={editSpecsForm.size === 0 || editSpecsForm.size === '0' ? '' : editSpecsForm.size}
+                        onFocus={e => e.target.select()}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                          if (val === '' || /^\d*$/.test(val)) {
+                            setEditSpecsForm(prev => ({ ...prev, size: val }));
+                          }
+                        }}
+                        className="w-1/2 p-2.5 bg-white border border-[#DDE0EE] rounded-xl font-bold text-xs text-[#1B1F3B] outline-none focus:border-[#4B32C3]"
                       />
                     </div>
                   </div>
@@ -925,92 +992,103 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
                 <button
                   type="button"
                   onClick={handleSaveEditedSpecs}
-                  className="w-full py-2 bg-primary hover:bg-[#5B3DC9] text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  className="w-full h-[46px] bg-[#4B32C3] hover:bg-[#3f29a8] text-white rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-[0.98]"
                 >
-                  <Check className="h-3.5 w-3.5" />
+                  <Check className="h-4 w-4 stroke-[3]" />
                   <span>Save Specs Update</span>
                 </button>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2 text-xs">
-                {/* 1. Product Quality */}
-                <div className="p-3 bg-slate-50/80 dark:bg-slate-950/70 rounded-2xl border border-slate-200/80 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold block uppercase tracking-wider">
-                    PRODUCT QUALITY
+                {/* 1. Product */}
+                <div className="p-3 bg-[#F3F4FA] rounded-[14px]">
+                  <span className="text-[12px] text-[#4A5270] font-bold block leading-tight">
+                    Product
                   </span>
-                  <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block truncate">
+                  <span className="font-extrabold text-[14px] sm:text-[15px] text-[#1B1F3B] mt-0.5 block truncate">
                     {editSpecsForm.product || verifyingReel.product}
                   </span>
                 </div>
 
-                {/* 2. GSM & Decal */}
-                <div className="p-3 bg-slate-50/80 dark:bg-slate-950/70 rounded-2xl border border-slate-200/80 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold block uppercase tracking-wider">
-                    GSM &amp; DECAL
+                {/* 2. GSM · Size */}
+                <div className="p-3 bg-[#F3F4FA] rounded-[14px]">
+                  <span className="text-[12px] text-[#4A5270] font-bold block leading-tight">
+                    GSM · Size
                   </span>
-                  <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block truncate">
-                    {editSpecsForm.gsm || verifyingReel.gsm} GSM • {editSpecsForm.size || verifyingReel.size} cm
+                  <span className="font-extrabold text-[14px] sm:text-[15px] text-[#1B1F3B] mt-0.5 block truncate">
+                    {editSpecsForm.gsm || verifyingReel.gsm} GSM · {editSpecsForm.size || verifyingReel.size} cm
                   </span>
                 </div>
 
-                {/* 3. Production Date */}
-                <div className="p-3 bg-slate-50/80 dark:bg-slate-950/70 rounded-2xl border border-slate-200/80 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold block uppercase tracking-wider">
-                    PRODUCTION DATE
+                {/* 3. Produced */}
+                <div className="p-3 bg-[#F3F4FA] rounded-[14px]">
+                  <span className="text-[12px] text-[#4A5270] font-bold block leading-tight">
+                    Produced
                   </span>
-                  <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block truncate">
+                  <span className="font-extrabold text-[14px] sm:text-[15px] text-[#1B1F3B] mt-0.5 block truncate">
                     {verifyingReel.productionDate
                       ? verifyingReel.productionDate.substring(0, 16).replace('T', ' ')
                       : 'Today'}
                   </span>
                 </div>
 
-                {/* 4. QC Clearance */}
-                <div className="p-3 bg-slate-50/80 dark:bg-slate-950/70 rounded-2xl border border-slate-200/80 dark:border-slate-800">
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold block uppercase tracking-wider">
-                    QC CLEARANCE
+                {/* 4. Quality check */}
+                <div className="p-3 bg-[#F3F4FA] rounded-[14px]">
+                  <span className="text-[12px] text-[#4A5270] font-bold block leading-tight">
+                    Quality check
                   </span>
-                  <span className="font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block truncate">
-                    Grade {verifyingReel.qcGrade || 'A'} Passed
+                  <span className="font-extrabold text-[14px] sm:text-[15px] text-[#0B6B3A] mt-0.5 block truncate">
+                    Grade {verifyingReel.qcGrade || 'A'} passed
                   </span>
                 </div>
               </div>
             )}
 
-            {/* Action Buttons matching User's Picture */}
+            {/* Buttons with clear hierarchy */}
             <div className="space-y-2 pt-1">
-              
-              {/* Primary Green Action: Confirm & Add to Challan */}
+              {/* Primary Purple Action: CONFIRM (60px) */}
               <button
                 type="button"
                 onClick={handleCommit}
-                className="w-full bg-primary hover:bg-[#5B3DC9] text-white font-black py-3.5 px-4 rounded-2xl text-xs uppercase tracking-wider shadow-lg shadow-primary/25 transition cursor-pointer active:scale-[0.98] flex items-center justify-center gap-2"
+                className="w-full h-[60px] bg-[#4B32C3] hover:bg-[#3f29a8] active:scale-[0.98] text-white font-black text-[17px] tracking-wide rounded-[18px] shadow-lg shadow-[#4B32C3]/30 flex items-center justify-center gap-2.5 transition cursor-pointer"
               >
-                <Truck className="h-4 w-4" />
-                <span>CONFIRM &amp; ADD TO CHALLAN</span>
+                <Check className="h-5 w-5 stroke-[3]" />
+                <span>CONFIRM</span>
               </button>
 
-              {/* Edit Specs Button */}
-              {!isEditingSpecs && (
+              {/* Secondary row: Scan next reel (outlined purple) & Edit (outlined neutral) */}
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsEditingSpecs(true)}
-                  className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 font-bold py-2.5 px-3 rounded-2xl text-xs uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1.5 border border-slate-200 dark:border-slate-700"
+                  onClick={() => setVerifyingReel(null)}
+                  className="flex-[1.4] h-[52px] bg-white border border-[#4B32C3] text-[#4B32C3] hover:bg-purple-50/50 active:scale-[0.98] font-extrabold text-[15px] rounded-[16px] flex items-center justify-center transition cursor-pointer"
                 >
-                  <Pencil className="h-3.5 w-3.5" />
-                  <span>EDIT SPECS</span>
+                  <span>Scan next reel</span>
                 </button>
-              )}
 
-              {/* Bottom Purple Button: Scan More Reels */}
-              <button
-                type="button"
-                onClick={() => setVerifyingReel(null)}
-                className="w-full py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-2 bg-purple-50 hover:bg-purple-100 text-primary border border-purple-200/80 dark:bg-purple-950/60 dark:hover:bg-purple-900/60 dark:text-purple-300 dark:border-purple-800/60"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                <span>SCAN MORE REELS</span>
-              </button>
+                {!isEditingSpecs ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingSpecs(true);
+                      if (editSpecsForm.weight === 0 || editSpecsForm.weight === '0') {
+                        setEditSpecsForm(prev => ({ ...prev, weight: '' }));
+                      }
+                    }}
+                    className="flex-1 h-[52px] bg-white border border-[#DDE0EE] text-[#1B1F3B] hover:bg-slate-50 active:scale-[0.98] font-bold text-[15px] rounded-[16px] flex items-center justify-center transition cursor-pointer"
+                  >
+                    <span>Edit</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingSpecs(false)}
+                    className="flex-1 h-[52px] bg-white border border-[#DDE0EE] text-[#4A5270] hover:bg-slate-50 active:scale-[0.98] font-bold text-[15px] rounded-[16px] flex items-center justify-center transition cursor-pointer"
+                  >
+                    <span>Cancel</span>
+                  </button>
+                )}
+              </div>
             </div>
 
           </div>

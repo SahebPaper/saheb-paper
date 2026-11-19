@@ -34,6 +34,8 @@ import { CustomSearchableSelect } from '../../components/CustomSearchableSelect'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 import { useDataSync } from '../../hooks/useDataSync';
+import { MobileToast, type ToastMessage } from '../../components/MobileToast';
+import { playNotificationSound, playErrorBeepSound } from '../../utils/notificationSound';
 import {
   Download,
   Truck,
@@ -84,7 +86,6 @@ import { DispatchedReelsVault } from './DispatchedReelsVault';
 import { LiveReelScannerModal } from './LiveReelScannerModal';
 import { QRScannerView } from '../rewinder/QRScannerView';
 import { useDateFilter, isDateInTimeframe } from '../../context/DateFilterContext';
-import { PrintLabelModal } from '../../components/PrintLabelModal';
 import { formatDiaInCm } from '../../components/ReelPrintLabel';
 
 interface DispatchViewProps {
@@ -269,9 +270,36 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
     } catch (e) {}
   };
 
-  // Success / Error States
-  const [successMsg, setSuccessMsg] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
+  // Toast & Audio Feedback States
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [successMsg, _setSuccessMsg] = useState('');
+  const [errorMsg, _setErrorMsg] = useState('');
+
+  const setErrorMsg = (msg: string, title = 'Dispatch Validation') => {
+    _setErrorMsg(msg);
+    if (msg) {
+      playErrorBeepSound();
+      setToast({
+        type: 'error',
+        title,
+        message: msg,
+        duration: 4000,
+      });
+    }
+  };
+
+  const setSuccessMsg = (msg: string, title = 'Dispatch Notice') => {
+    _setSuccessMsg(msg);
+    if (msg) {
+      playNotificationSound();
+      setToast({
+        type: 'success',
+        title,
+        message: msg,
+        duration: 3500,
+      });
+    }
+  };
 
   // Search Queries
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -473,12 +501,18 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
   // Specs Confirmation Popup on main QR Scanner page (Matching user pic)
   const [reviewedReelPopup, setReviewedReelPopup] = useState<Reel | null>(null);
   const [isEditingReviewedSpecs, setIsEditingReviewedSpecs] = useState(false);
-  const [reviewedSpecsForm, setReviewedSpecsForm] = useState({
+  const [reviewedSpecsForm, setReviewedSpecsForm] = useState<{
+    reelNo: string;
+    product: string;
+    gsm: string | number;
+    size: string | number;
+    weight: string | number;
+  }>({
     reelNo: '',
     product: '',
     gsm: 15,
     size: 26,
-    weight: 0,
+    weight: '',
   });
 
   const handleAddScannedReelsToChallan = (scannedList: Reel[]) => {
@@ -495,20 +529,17 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
     if (!code) return;
     if (selectedReelNos.map(s => s.trim().toUpperCase()).includes(code)) {
       setErrorMsg(`Reel #${code} is already in this challan`);
-      playBeep();
       setTimeout(() => setErrorMsg(''), 2500);
       return;
     }
     const found = reels.find(r => r.reelNo.trim().toUpperCase() === code);
     if (!found) {
       setErrorMsg(`Error: Reel #${code} does not exist in rewinder stock!`);
-      playBeep();
       setTimeout(() => setErrorMsg(''), 3000);
       return;
     }
     if (found.status === 'DISPATCHED' || found.challanNo) {
       setErrorMsg(`Reel #${code} is already dispatched in Challan #${found.challanNo || 'N/A'}`);
-      playBeep();
       setTimeout(() => setErrorMsg(''), 3000);
       return;
     }
@@ -595,11 +626,8 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
   // Quick Reel Specs & QC Inspection Modal States
   const [viewingReelDetails, setViewingReelDetails] = useState<Reel | null>(null);
   const [expandedReelInfo, setExpandedReelInfo] = useState<Record<string, boolean>>({});
-  const [showPrintLabelModal, setShowPrintLabelModal] = useState(false);
-  const [selectedReelForPrint, setSelectedReelForPrint] = useState<Reel | null>(null);
 
   useMobileBackHandler(!!viewingReelDetails, () => setViewingReelDetails(null), 'dispatchViewingReelDetails');
-  useMobileBackHandler(showPrintLabelModal, () => setShowPrintLabelModal(false), 'dispatchPrintLabelModal');
 
   const toggleReelInfo = (reelNo: string) => {
     setExpandedReelInfo(prev => ({
@@ -845,7 +873,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
   useMobileBackHandler(!!viewingSlip, () => setViewingSlip(null), 'dispatchViewingSlip');
   useMobileBackHandler(!!directPrintSlip, () => setDirectPrintSlip(null), 'dispatchDirectPrintSlip');
 
-  useBodyScrollLock(!!viewingSlip || !!editingSlip || isEditStockPickerOpen || !!viewingReelDetails || showPrintLabelModal);
+  useBodyScrollLock(!!viewingSlip || !!editingSlip || isEditStockPickerOpen || !!viewingReelDetails);
 
   // Auto-generate sequential challan / receipt number (Standard format: PS-1, PS-2, ...)
   const defaultReceiptNo = useMemo(() => {
@@ -1945,16 +1973,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
         </div>
       )}
 
-      {successMsg && (
-        <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 text-xs rounded-2xl border border-emerald-200 dark:border-emerald-800 font-bold">
-          {successMsg}
-        </div>
-      )}
-      {errorMsg && (
-        <div className="p-3.5 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 text-xs rounded-2xl border border-red-200 dark:border-red-800 font-bold">
-          {errorMsg}
-        </div>
-      )}
+
 
       {/* 1. TAB: Pending Customer Orders */}
       {activeTab === 'orders' && (() => {
@@ -5822,7 +5841,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                           product: reel.product,
                           gsm: reel.gsm,
                           size: reel.size,
-                          weight: reel.weight,
+                          weight: reel.weight ? reel.weight : '',
                         });
                         setIsEditingReviewedSpecs(false);
                         setReviewedReelPopup(reel);
@@ -5887,66 +5906,103 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
         </form>
       )}
 
-      {/* Specs Confirmation Modal on QR Scanner Page (Matching User Image) */}
+      {/* Specs Confirmation Modal on QR Scanner Page (MOBILE ONLY 390px, Matching User Design) */}
       {reviewedReelPopup && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-3.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-sm sm:max-w-md bg-slate-900 border border-slate-700/80 rounded-3xl p-4 sm:p-6 shadow-2xl space-y-3.5 animate-in zoom-in-95 duration-150 text-white">
+        <div className="fixed inset-0 z-60 flex flex-col justify-end bg-[#2A2D4A]/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-[420px] mx-auto bg-white rounded-t-[28px] p-4 pb-6 space-y-3.5 shadow-2xl animate-in slide-in-from-bottom duration-200 font-['Inter',sans-serif]">
             
-            {/* Header: Verified In Stock */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-slate-800 text-slate-300 border border-slate-700 shrink-0">
-                  <CheckCircle2 className="h-5 w-5" />
+            {/* Top Grab Handle */}
+            <div className="w-11 h-[5px] bg-[#D5D8E8] rounded-full mx-auto" />
+
+            {/* Header: green check circle, title, subtitle, close button (44px) */}
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-[#D8F5E5] flex items-center justify-center shrink-0">
+                  <Check className="w-6 h-6 text-[#0B6B3A] stroke-[2.5]" />
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-sm sm:text-base text-white uppercase tracking-tight">
-                    REEL VERIFIED IN STOCK
-                  </h4>
-                  <p className="text-[11px] font-semibold text-slate-400">
-                    Reel #{reviewedReelPopup.reelNo} added to Challan! Check specs:
+                  <h3 className="text-[19px] sm:text-[20px] font-extrabold text-[#1B1F3B] leading-tight">
+                    Reel verified in stock
+                  </h3>
+                  <p className="text-[13px] sm:text-[14px] font-semibold text-[#4A5270] leading-tight mt-0.5">
+                    Added to Challan
                   </p>
                 </div>
               </div>
+
               <button
                 type="button"
                 onClick={() => setReviewedReelPopup(null)}
-                className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                className="w-11 h-11 rounded-[14px] bg-[#F3F4FA] hover:bg-[#E8EAF2] flex items-center justify-center text-[#1B1F3B] transition cursor-pointer shrink-0"
               >
-                <X className="h-5 w-5" />
+                <X className="w-5 h-5 stroke-[2.5]" />
               </button>
             </div>
 
-            {/* Identifier & Net Weight Card */}
-            <div className="p-3.5 sm:p-4 bg-slate-950/80 rounded-2xl border border-slate-800 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
-                  REEL / BARCODE IDENTIFIER
-                </span>
-                <span className="text-xl sm:text-2xl font-black font-mono text-sky-400">
-                  {reviewedSpecsForm.reelNo || reviewedReelPopup.reelNo}
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
-                  NET WEIGHT
-                </span>
-                <span className="text-xl sm:text-2xl font-black font-mono text-slate-100">
-                  {reviewedSpecsForm.weight || reviewedReelPopup.weight || 0} KG
-                </span>
-              </div>
-            </div>
+            {/* Two Big Boxes: Reel No. & Net Weight */}
+            {(() => {
+              const currentReelNo = reviewedSpecsForm.reelNo || reviewedReelPopup.reelNo;
+              const currentWeight = Number(reviewedSpecsForm.weight !== undefined && reviewedSpecsForm.weight !== '' && reviewedSpecsForm.weight !== null ? reviewedSpecsForm.weight : reviewedReelPopup.weight) || 0;
+              const isZeroWeight = currentWeight <= 0;
 
-            {/* Specs Grid or Inline Edit Form */}
+              return (
+                <>
+                  <div className="flex gap-2.5 items-stretch">
+                    {/* Reel No. Box */}
+                    <div className="flex-[1.3] bg-[#EDE9FD] rounded-[16px] p-3.5 flex flex-col justify-center">
+                      <span className="text-[12px] font-bold text-[#4A5270] block leading-tight">
+                        Reel no.
+                      </span>
+                      <span className="text-[26px] sm:text-[28px] font-black text-[#4B32C3] leading-none mt-1.5 tracking-tight truncate">
+                        {currentReelNo}
+                      </span>
+                    </div>
+
+                    {/* Net Weight Box */}
+                    <div
+                      className={`flex-1 rounded-[16px] p-3.5 flex flex-col justify-center ${
+                        isZeroWeight
+                          ? 'bg-[#FDECEA] border border-[#F0A39B]'
+                          : 'bg-[#F3F4FA] border border-[#E2E5F0]'
+                      }`}
+                    >
+                      <span className="text-[12px] font-bold text-[#4A5270] block leading-tight">
+                        Net weight
+                      </span>
+                      <span
+                        className={`text-[26px] sm:text-[28px] font-black leading-none mt-1.5 tracking-tight truncate ${
+                          isZeroWeight ? 'text-[#B3261E]' : 'text-[#1B1F3B]'
+                        }`}
+                      >
+                        {isZeroWeight ? '0 kg' : `${currentWeight.toLocaleString()} kg`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Warning Bar for 0 kg */}
+                  {isZeroWeight && (
+                    <div className="bg-[#FFF4DC] border border-[#F2C14E] rounded-[14px] p-2.5 sm:p-3 flex items-center gap-2.5">
+                      <AlertTriangle className="w-5 h-5 text-[#6B3500] shrink-0" />
+                      <span className="text-[13px] font-bold text-[#6B3500] leading-snug">
+                        Weight shows 0 kg. Please check before you confirm.
+                      </span>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
+            {/* 4 Small Info Boxes (2x2) or Edit Specs Form */}
             {isEditingReviewedSpecs ? (
-              <div className="space-y-3 p-3.5 bg-slate-950/90 rounded-2xl border border-slate-800 text-xs">
-                <div className="flex justify-between items-center pb-1.5 border-b border-slate-800">
-                  <span className="font-black text-sky-400 uppercase text-[10px] tracking-wider">
+              <div className="space-y-3 p-3.5 bg-[#F3F4FA] rounded-[16px] border border-[#DDE0EE] text-xs">
+                <div className="flex justify-between items-center pb-2 border-b border-[#DDE0EE]">
+                  <span className="font-extrabold text-[#4B32C3] uppercase text-[11px] tracking-wider">
                     Edit Reel Specs
                   </span>
                   <button
                     type="button"
                     onClick={() => setIsEditingReviewedSpecs(false)}
-                    className="text-slate-400 hover:text-white text-xs font-semibold cursor-pointer"
+                    className="text-[#4A5270] hover:text-[#1B1F3B] text-xs font-bold cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -5954,45 +6010,76 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
 
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                      Product Quality
+                    <label className="block text-[11px] font-bold text-[#4A5270] uppercase mb-1">
+                      Product
                     </label>
                     <input
                       type="text"
                       value={reviewedSpecsForm.product}
                       onChange={e => setReviewedSpecsForm({ ...reviewedSpecsForm, product: e.target.value })}
-                      className="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl font-bold text-xs text-white outline-none focus:border-primary"
+                      className="w-full p-2.5 bg-white border border-[#DDE0EE] rounded-xl font-bold text-xs text-[#1B1F3B] outline-none focus:border-[#4B32C3]"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                    <label className="block text-[11px] font-bold text-[#4A5270] uppercase mb-1">
                       Net Weight (KG)
                     </label>
                     <input
-                      type="number"
-                      value={reviewedSpecsForm.weight}
-                      onChange={e => setReviewedSpecsForm({ ...reviewedSpecsForm, weight: parseFloat(e.target.value) || 0 })}
-                      className="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl font-mono font-bold text-xs text-white outline-none focus:border-primary"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={reviewedSpecsForm.weight === 0 || reviewedSpecsForm.weight === '0' ? '' : reviewedSpecsForm.weight}
+                      onFocus={e => {
+                        if (e.target.value === '0') {
+                          setReviewedSpecsForm(prev => ({ ...prev, weight: '' }));
+                        } else {
+                          e.target.select();
+                        }
+                      }}
+                      onChange={e => {
+                        let val = e.target.value;
+                        if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          setReviewedSpecsForm(prev => ({ ...prev, weight: val }));
+                        }
+                      }}
+                      className="w-full p-2.5 bg-white border border-[#DDE0EE] rounded-xl font-mono font-bold text-xs text-[#1B1F3B] outline-none focus:border-[#4B32C3]"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                      GSM &amp; Decal (mm)
+                    <label className="block text-[11px] font-bold text-[#4A5270] uppercase mb-1">
+                      GSM &amp; Size (cm)
                     </label>
                     <div className="flex gap-1.5">
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="numeric"
                         placeholder="GSM"
-                        value={reviewedSpecsForm.gsm}
-                        onChange={e => setReviewedSpecsForm({ ...reviewedSpecsForm, gsm: parseFloat(e.target.value) || 0 })}
-                        className="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-xl font-bold text-xs text-white outline-none focus:border-primary"
+                        value={reviewedSpecsForm.gsm === 0 || reviewedSpecsForm.gsm === '0' ? '' : reviewedSpecsForm.gsm}
+                        onFocus={e => e.target.select()}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                          if (val === '' || /^\d*$/.test(val)) {
+                            setReviewedSpecsForm(prev => ({ ...prev, gsm: val }));
+                          }
+                        }}
+                        className="w-1/2 p-2.5 bg-white border border-[#DDE0EE] rounded-xl font-bold text-xs text-[#1B1F3B] outline-none focus:border-[#4B32C3]"
                       />
                       <input
-                        type="number"
-                        placeholder="Decal"
-                        value={reviewedSpecsForm.size}
-                        onChange={e => setReviewedSpecsForm({ ...reviewedSpecsForm, size: parseFloat(e.target.value) || 0 })}
-                        className="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-xl font-bold text-xs text-white outline-none focus:border-primary"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Size"
+                        value={reviewedSpecsForm.size === 0 || reviewedSpecsForm.size === '0' ? '' : reviewedSpecsForm.size}
+                        onFocus={e => e.target.select()}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (/^0[0-9]+/.test(val)) val = val.replace(/^0+/, '');
+                          if (val === '' || /^\d*$/.test(val)) {
+                            setReviewedSpecsForm(prev => ({ ...prev, size: val }));
+                          }
+                        }}
+                        className="w-1/2 p-2.5 bg-white border border-[#DDE0EE] rounded-xl font-bold text-xs text-[#1B1F3B] outline-none focus:border-[#4B32C3]"
                       />
                     </div>
                   </div>
@@ -6001,95 +6088,106 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                 <button
                   type="button"
                   onClick={handleSaveReviewedSpecs}
-                  className="w-full py-2 bg-primary hover:bg-[#5B3DC9] text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  className="w-full h-[46px] bg-[#4B32C3] hover:bg-[#3f29a8] text-white rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-[0.98]"
                 >
-                  <Check className="h-3.5 w-3.5" />
+                  <Check className="h-4 w-4 stroke-[3]" />
                   <span>Save Specs Update</span>
                 </button>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2 text-xs">
-                {/* 1. Product Quality */}
-                <div className="p-3 bg-slate-950/70 rounded-2xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
-                    PRODUCT QUALITY
+                {/* 1. Product */}
+                <div className="p-3 bg-[#F3F4FA] rounded-[14px]">
+                  <span className="text-[12px] text-[#4A5270] font-bold block leading-tight">
+                    Product
                   </span>
-                  <span className="font-extrabold text-white mt-0.5 block truncate">
+                  <span className="font-extrabold text-[14px] sm:text-[15px] text-[#1B1F3B] mt-0.5 block truncate">
                     {reviewedSpecsForm.product || reviewedReelPopup.product}
                   </span>
                 </div>
 
-                {/* 2. GSM & Decal */}
-                <div className="p-3 bg-slate-950/70 rounded-2xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
-                    GSM &amp; DECAL
+                {/* 2. GSM · Size */}
+                <div className="p-3 bg-[#F3F4FA] rounded-[14px]">
+                  <span className="text-[12px] text-[#4A5270] font-bold block leading-tight">
+                    GSM · Size
                   </span>
-                  <span className="font-extrabold text-white mt-0.5 block truncate">
-                    {reviewedSpecsForm.gsm || reviewedReelPopup.gsm} GSM • {reviewedSpecsForm.size || reviewedReelPopup.size} cm
+                  <span className="font-extrabold text-[14px] sm:text-[15px] text-[#1B1F3B] mt-0.5 block truncate">
+                    {reviewedSpecsForm.gsm || reviewedReelPopup.gsm} GSM · {reviewedSpecsForm.size || reviewedReelPopup.size} cm
                   </span>
                 </div>
 
-                {/* 3. Production Date */}
-                <div className="p-3 bg-slate-950/70 rounded-2xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
-                    PRODUCTION DATE
+                {/* 3. Produced */}
+                <div className="p-3 bg-[#F3F4FA] rounded-[14px]">
+                  <span className="text-[12px] text-[#4A5270] font-bold block leading-tight">
+                    Produced
                   </span>
-                  <span className="font-extrabold text-white mt-0.5 block truncate">
+                  <span className="font-extrabold text-[14px] sm:text-[15px] text-[#1B1F3B] mt-0.5 block truncate">
                     {reviewedReelPopup.productionDate
                       ? reviewedReelPopup.productionDate.substring(0, 16).replace('T', ' ')
                       : 'Today'}
                   </span>
                 </div>
 
-                {/* 4. QC Clearance */}
-                <div className="p-3 bg-slate-950/70 rounded-2xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
-                    QC CLEARANCE
+                {/* 4. Quality check */}
+                <div className="p-3 bg-[#F3F4FA] rounded-[14px]">
+                  <span className="text-[12px] text-[#4A5270] font-bold block leading-tight">
+                    Quality check
                   </span>
-                  <span className="font-black text-slate-200 mt-0.5 block truncate">
-                    Grade {reviewedReelPopup.qcGrade || 'A'} Passed
+                  <span className="font-extrabold text-[14px] sm:text-[15px] text-[#0B6B3A] mt-0.5 block truncate">
+                    Grade {reviewedReelPopup.qcGrade || 'A'} passed
                   </span>
                 </div>
               </div>
             )}
 
-            {/* Action Buttons matching User's Picture */}
+            {/* Buttons with clear hierarchy */}
             <div className="space-y-2 pt-1">
-              
-              {/* Primary Green Action: Confirm & Keep in Challan */}
+              {/* Primary Purple Action: CONFIRM (60px) */}
               <button
                 type="button"
                 onClick={() => setReviewedReelPopup(null)}
-                className="w-full bg-primary hover:bg-[#5B3DC9] text-white font-black py-3.5 px-4 rounded-2xl text-xs uppercase tracking-wider shadow-lg shadow-primary/25 transition cursor-pointer active:scale-[0.98] flex items-center justify-center gap-2"
+                className="w-full h-[60px] bg-[#4B32C3] hover:bg-[#3f29a8] active:scale-[0.98] text-white font-black text-[17px] tracking-wide rounded-[18px] shadow-lg shadow-[#4B32C3]/30 flex items-center justify-center gap-2.5 transition cursor-pointer"
               >
-                <Truck className="h-4 w-4" />
-                <span>CONFIRM &amp; PROCEED</span>
+                <Check className="h-5 w-5 stroke-[3]" />
+                <span>CONFIRM</span>
               </button>
 
-              {/* Edit Specs Button */}
-              {!isEditingReviewedSpecs && (
+              {/* Secondary row: Scan next reel (outlined purple) & Edit (outlined neutral) */}
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsEditingReviewedSpecs(true)}
-                  className="w-full bg-slate-800 hover:bg-slate-750 text-slate-200 font-bold py-2.5 px-3 rounded-2xl text-xs uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1.5 border border-slate-700"
+                  onClick={() => {
+                    setReviewedReelPopup(null);
+                    setIsScannerModalOpen(true);
+                  }}
+                  className="flex-[1.4] h-[52px] bg-white border border-[#4B32C3] text-[#4B32C3] hover:bg-purple-50/50 active:scale-[0.98] font-extrabold text-[15px] rounded-[16px] flex items-center justify-center transition cursor-pointer"
                 >
-                  <Pencil className="h-3.5 w-3.5" />
-                  <span>EDIT SPECS</span>
+                  <span>Scan next reel</span>
                 </button>
-              )}
 
-              {/* Bottom Purple Button: Scan Next QR / Barcode (Opens camera modal) */}
-              <button
-                type="button"
-                onClick={() => {
-                  setReviewedReelPopup(null);
-                  setIsScannerModalOpen(true);
-                }}
-                className="w-full py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-2 bg-primary hover:bg-[#5B3DC9] text-white shadow-md shadow-primary/25"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                <span>SCAN NEXT QR / BARCODE</span>
-              </button>
+                {!isEditingReviewedSpecs ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingReviewedSpecs(true);
+                      if (reviewedSpecsForm.weight === 0 || reviewedSpecsForm.weight === '0') {
+                        setReviewedSpecsForm(prev => ({ ...prev, weight: '' }));
+                      }
+                    }}
+                    className="flex-1 h-[52px] bg-white border border-[#DDE0EE] text-[#1B1F3B] hover:bg-slate-50 active:scale-[0.98] font-bold text-[15px] rounded-[16px] flex items-center justify-center transition cursor-pointer"
+                  >
+                    <span>Edit</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingReviewedSpecs(false)}
+                    className="flex-1 h-[52px] bg-white border border-[#DDE0EE] text-[#4A5270] hover:bg-slate-50 active:scale-[0.98] font-bold text-[15px] rounded-[16px] flex items-center justify-center transition cursor-pointer"
+                  >
+                    <span>Cancel</span>
+                  </button>
+                )}
+              </div>
             </div>
 
           </div>
@@ -6671,15 +6769,6 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                     </p>
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setViewingReelDetails(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition cursor-pointer shadow-2xs"
-                  title="Close popup"
-                >
-                  <X className="h-4 w-4" />
-                </button>
               </div>
 
               {/* Reel Identity Banner Card */}
@@ -6796,10 +6885,11 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                 <button
                   type="button"
                   onClick={() => {
-                    setSelectedReelForPrint(viewingReelDetails);
-                    setShowPrintLabelModal(true);
+                    const reelNo = viewingReelDetails.reelNo;
+                    setViewingReelDetails(null);
+                    navigate(`/label-studio?reel=${encodeURIComponent(reelNo)}`);
                   }}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-black uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-blue-500/25 active:scale-95"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-[#4B32C3] hover:bg-[#3f29a8] text-white text-xs font-black uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-[#4B32C3]/25 active:scale-95"
                 >
                   <Printer className="h-4 w-4" />
                   <span>Print Thermal Label</span>
@@ -6810,17 +6900,8 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
           document.body
         )}
 
-      {/* Universal Thermal Label Print Modal */}
-      <PrintLabelModal
-        isOpen={showPrintLabelModal}
-        onClose={() => {
-          setShowPrintLabelModal(false);
-          setSelectedReelForPrint(null);
-        }}
-        initialReel={selectedReelForPrint}
-        initialCode={selectedReelForPrint?.reelNo || ''}
-      />
-
+      {/* Floating Mobile Toast Notification */}
+      <MobileToast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 };

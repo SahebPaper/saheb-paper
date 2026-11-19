@@ -921,11 +921,16 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
             </div>
           ) : (
-            /* Mobile Internal / Work Screens: Compact current Page/Screen Title */
-            <div className="flex md:hidden items-center min-w-0">
+            /* Mobile Internal / Work Screens: Compact current Page/Screen Title with Date Subtitle */
+            <div className="flex md:hidden flex-col justify-center min-w-0">
               <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-tight tracking-tight font-heading truncate">
                 {currentMobilePageTitle}
               </h2>
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-tight truncate mt-0.5">
+                {location.pathname.startsWith('/rewinding-reel-conversion')
+                  ? `Rewinder \u00B7 ${timeframe === 'all' ? 'All Time' : timeframe === 'day' ? selectedDate.split('-').reverse().join('/') : timeframe === 'week' ? 'Week View' : 'Month View'}`
+                  : (timeframe === 'all' ? 'All Time' : selectedDate.split('-').reverse().join('/'))}
+              </span>
             </div>
           )}
         </div>
@@ -1008,8 +1013,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             {darkMode ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-slate-600" />}
           </button>
 
-          {/* Mobile Calendar Quick Selector (Visible on Mobile Home and Pulp Mill) */}
-          {(isMobileHome || isPulpMill) && (
+          {/* Mobile Calendar Quick Selector (Visible on Mobile Home, Pulp Mill, and Rewinder) */}
+          {(isMobileHome || isPulpMill || location.pathname.startsWith('/rewinding-reel-conversion')) && (
             <div className="relative shrink-0 md:hidden" ref={mobileDatePickerRef}>
               <button
                 type="button"

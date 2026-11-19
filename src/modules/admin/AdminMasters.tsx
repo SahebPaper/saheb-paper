@@ -128,6 +128,15 @@ export const AdminMasters: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    setProducts(getProducts());
+    setParties(getParties());
+    setVendors(getVendors());
+    setVehicles(getVehicles());
+    setUsersList(getUsers());
+    setLogs(getLogs());
+  }, [activeTab]);
+
   // Factory Reset Modal States
   const [isFactoryResetModalOpen, setIsFactoryResetModalOpen] = useState(false);
   const [resetConfirmationInput, setResetConfirmationInput] = useState('');

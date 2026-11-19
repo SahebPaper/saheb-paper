@@ -732,8 +732,9 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             }
             return (p as any).active !== false;
           });
-          const local = getLocal<ProductItem[] | null>(KEYS.PRODUCTS, null);
-          const base = ((local !== null ? local : DEFAULT_PRODUCTS) || []).filter(p =>
+          const local = getLocal<ProductItem[]>(KEYS.PRODUCTS, []);
+          const rawBase = (local && local.length > 0) ? local : DEFAULT_PRODUCTS;
+          const base = rawBase.filter(p =>
             p && !deletedSet.has((p.id || '').toLowerCase()) && !deletedSet.has((p.name || '').toLowerCase().trim()) && (p as any).active !== false
           );
           const merged = mergeByUniqueKey(base, filteredCloud, p => p.id);
@@ -752,8 +753,9 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             }
             return (p as any).active !== false;
           });
-          const local = getLocal<PartyItem[] | null>(KEYS.PARTIES, null);
-          const base = ((local !== null ? local : DEFAULT_PARTIES) || []).filter(p =>
+          const local = getLocal<PartyItem[]>(KEYS.PARTIES, []);
+          const rawBase = (local && local.length > 0) ? local : DEFAULT_PARTIES;
+          const base = rawBase.filter(p =>
             p && !deletedSet.has((p.id || '').toLowerCase()) && !deletedSet.has((p.name || '').toLowerCase().trim()) && (p as any).active !== false
           );
           const merged = mergeByUniqueKey(base, filteredCloud, p => p.id);
@@ -772,8 +774,9 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             }
             return (v as any).active !== false;
           });
-          const local = getLocal<VendorItem[] | null>(KEYS.VENDORS, null);
-          const base = ((local !== null ? local : DEFAULT_VENDORS) || []).filter(v =>
+          const local = getLocal<VendorItem[]>(KEYS.VENDORS, []);
+          const rawBase = (local && local.length > 0) ? local : DEFAULT_VENDORS;
+          const base = rawBase.filter(v =>
             v && !deletedSet.has((v.id || '').toLowerCase()) && !deletedSet.has((v.name || '').toLowerCase().trim()) && (v as any).active !== false
           );
           const merged = mergeByUniqueKey(base, filteredCloud, v => v.id);
@@ -792,8 +795,9 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             }
             return (v as any).active !== false;
           });
-          const local = getLocal<VehicleItem[] | null>(KEYS.VEHICLES, null);
-          const base = ((local !== null ? local : DEFAULT_VEHICLES) || []).filter(v =>
+          const local = getLocal<VehicleItem[]>(KEYS.VEHICLES, []);
+          const rawBase = (local && local.length > 0) ? local : DEFAULT_VEHICLES;
+          const base = rawBase.filter(v =>
             v && !deletedSet.has((v.id || '').toLowerCase()) && !deletedSet.has((v.vehicleNo || '').toLowerCase().trim()) && (v as any).active !== false
           );
           const merged = mergeByUniqueKey(base, filteredCloud, v => v.id);

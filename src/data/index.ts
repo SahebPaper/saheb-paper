@@ -306,6 +306,8 @@ export const DEFAULT_PRODUCTS: ProductItem[] = [
   { id: 'p-8', name: 'Kraft Paper Liner', grade: 'A', gsm: 120, size: 1100, ply: 1 },
   { id: 'p-9', name: 'Cupstock Board', grade: 'A', gsm: 180, size: 850, ply: 1 },
   { id: 'p-10', name: 'Duplex Board', grade: 'A', gsm: 230, size: 950, ply: 1 },
+  { id: 'p-12', name: 'Toilet B-Grade', grade: 'B', gsm: 17, size: 1000, ply: 3 },
+  { id: 'p-13', name: 'KT B-Grade', grade: 'B', gsm: 22, size: 2000, ply: 1 },
 ];
 
 export const DEFAULT_PARTIES: PartyItem[] = [
@@ -400,10 +402,23 @@ export function createDefaultLabReport(): PaperTestReport {
 export function initializeStorage() {
   if (!localStorage.getItem(KEYS.USERS)) setJSON(KEYS.USERS, [DEFAULT_USERS[0]], false);
   if (!localStorage.getItem(KEYS.RAW_MATERIALS)) setJSON(KEYS.RAW_MATERIALS, [], false);
-  if (!localStorage.getItem(KEYS.PRODUCTS)) setJSON(KEYS.PRODUCTS, [], false);
-  if (!localStorage.getItem(KEYS.PARTIES)) setJSON(KEYS.PARTIES, [], false);
-  if (!localStorage.getItem(KEYS.VENDORS)) setJSON(KEYS.VENDORS, [], false);
-  if (!localStorage.getItem(KEYS.VEHICLES)) setJSON(KEYS.VEHICLES, [], false);
+  
+  const curProds = getJSON<ProductItem[]>(KEYS.PRODUCTS, []);
+  if (!curProds || curProds.length === 0) {
+    setJSON(KEYS.PRODUCTS, DEFAULT_PRODUCTS.filter(p => p.id !== 'p-11'), false);
+  }
+  const curParties = getJSON<PartyItem[]>(KEYS.PARTIES, []);
+  if (!curParties || curParties.length === 0) {
+    setJSON(KEYS.PARTIES, DEFAULT_PARTIES, false);
+  }
+  const curVendors = getJSON<VendorItem[]>(KEYS.VENDORS, []);
+  if (!curVendors || curVendors.length === 0) {
+    setJSON(KEYS.VENDORS, DEFAULT_VENDORS, false);
+  }
+  const curVehicles = getJSON<VehicleItem[]>(KEYS.VEHICLES, []);
+  if (!curVehicles || curVehicles.length === 0) {
+    setJSON(KEYS.VEHICLES, DEFAULT_VEHICLES, false);
+  }
   if (!localStorage.getItem(KEYS.FORMULAS)) setJSON(KEYS.FORMULAS, [], false);
   if (!localStorage.getItem(KEYS.ROLLS)) setJSON(KEYS.ROLLS, [], false);
   if (!localStorage.getItem(KEYS.REELS)) setJSON(KEYS.REELS, [], false);
@@ -1395,8 +1410,8 @@ export function updateRawMaterialStock(
 export function getProducts(): ProductItem[] {
   const deletedList = getJSON<string[]>(KEYS.DELETED_PRODUCTS, []);
   const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
-  let products = getJSON<ProductItem[] | null>(KEYS.PRODUCTS, null);
-  if (products === null || products === undefined) {
+  let products = getJSON<ProductItem[]>(KEYS.PRODUCTS, []);
+  if (!products || products.length === 0) {
     products = DEFAULT_PRODUCTS.filter(p => !deletedSet.has(p.id.toLowerCase()) && !deletedSet.has((p.name || '').trim().toLowerCase()));
     setJSON(KEYS.PRODUCTS, products, false);
   }
@@ -1439,8 +1454,8 @@ export function saveProduct(product: ProductItem, user: string = 'Admin'): Produ
 export function getParties(): PartyItem[] {
   const deletedList = getJSON<string[]>(KEYS.DELETED_PARTIES, []);
   const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
-  let parties = getJSON<PartyItem[] | null>(KEYS.PARTIES, null);
-  if (parties === null || parties === undefined) {
+  let parties = getJSON<PartyItem[]>(KEYS.PARTIES, []);
+  if (!parties || parties.length === 0) {
     parties = DEFAULT_PARTIES.filter(p => !deletedSet.has(p.id.toLowerCase()) && !deletedSet.has((p.name || '').trim().toLowerCase()));
     setJSON(KEYS.PARTIES, parties, false);
   }
@@ -1483,8 +1498,8 @@ export function saveParty(party: PartyItem, user: string = 'Admin'): PartyItem {
 export function getVendors(): VendorItem[] {
   const deletedList = getJSON<string[]>(KEYS.DELETED_VENDORS, []);
   const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
-  let vendors = getJSON<VendorItem[] | null>(KEYS.VENDORS, null);
-  if (vendors === null || vendors === undefined) {
+  let vendors = getJSON<VendorItem[]>(KEYS.VENDORS, []);
+  if (!vendors || vendors.length === 0) {
     vendors = DEFAULT_VENDORS.filter(v => !deletedSet.has(v.id.toLowerCase()) && !deletedSet.has((v.name || '').trim().toLowerCase()));
     setJSON(KEYS.VENDORS, vendors, false);
   }
@@ -1527,8 +1542,8 @@ export function saveVendor(vendor: VendorItem, user: string = 'Admin'): VendorIt
 export function getVehicles(): VehicleItem[] {
   const deletedList = getJSON<string[]>(KEYS.DELETED_VEHICLES, []);
   const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
-  let vehicles = getJSON<VehicleItem[] | null>(KEYS.VEHICLES, null);
-  if (vehicles === null || vehicles === undefined) {
+  let vehicles = getJSON<VehicleItem[]>(KEYS.VEHICLES, []);
+  if (!vehicles || vehicles.length === 0) {
     vehicles = DEFAULT_VEHICLES.filter(v => !deletedSet.has(v.id.toLowerCase()) && !deletedSet.has((v.vehicleNo || '').trim().toLowerCase()));
     setJSON(KEYS.VEHICLES, vehicles, false);
   }
@@ -3630,10 +3645,9 @@ export function restoreBackup(backupJson: string, user: string): void {
 }
 
 export async function performFactoryReset(): Promise<void> {
-  // 1. Wipe cloud data across all tables directly in Supabase
+  // 1. Wipe cloud operational/transactional data directly in Supabase
   const cloudTables = [
-    'raw_materials', 'raw_material_lots', 'products', 'parties', 'vendors',
-    'vehicles', 'pulp_formulas', 'machine_rolls', 'reels', 'transaction_logs',
+    'raw_materials', 'raw_material_lots', 'pulp_formulas', 'machine_rolls', 'reels', 'transaction_logs',
     'boiler_logs', 'etp_logs', 'electricity_logs', 'pending_orders',
     'packing_slips', 'store_items', 'paper_test_reports'
   ];
@@ -3664,10 +3678,10 @@ export async function performFactoryReset(): Promise<void> {
 
   setJSON(KEYS.USERS, [adminUser], false);
   setJSON(KEYS.RAW_MATERIALS, [], false);
-  setJSON(KEYS.PRODUCTS, [], false);
-  setJSON(KEYS.PARTIES, [], false);
-  setJSON(KEYS.VENDORS, [], false);
-  setJSON(KEYS.VEHICLES, [], false);
+  setJSON(KEYS.PRODUCTS, DEFAULT_PRODUCTS.filter(p => p.id !== 'p-11'), false);
+  setJSON(KEYS.PARTIES, DEFAULT_PARTIES, false);
+  setJSON(KEYS.VENDORS, DEFAULT_VENDORS, false);
+  setJSON(KEYS.VEHICLES, DEFAULT_VEHICLES, false);
   setJSON(KEYS.FORMULAS, [], false);
   setJSON(KEYS.ROLLS, [], false);
   setJSON(KEYS.REELS, [], false);
@@ -3681,7 +3695,7 @@ export async function performFactoryReset(): Promise<void> {
   setJSON(KEYS.RAW_MATERIAL_LOTS, [], false);
   setJSON(KEYS.LAB_REPORTS, [], false);
   setJSON(KEYS.DELETED_REELS, [], false);
-  setJSON(KEYS.DELETED_PRODUCTS, [], false);
+  setJSON(KEYS.DELETED_PRODUCTS, ['p-11', 'napkin b-grade'], false);
   setJSON(KEYS.DELETED_PARTIES, [], false);
   setJSON(KEYS.DELETED_VENDORS, [], false);
   setJSON(KEYS.DELETED_VEHICLES, [], false);

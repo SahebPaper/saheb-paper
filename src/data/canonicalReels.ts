@@ -1703,7 +1703,7 @@ export const CANONICAL_REELS: Reel[] = [
   // Size 32 cm, GSM 15, Ply 2 (24 reels, 1096 kg)
   {
     reelNo: '261106089',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1723,7 +1723,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106099',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1743,7 +1743,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106100',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1763,7 +1763,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106116',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1783,7 +1783,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106117',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1803,7 +1803,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106118',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1823,7 +1823,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106119',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1843,7 +1843,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106120',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1863,7 +1863,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106121',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1883,7 +1883,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106124',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1903,7 +1903,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106125',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1923,7 +1923,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106126',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1943,7 +1943,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106127',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1963,7 +1963,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106128',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -1983,7 +1983,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106131',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -2003,7 +2003,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106132',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -2023,7 +2023,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106133',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -2043,7 +2043,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106134',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -2063,7 +2063,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106135',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -2083,7 +2083,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106138',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -2103,7 +2103,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106139',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -2123,7 +2123,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106140',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -2143,7 +2143,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106141',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,
@@ -2163,7 +2163,7 @@ export const CANONICAL_REELS: Reel[] = [
   },
   {
     reelNo: '261106142',
-    parentRollNo: 'MR-20261119-01',
+    parentRollNo: 'MANUAL',
     product: 'Napkin Tissue',
     gsm: 15,
     size: 32,

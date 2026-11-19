@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useTranslation } from 'react-i18next';
@@ -986,6 +986,9 @@ export const RewinderView: React.FC = () => {
     setIsManualModalOpen(true);
   };
 
+  const manualReelsScrollContainerRef = useRef<HTMLDivElement>(null);
+  const manualReelsEndRef = useRef<HTMLDivElement>(null);
+
   const handleAddManualReelRow = () => {
     setManualReelRows(prev => {
       const lastNo = prev[prev.length - 1]?.reelNo || getInitialReelNo(getReels(), 0);
@@ -999,6 +1002,22 @@ export const RewinderView: React.FC = () => {
         },
       ];
     });
+
+    // Auto-scroll so newly added reel row is immediately in view
+    setTimeout(() => {
+      if (manualReelsScrollContainerRef.current) {
+        manualReelsScrollContainerRef.current.scrollTo({
+          top: manualReelsScrollContainerRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      }
+      if (manualReelsEndRef.current) {
+        manualReelsEndRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
+      }
+    }, 60);
   };
 
   const handleRemoveManualReelRow = (id: string) => {
@@ -1702,20 +1721,12 @@ export const RewinderView: React.FC = () => {
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
-              onClick={handleOpenAddModal}
+              onClick={handleOpenManualReelModal}
               className="btn-primary-gradient px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 shrink-0 whitespace-nowrap rounded-xl shadow-sm"
             >
               <Plus className="h-4 w-4 text-white" />
-              <span className="hidden xs:inline">Add Reel Entry</span>
-              <span className="xs:hidden">Add Reel</span>
-            </button>
-            <button
-              onClick={handleOpenManualReelModal}
-              className="px-3.5 sm:px-5 py-2 sm:py-2.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 shrink-0 whitespace-nowrap rounded-xl border border-primary bg-white dark:bg-slate-800 text-primary dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors"
-            >
-              <Plus className="h-4 w-4" />
               <span className="hidden xs:inline">Add Manual Reel</span>
-              <span className="xs:hidden">Manual</span>
+              <span className="xs:hidden">Add Reel</span>
             </button>
           </div>
         </div>
@@ -2359,24 +2370,15 @@ export const RewinderView: React.FC = () => {
         </div>
 
         {/* Big Action Button */}
-        <div className="space-y-1 pt-1">
+        <div className="pt-1">
           <button
             type="button"
-            onClick={handleOpenAddModal}
+            onClick={handleOpenManualReelModal}
             className="w-full h-[58px] bg-[#4B32C3] hover:bg-[#3E27A8] active:scale-[0.98] text-white font-extrabold text-base tracking-wide rounded-[18px] flex items-center justify-center gap-2 shadow-md shadow-[#4B32C3]/25 transition cursor-pointer"
           >
             <Plus className="w-5 h-5 stroke-[3]" />
-            <span>ADD REEL</span>
+            <span>ADD MANUAL REEL</span>
           </button>
-          <div className="flex justify-center">
-            <button
-              type="button"
-              onClick={handleOpenManualReelModal}
-              className="text-xs font-bold text-[#4B32C3] hover:underline min-h-[44px] flex items-center justify-center px-4 cursor-pointer"
-            >
-              Manual entry (without roll)
-            </button>
-          </div>
         </div>
 
         {/* Missing Reels Alert */}
@@ -2970,12 +2972,9 @@ export const RewinderView: React.FC = () => {
 
               {/* STEP 1: FIXED BATCH SPECIFICATIONS */}
               <div className="p-3.5 sm:p-4 bg-slate-100/70 dark:bg-slate-800/60 rounded-2xl border border-slate-200/90 dark:border-slate-700/80 space-y-3">
-                <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-700/70">
-                  <span className="text-[11px] font-black uppercase tracking-wider text-[#4B32C3] dark:text-purple-400">
-                    1. Fixed Batch Specifications (Applied to All Reels)
-                  </span>
-                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                    Product • GSM • Size • Ply • Joint
+                <div className="pb-1 border-b border-slate-200 dark:border-slate-700/70">
+                  <span className="text-xs font-bold text-[#4B32C3] dark:text-purple-400">
+                    1. Fixed Batch Specifications
                   </span>
                 </div>
 
@@ -3100,7 +3099,7 @@ export const RewinderView: React.FC = () => {
                   )}
                 </div>
 
-                <div className="space-y-2.5 max-h-[280px] sm:max-h-[340px] overflow-y-auto pr-1 custom-scrollbar">
+                <div ref={manualReelsScrollContainerRef} className="space-y-2.5 max-h-[280px] sm:max-h-[340px] overflow-y-auto pr-1 custom-scrollbar">
                   {manualReelRows.map((row, idx) => (
                     <div
                       key={row.id}
@@ -3158,6 +3157,7 @@ export const RewinderView: React.FC = () => {
                       )}
                     </div>
                   ))}
+                  <div ref={manualReelsEndRef} />
                 </div>
 
                 {/* Big + ADD REEL Button */}
@@ -3167,7 +3167,7 @@ export const RewinderView: React.FC = () => {
                   className="w-full h-11 border-2 border-dashed border-[#4B32C3]/40 hover:border-[#4B32C3] bg-[#EDE9FD]/40 hover:bg-[#EDE9FD]/80 dark:bg-purple-950/20 dark:hover:bg-purple-950/40 text-[#4B32C3] dark:text-purple-300 font-extrabold text-xs uppercase tracking-wider rounded-2xl flex items-center justify-center gap-2 transition cursor-pointer active:scale-[0.99]"
                 >
                   <Plus className="w-4 h-4 stroke-[3]" />
-                  <span>+ Add Another Reel (Row #{manualReelRows.length + 1})</span>
+                  <span>Add Another Reel (Row #{manualReelRows.length + 1})</span>
                 </button>
               </div>
 

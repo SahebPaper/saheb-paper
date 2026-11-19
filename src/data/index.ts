@@ -315,6 +315,7 @@ export const DEFAULT_PARTIES: PartyItem[] = [
   { id: 'pt-2', name: 'Krishna Enterprises', address: 'Ahmedabad, Gujarat' },
   { id: 'pt-3', name: 'Kailash Paper House', address: 'Rajkot, Gujarat' },
   { id: 'pt-ut', name: 'United Traders', address: 'Rajkot, Gujarat' },
+  { id: 'pt-sm', name: 'Shiv Mangal', address: 'Rajasthan' },
 ];
 
 export const DEFAULT_VENDORS: VendorItem[] = [
@@ -328,6 +329,7 @@ export const DEFAULT_VEHICLES: VehicleItem[] = [
   { id: 'vh-2', vehicleNo: 'GJ-03-XX-5678', driverName: 'Suresh Patel', driverContact: '9988776656' },
   { id: 'vh-3', vehicleNo: 'MH-04-ZZ-9012', driverName: 'Anil Singh', driverContact: '9988776657' },
   { id: 'vh-ut', vehicleNo: 'GJ-03-BY-6535', driverName: 'Driver', driverContact: '' },
+  { id: 'vh-rj09', vehicleNo: 'RJ09GE9310', driverName: 'Driver', driverContact: '' },
 ];
 
 const DEFAULT_STORE_ITEMS: StoreItem[] = [
@@ -1458,6 +1460,19 @@ export function getParties(): PartyItem[] {
   if (!parties || parties.length === 0) {
     parties = DEFAULT_PARTIES.filter(p => !deletedSet.has(p.id.toLowerCase()) && !deletedSet.has((p.name || '').trim().toLowerCase()));
     setJSON(KEYS.PARTIES, parties, false);
+  } else {
+    let added = false;
+    DEFAULT_PARTIES.forEach(dp => {
+      const pId = (dp.id || '').toLowerCase();
+      const pName = (dp.name || '').toLowerCase().trim();
+      if (!deletedSet.has(pId) && !deletedSet.has(pName) && !parties.some(p => (p.id || '').toLowerCase() === pId || (p.name || '').toLowerCase().trim() === pName)) {
+        parties.push(dp);
+        added = true;
+      }
+    });
+    if (added) {
+      setJSON(KEYS.PARTIES, parties, false);
+    }
   }
   return parties.filter(p => p && p.active !== false && !deletedSet.has((p.id || '').toLowerCase()) && !deletedSet.has((p.name || '').trim().toLowerCase()));
 }
@@ -1546,6 +1561,19 @@ export function getVehicles(): VehicleItem[] {
   if (!vehicles || vehicles.length === 0) {
     vehicles = DEFAULT_VEHICLES.filter(v => !deletedSet.has(v.id.toLowerCase()) && !deletedSet.has((v.vehicleNo || '').trim().toLowerCase()));
     setJSON(KEYS.VEHICLES, vehicles, false);
+  } else {
+    let added = false;
+    DEFAULT_VEHICLES.forEach(dv => {
+      const vId = (dv.id || '').toLowerCase();
+      const vNo = (dv.vehicleNo || '').toLowerCase().trim();
+      if (!deletedSet.has(vId) && !deletedSet.has(vNo) && !vehicles.some(v => (v.id || '').toLowerCase() === vId || (v.vehicleNo || '').toLowerCase().trim() === vNo)) {
+        vehicles.push(dv);
+        added = true;
+      }
+    });
+    if (added) {
+      setJSON(KEYS.VEHICLES, vehicles, false);
+    }
   }
   return vehicles.filter(v => v && v.active !== false && !deletedSet.has((v.id || '').toLowerCase()) && !deletedSet.has((v.vehicleNo || '').trim().toLowerCase()));
 }
@@ -1984,6 +2012,21 @@ export function getReels(): Reel[] {
   if (existing && existing.length > 0 && existing.some(r => deletedSet.has((r.reelNo || '').trim().toLowerCase()))) {
     existing = existing.filter(r => !deletedSet.has((r.reelNo || '').trim().toLowerCase()));
     setJSON(KEYS.REELS, existing, false);
+  }
+
+  // Ensure newly introduced canonical production reels are populated if not deleted
+  let addedCanonical = false;
+  if (existing && existing.length > 0) {
+    DEFAULT_REELS.forEach(defR => {
+      const key = (defR.reelNo || '').trim().toLowerCase();
+      if (key && !deletedSet.has(key) && !existing!.some(r => (r.reelNo || '').trim().toLowerCase() === key)) {
+        existing!.push(defR);
+        addedCanonical = true;
+      }
+    });
+    if (addedCanonical) {
+      setJSON(KEYS.REELS, existing, false);
+    }
   }
 
 

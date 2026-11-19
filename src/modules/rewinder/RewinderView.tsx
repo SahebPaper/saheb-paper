@@ -681,7 +681,7 @@ export const RewinderView: React.FC = () => {
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
   const todayReels = useMemo(() => {
-    return reels.filter(r => r.productionDate === todayStr || (timeframe === 'day' && isDateInTimeframe(r.productionDate, selectedDate, 'day')));
+    return reels.filter(r => (r.productionDate && r.productionDate.startsWith(todayStr)) || isDateInTimeframe(r.productionDate, selectedDate, timeframe));
   }, [reels, selectedDate, todayStr, timeframe]);
 
   const summaryReelsCount = useMemo(() => {
@@ -1107,7 +1107,9 @@ export const RewinderView: React.FC = () => {
 
     try {
       setIsSubmitting(true);
-      const nowStr = `${new Date().toISOString().substring(0, 10)} ${new Date().toLocaleTimeString('en-US', { hour12: false }).substring(0, 5)}`;
+      const effectiveDate = selectedDate || new Date().toISOString().substring(0, 10);
+      const nowTime = new Date().toLocaleTimeString('en-US', { hour12: false }).substring(0, 5);
+      const nowStr = `${effectiveDate} ${nowTime}`;
       const savedRecords: Reel[] = [];
 
       for (let i = 0; i < manualReelRows.length; i++) {
@@ -1130,6 +1132,15 @@ export const RewinderView: React.FC = () => {
         saveSingleReel(record, 0, user?.displayName || 'Operator');
         savedRecords.push(record);
       }
+
+      // Reset any narrowing cascading filters so the newly saved batch is immediately visible
+      setFilterProduct('ALL');
+      setFilterGsm('ALL');
+      setFilterSize('ALL');
+      setFilterPly('ALL');
+      setSelectedProductFilter('all');
+      setStatusFilter('all');
+      setSearchTerm('');
 
       const updatedReels = getReels();
       setReels(updatedReels);

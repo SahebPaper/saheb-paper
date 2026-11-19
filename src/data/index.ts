@@ -1971,28 +1971,14 @@ export function seedLocalhostTestReels(): Reel[] {
 
 // --- REWINDER ---
 export function getReels(): Reel[] {
-  let existing = getJSON<Reel[] | null>(KEYS.REELS, null);
-  if (existing === null || existing === undefined) {
-    existing = isSupabaseConfigured ? [] : [...DEFAULT_REELS];
-    setJSON(KEYS.REELS, existing, false);
-    return existing;
-  }
-
-  // Purge any ghost reels and deleted reels from memory and local storage
-  const ghostReels = new Set(['26110026', '26110027', '26110029']);
   const deletedList = getJSON<string[]>(KEYS.DELETED_REELS, []);
   const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
 
-  let deletedListUpdated = false;
-  ghostReels.forEach(g => {
-    if (!deletedSet.has(g.toLowerCase())) {
-      deletedSet.add(g.toLowerCase());
-      deletedList.push(g);
-      deletedListUpdated = true;
-    }
-  });
-  if (deletedListUpdated) {
-    setJSON(KEYS.DELETED_REELS, deletedList, false);
+  let existing = getJSON<Reel[] | null>(KEYS.REELS, null);
+  if (existing === null || existing === undefined || existing.length === 0) {
+    existing = DEFAULT_REELS.filter(r => !deletedSet.has((r.reelNo || '').trim().toLowerCase()));
+    setJSON(KEYS.REELS, existing, false);
+    return existing;
   }
 
   if (existing && existing.length > 0 && existing.some(r => deletedSet.has((r.reelNo || '').trim().toLowerCase()))) {
@@ -2158,6 +2144,16 @@ export function saveSingleReel(
   brokeWeight: number,
   user: string
 ): void {
+  // If this reel number was previously marked deleted, un-delete it
+  const cleanReelNo = (reel.reelNo || '').trim().toLowerCase();
+  if (cleanReelNo) {
+    const deletedList = getJSON<string[]>(KEYS.DELETED_REELS, []);
+    const updatedDeleted = deletedList.filter(d => (d || '').trim().toLowerCase() !== cleanReelNo);
+    if (updatedDeleted.length !== deletedList.length) {
+      setJSON(KEYS.DELETED_REELS, updatedDeleted, false);
+    }
+  }
+
   const currentReels = getReels();
   const existingSet = new Set(currentReels.map(r => r.reelNo));
 
@@ -2208,6 +2204,16 @@ export function saveSingleReel(
 }
 
 export function saveReel(reel: Reel, user: string, originalReelNo?: string): Reel {
+  // If this reel number was previously marked deleted, un-delete it
+  const cleanReelNo = (reel.reelNo || '').trim().toLowerCase();
+  if (cleanReelNo) {
+    const deletedList = getJSON<string[]>(KEYS.DELETED_REELS, []);
+    const updatedDeleted = deletedList.filter(d => (d || '').trim().toLowerCase() !== cleanReelNo);
+    if (updatedDeleted.length !== deletedList.length) {
+      setJSON(KEYS.DELETED_REELS, updatedDeleted, false);
+    }
+  }
+
   const currentReels = getReels();
   const targetReelNo = originalReelNo || reel.reelNo;
   const index = currentReels.findIndex(r => r.reelNo === targetReelNo);

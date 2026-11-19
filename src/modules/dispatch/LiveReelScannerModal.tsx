@@ -418,9 +418,10 @@ export const LiveReelScannerModal: React.FC<LiveReelScannerModalProps> = ({
 
   // Commit scanned reels to Challan & close
   const handleCommit = () => {
-    if (scannedReels.length === 0) return;
+    const listToCommit = scannedReels.length > 0 ? scannedReels : (verifyingReel ? [verifyingReel] : []);
+    if (listToCommit.length === 0) return;
     playBeep(1200, 0.2);
-    onAddReelsToChallan(scannedReels);
+    onAddReelsToChallan(listToCommit);
     setVerifyingReel(null);
     onClose();
   };

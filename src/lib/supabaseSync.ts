@@ -21,7 +21,7 @@ import type {
   CustomRole,
 } from '../data/types';
 import { sortUsersByHierarchy } from '../data/types';
-import { DEFAULT_RAW_MATERIALS, DEFAULT_PRODUCTS, DEFAULT_PARTIES, DEFAULT_VENDORS, DEFAULT_VEHICLES } from '../data/index';
+import { DEFAULT_RAW_MATERIALS, DEFAULT_PRODUCTS, DEFAULT_PARTIES, DEFAULT_VENDORS, DEFAULT_VEHICLES, DEFAULT_REELS } from '../data/index';
 
 // Storage keys matching src/data/index.ts
 const KEYS = {
@@ -838,8 +838,10 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             return true;
           });
           const local = getLocal<Reel[]>(KEYS.REELS, []);
-          const localTests = local.filter((r: any) => (r as any).isLocalhostTest);
-          setLocal(KEYS.REELS, [...filteredCloud, ...localTests]);
+          const rawBase = (local && local.length > 0) ? local : DEFAULT_REELS;
+          const base = rawBase.filter(r => !deletedNos.has((r.reelNo || '').trim().toLowerCase()));
+          const merged = mergeByUniqueKey(base, filteredCloud, r => (r.reelNo || '').trim().toUpperCase());
+          setLocal(KEYS.REELS, merged);
           notifyChange(tableName);
           break;
         }

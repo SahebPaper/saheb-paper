@@ -517,6 +517,8 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
 
   const handleAddScannedReelsToChallan = (scannedList: Reel[]) => {
     const newNos = scannedList.map(r => r.reelNo.trim().toUpperCase());
+    const latestReels = getReels();
+    setReels(latestReels);
     setSelectedReelNos(prev => Array.from(new Set([...prev, ...newNos])));
     setSuccessMsg(`${scannedList.length} reel(s) added to Challan #${autoSlipNo}`);
     setTimeout(() => setSuccessMsg(''), 2500);
@@ -532,7 +534,9 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
       setTimeout(() => setErrorMsg(''), 2500);
       return;
     }
-    const found = reels.find(r => r.reelNo.trim().toUpperCase() === code);
+    const latestReels = getReels();
+    setReels(latestReels);
+    const found = latestReels.find(r => r.reelNo.trim().toUpperCase() === code);
     if (!found) {
       setErrorMsg(`Error: Reel #${code} does not exist in rewinder stock!`);
       setTimeout(() => setErrorMsg(''), 3000);

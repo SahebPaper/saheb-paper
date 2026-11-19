@@ -440,7 +440,7 @@ export function initializeStorage() {
     if (delChanged) {
       localStorage.setItem(KEYS.DELETED_REELS, JSON.stringify(delList));
     }
-  } catch (_) {}
+  } catch (_) { }
 
   if (!localStorage.getItem(KEYS.LAB_REPORTS)) {
     const sample = createDefaultLabReport();
@@ -2923,23 +2923,14 @@ const DEFAULT_PACKING_SLIPS: PackingSlip[] = [
 ];
 
 export function getPackingSlips(): PackingSlip[] {
-  let existing = getJSON<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
-
-  if (!existing || existing.length === 0) {
-    setJSON(KEYS.PACKING_SLIPS, DEFAULT_PACKING_SLIPS);
-    return DEFAULT_PACKING_SLIPS;
+  let existing = getJSON<PackingSlip[] | null>(KEYS.PACKING_SLIPS, null);
+  if (existing === null || existing === undefined) {
+    existing = isSupabaseConfigured ? [] : [...DEFAULT_PACKING_SLIPS];
+    setJSON(KEYS.PACKING_SLIPS, existing, false);
+    return existing;
   }
+
   let modified = false;
-
-  // Ensure both PS-1 and PS-2 are present in existing list
-  if (!existing.some(s => s.id === 'ps-1' || s.slipNo === 'PS-1')) {
-    existing.unshift(DEFAULT_PACKING_SLIPS[0]);
-    modified = true;
-  }
-  if (!existing.some(s => s.id === 'ps-2' || s.slipNo === 'PS-2')) {
-    existing.push(DEFAULT_PACKING_SLIPS[1]);
-    modified = true;
-  }
 
   const normalized = existing.map(s => {
     let item = s;
@@ -2976,8 +2967,7 @@ export function getPackingSlips(): PackingSlip[] {
     return item;
   });
   if (modified) {
-    setJSON(KEYS.PACKING_SLIPS, normalized);
-    pushUpsertToCloud('packing_slips', normalized.map(packingSlipToDb));
+    setJSON(KEYS.PACKING_SLIPS, normalized, false);
   }
   return normalized;
 }

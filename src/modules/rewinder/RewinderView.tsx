@@ -2072,21 +2072,21 @@ export const RewinderView: React.FC = () => {
                           <>
                             {gradeBReels.length > 0 && (
                               <tr className="bg-emerald-50/70 dark:bg-emerald-950/40 border-y border-emerald-200/80 dark:border-emerald-800/60">
-                                <td colSpan={6} className="py-2 px-4">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-600 text-white shadow-2xs">
-                                        Grade A Reels
-                                      </span>
-                                      <span className="text-xs font-black text-emerald-800 dark:text-emerald-200">
-                                        {gradeAReels.length} {gradeAReels.length === 1 ? 'Reel' : 'Reels'}
+                                  <td colSpan={6} className="py-2 px-4">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-600 text-white shadow-2xs">
+                                          Grade A Reels
+                                        </span>
+                                        <span className="text-xs font-black text-emerald-800 dark:text-emerald-200">
+                                          {gradeAReels.length} {gradeAReels.length === 1 ? 'Reel' : 'Reels'}
+                                        </span>
+                                      </div>
+                                      <span className="text-xs font-black font-mono text-emerald-700 dark:text-emerald-300">
+                                        Subtotal: {weightGradeA.toLocaleString()} kg
                                       </span>
                                     </div>
-                                    <span className="text-xs font-black font-mono text-emerald-700 dark:text-emerald-300">
-                                      Subtotal: {weightGradeA.toLocaleString()} kg
-                                    </span>
-                                  </div>
-                                </td>
+                                  </td>
                               </tr>
                             )}
                             {gradeAReels.map(reel => {
@@ -2147,21 +2147,21 @@ export const RewinderView: React.FC = () => {
                         {gradeBReels.length > 0 && (
                           <>
                             <tr className="bg-amber-50/80 dark:bg-amber-950/40 border-y border-amber-200/80 dark:border-amber-800/60">
-                              <td colSpan={6} className="py-2 px-4">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
-                                      Grade B Reels
-                                    </span>
-                                    <span className="text-xs font-black text-amber-800 dark:text-amber-200">
-                                      {gradeBReels.length} {gradeBReels.length === 1 ? 'Reel' : 'Reels'}
+                                <td colSpan={6} className="py-2 px-4">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
+                                        Grade B Reels
+                                      </span>
+                                      <span className="text-xs font-black text-amber-800 dark:text-amber-200">
+                                        {gradeBReels.length} {gradeBReels.length === 1 ? 'Reel' : 'Reels'}
+                                      </span>
+                                    </div>
+                                    <span className="text-xs font-black font-mono text-amber-700 dark:text-amber-300">
+                                      Subtotal: {weightGradeB.toLocaleString()} kg
                                     </span>
                                   </div>
-                                  <span className="text-xs font-black font-mono text-amber-700 dark:text-amber-300">
-                                    Subtotal: {weightGradeB.toLocaleString()} kg
-                                  </span>
-                                </div>
-                              </td>
+                                </td>
                             </tr>
                             {gradeBReels.map(reel => {
                               const isHighlighted = highlightedReelNos.has(reel.reelNo);

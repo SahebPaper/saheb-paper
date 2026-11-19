@@ -1967,8 +1967,8 @@ export const RewinderView: React.FC = () => {
 
         {/* Recovery Banner for Missing Reels (Restores reels lost from batch edit bug) */}
         {missingReelsList.length > 0 && (
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative">
-            <div className="flex items-start gap-3 flex-1 pr-7 sm:pr-0">
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3 flex-1">
               <div className="p-2 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0">
                 <AlertTriangle className="h-5 w-5" />
               </div>
@@ -2003,16 +2003,6 @@ export const RewinderView: React.FC = () => {
                 <span>{isRestoringMissing ? 'Restoring...' : `Restore ${missingReelsList.length} Reel(s)`}</span>
               </button>
             </div>
-            {/* Direct Close Icon Button in top right for quick dismissal */}
-            <button
-              type="button"
-              onClick={handleDismissMissingReels}
-              aria-label="Dismiss alert"
-              className="absolute top-2.5 right-2.5 p-1 rounded-lg text-amber-600/70 hover:text-amber-900 dark:text-amber-400/70 dark:hover:text-amber-200 hover:bg-amber-100/60 dark:hover:bg-amber-900/40 transition cursor-pointer"
-              title="Close"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
         )}
 

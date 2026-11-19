@@ -102,6 +102,10 @@ export const KEYS = {
   CUSTOM_ROLES: 'saheb_custom_roles',
   DELETED_ROLES: 'saheb_deleted_roles',
   DELETED_REELS: 'saheb_deleted_reels',
+  DELETED_PRODUCTS: 'saheb_deleted_products',
+  DELETED_PARTIES: 'saheb_deleted_parties',
+  DELETED_VENDORS: 'saheb_deleted_vendors',
+  DELETED_VEHICLES: 'saheb_deleted_vehicles',
 };
 
 /**
@@ -302,9 +306,6 @@ export const DEFAULT_PRODUCTS: ProductItem[] = [
   { id: 'p-8', name: 'Kraft Paper Liner', grade: 'A', gsm: 120, size: 1100, ply: 1 },
   { id: 'p-9', name: 'Cupstock Board', grade: 'A', gsm: 180, size: 850, ply: 1 },
   { id: 'p-10', name: 'Duplex Board', grade: 'A', gsm: 230, size: 950, ply: 1 },
-  { id: 'p-11', name: 'Napkin B-Grade', grade: 'B', gsm: 18, size: 3000, ply: 2 },
-  { id: 'p-12', name: 'Toilet B-Grade', grade: 'B', gsm: 17, size: 1000, ply: 3 },
-  { id: 'p-13', name: 'KT B-Grade', grade: 'B', gsm: 22, size: 2000, ply: 1 },
 ];
 
 export const DEFAULT_PARTIES: PartyItem[] = [
@@ -1392,80 +1393,127 @@ export function updateRawMaterialStock(
 
 // --- MASTER DATA ---
 export function getProducts(): ProductItem[] {
-  const products = getJSON<ProductItem[]>(KEYS.PRODUCTS, []);
-  if (!products || products.length === 0) {
-    return DEFAULT_PRODUCTS;
+  const deletedList = getJSON<string[]>(KEYS.DELETED_PRODUCTS, []);
+  const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+  let products = getJSON<ProductItem[] | null>(KEYS.PRODUCTS, null);
+  if (products === null || products === undefined) {
+    products = DEFAULT_PRODUCTS.filter(p => !deletedSet.has(p.id.toLowerCase()) && !deletedSet.has((p.name || '').trim().toLowerCase()));
+    setJSON(KEYS.PRODUCTS, products, false);
   }
-  return products;
+  return products.filter(p => p && p.active !== false && !deletedSet.has((p.id || '').toLowerCase()) && !deletedSet.has((p.name || '').trim().toLowerCase()));
 }
 
 export function saveProduct(product: ProductItem, user: string = 'Admin'): ProductItem {
+  const deletedList = getJSON<string[]>(KEYS.DELETED_PRODUCTS, []);
+  const prodId = (product.id || '').toLowerCase();
+  const prodName = (product.name || '').toLowerCase().trim();
+  const updatedDeleted = deletedList.filter(d => {
+    const val = (d || '').toLowerCase().trim();
+    return val !== prodId && val !== prodName;
+  });
+  if (updatedDeleted.length !== deletedList.length) {
+    setJSON(KEYS.DELETED_PRODUCTS, updatedDeleted, false);
+  }
+
   const products = getProducts();
   const existingIndex = products.findIndex(p => p.id === product.id);
   const isUpdate = existingIndex > -1;
+  const prodToSave = { ...product, active: true };
   if (isUpdate) {
-    products[existingIndex] = product;
+    products[existingIndex] = prodToSave;
   } else {
-    products.push(product);
+    products.push(prodToSave);
   }
   setJSON(KEYS.PRODUCTS, products);
-  pushUpsertToCloud('products', productToDb(product));
+  pushUpsertToCloud('products', productToDb(prodToSave));
+  notifyDataUpdated('products');
   addLog(
     'Admin',
     isUpdate ? 'Product Updated' : 'Product Created',
     `${isUpdate ? 'Updated' : 'Created'} product "${product.name}" (${product.gsm} GSM, ${product.size} cm, ${product.ply} Ply, Grade ${product.grade})`,
     user
   );
-  return product;
+  return prodToSave;
 }
 
 export function getParties(): PartyItem[] {
-  const parties = getJSON<PartyItem[]>(KEYS.PARTIES, []);
-  if (!parties || parties.length === 0) {
-    return DEFAULT_PARTIES;
+  const deletedList = getJSON<string[]>(KEYS.DELETED_PARTIES, []);
+  const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+  let parties = getJSON<PartyItem[] | null>(KEYS.PARTIES, null);
+  if (parties === null || parties === undefined) {
+    parties = DEFAULT_PARTIES.filter(p => !deletedSet.has(p.id.toLowerCase()) && !deletedSet.has((p.name || '').trim().toLowerCase()));
+    setJSON(KEYS.PARTIES, parties, false);
   }
-  return parties;
+  return parties.filter(p => p && p.active !== false && !deletedSet.has((p.id || '').toLowerCase()) && !deletedSet.has((p.name || '').trim().toLowerCase()));
 }
 
 export function saveParty(party: PartyItem, user: string = 'Admin'): PartyItem {
+  const deletedList = getJSON<string[]>(KEYS.DELETED_PARTIES, []);
+  const partyId = (party.id || '').toLowerCase();
+  const partyName = (party.name || '').toLowerCase().trim();
+  const updatedDeleted = deletedList.filter(d => {
+    const val = (d || '').toLowerCase().trim();
+    return val !== partyId && val !== partyName;
+  });
+  if (updatedDeleted.length !== deletedList.length) {
+    setJSON(KEYS.DELETED_PARTIES, updatedDeleted, false);
+  }
+
   const parties = getParties();
   const existingIndex = parties.findIndex(p => p.id === party.id);
   const isUpdate = existingIndex > -1;
+  const partyToSave = { ...party, active: true };
   if (isUpdate) {
-    parties[existingIndex] = party;
+    parties[existingIndex] = partyToSave;
   } else {
-    parties.push(party);
+    parties.push(partyToSave);
   }
   setJSON(KEYS.PARTIES, parties);
-  pushUpsertToCloud('parties', partyToDb(party));
+  pushUpsertToCloud('parties', partyToDb(partyToSave));
+  notifyDataUpdated('parties');
   addLog(
     'Admin',
     isUpdate ? 'Party Updated' : 'Party Created',
     `${isUpdate ? 'Updated' : 'Created'} customer party "${party.name}" (Contact: ${party.contact}, Address: ${party.address || 'N/A'})`,
     user
   );
-  return party;
+  return partyToSave;
 }
 
 export function getVendors(): VendorItem[] {
-  const vendors = getJSON<VendorItem[]>(KEYS.VENDORS, []);
-  if (!vendors || vendors.length === 0) {
-    return DEFAULT_VENDORS;
+  const deletedList = getJSON<string[]>(KEYS.DELETED_VENDORS, []);
+  const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+  let vendors = getJSON<VendorItem[] | null>(KEYS.VENDORS, null);
+  if (vendors === null || vendors === undefined) {
+    vendors = DEFAULT_VENDORS.filter(v => !deletedSet.has(v.id.toLowerCase()) && !deletedSet.has((v.name || '').trim().toLowerCase()));
+    setJSON(KEYS.VENDORS, vendors, false);
   }
-  return vendors;
+  return vendors.filter(v => v && v.active !== false && !deletedSet.has((v.id || '').toLowerCase()) && !deletedSet.has((v.name || '').trim().toLowerCase()));
 }
 
 export function saveVendor(vendor: VendorItem, user: string = 'Admin'): VendorItem {
+  const deletedList = getJSON<string[]>(KEYS.DELETED_VENDORS, []);
+  const vendorId = (vendor.id || '').toLowerCase();
+  const vendorName = (vendor.name || '').toLowerCase().trim();
+  const updatedDeleted = deletedList.filter(d => {
+    const val = (d || '').toLowerCase().trim();
+    return val !== vendorId && val !== vendorName;
+  });
+  if (updatedDeleted.length !== deletedList.length) {
+    setJSON(KEYS.DELETED_VENDORS, updatedDeleted, false);
+  }
+
   const vendors = getVendors();
   const existingIndex = vendors.findIndex(v => v.id === vendor.id);
   const isUpdate = existingIndex > -1;
+  const vendorToSave = { ...vendor, active: true };
   if (isUpdate) {
-    vendors[existingIndex] = vendor;
+    vendors[existingIndex] = vendorToSave;
   } else {
-    vendors.push(vendor);
+    vendors.push(vendorToSave);
   }
   setJSON(KEYS.VENDORS, vendors);
-  pushUpsertToCloud('vendors', vendorToDb(vendor));
+  pushUpsertToCloud('vendors', vendorToDb(vendorToSave));
   notifyDataUpdated('vendors');
   addLog(
     'Admin',
@@ -1473,35 +1521,51 @@ export function saveVendor(vendor: VendorItem, user: string = 'Admin'): VendorIt
     `${isUpdate ? 'Updated' : 'Created'} supplier vendor "${vendor.name}" (Contact: ${vendor.contact}, Address: ${vendor.address || 'N/A'})`,
     user
   );
-  return vendor;
+  return vendorToSave;
 }
 
 export function getVehicles(): VehicleItem[] {
-  const vehicles = getJSON<VehicleItem[]>(KEYS.VEHICLES, []);
-  if (!vehicles || vehicles.length === 0) {
-    return DEFAULT_VEHICLES;
+  const deletedList = getJSON<string[]>(KEYS.DELETED_VEHICLES, []);
+  const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+  let vehicles = getJSON<VehicleItem[] | null>(KEYS.VEHICLES, null);
+  if (vehicles === null || vehicles === undefined) {
+    vehicles = DEFAULT_VEHICLES.filter(v => !deletedSet.has(v.id.toLowerCase()) && !deletedSet.has((v.vehicleNo || '').trim().toLowerCase()));
+    setJSON(KEYS.VEHICLES, vehicles, false);
   }
-  return vehicles;
+  return vehicles.filter(v => v && v.active !== false && !deletedSet.has((v.id || '').toLowerCase()) && !deletedSet.has((v.vehicleNo || '').trim().toLowerCase()));
 }
 
 export function saveVehicle(vehicle: VehicleItem, user: string = 'Admin'): VehicleItem {
+  const deletedList = getJSON<string[]>(KEYS.DELETED_VEHICLES, []);
+  const vehicleId = (vehicle.id || '').toLowerCase();
+  const vehicleNo = (vehicle.vehicleNo || '').toLowerCase().trim();
+  const updatedDeleted = deletedList.filter(d => {
+    const val = (d || '').toLowerCase().trim();
+    return val !== vehicleId && val !== vehicleNo;
+  });
+  if (updatedDeleted.length !== deletedList.length) {
+    setJSON(KEYS.DELETED_VEHICLES, updatedDeleted, false);
+  }
+
   const vehicles = getVehicles();
   const existingIndex = vehicles.findIndex(v => v.id === vehicle.id);
   const isUpdate = existingIndex > -1;
+  const vehicleToSave = { ...vehicle, active: true };
   if (isUpdate) {
-    vehicles[existingIndex] = vehicle;
+    vehicles[existingIndex] = vehicleToSave;
   } else {
-    vehicles.push(vehicle);
+    vehicles.push(vehicleToSave);
   }
   setJSON(KEYS.VEHICLES, vehicles);
-  pushUpsertToCloud('vehicles', vehicleToDb(vehicle));
+  pushUpsertToCloud('vehicles', vehicleToDb(vehicleToSave));
+  notifyDataUpdated('vehicles');
   addLog(
     'Admin',
     isUpdate ? 'Vehicle Updated' : 'Vehicle Created',
     `${isUpdate ? 'Updated' : 'Created'} vehicle "${vehicle.vehicleNo}" (Driver: ${vehicle.driverName}, Contact: ${vehicle.driverContact})`,
     user
   );
-  return vehicle;
+  return vehicleToSave;
 }
 
 // --- PULP MILL FORMULAS ---
@@ -3616,6 +3680,12 @@ export async function performFactoryReset(): Promise<void> {
   setJSON(KEYS.STORE_ITEMS, [], false);
   setJSON(KEYS.RAW_MATERIAL_LOTS, [], false);
   setJSON(KEYS.LAB_REPORTS, [], false);
+  setJSON(KEYS.DELETED_REELS, [], false);
+  setJSON(KEYS.DELETED_PRODUCTS, [], false);
+  setJSON(KEYS.DELETED_PARTIES, [], false);
+  setJSON(KEYS.DELETED_VENDORS, [], false);
+  setJSON(KEYS.DELETED_VEHICLES, [], false);
+  setJSON(KEYS.DELETED_ROLES, [], false);
 
   // 4. Keep active session as Admin and establish production baseline (lean session, no secrets)
   const adminSession = {
@@ -3639,13 +3709,23 @@ export function clearAllOperationalData(): void {
 export const clearAllDemoData = clearAllOperationalData;
 
 export function deleteProduct(id: string, user: string = 'Admin'): void {
-  const products = getProducts();
-  const target = products.find(p => p.id === id);
+  const products = getJSON<ProductItem[]>(KEYS.PRODUCTS, []);
+  const target = products.find(p => p.id === id) || DEFAULT_PRODUCTS.find(p => p.id === id);
+  const updated = products.filter(p => p.id !== id);
+  setJSON(KEYS.PRODUCTS, updated);
+
+  const deletedList = getJSON<string[]>(KEYS.DELETED_PRODUCTS, []);
+  if (!deletedList.some(d => d.toLowerCase() === id.toLowerCase())) {
+    deletedList.push(id);
+  }
+  if (target && target.name && !deletedList.some(d => d.toLowerCase() === target.name.toLowerCase().trim())) {
+    deletedList.push(target.name.toLowerCase().trim());
+  }
+  setJSON(KEYS.DELETED_PRODUCTS, deletedList, false);
+
+  pushDeleteToCloud('products', 'id', id);
+  notifyDataUpdated('products');
   if (target) {
-    target.active = false;
-    setJSON(KEYS.PRODUCTS, products);
-    pushUpsertToCloud('products', productToDb(target));
-    notifyDataUpdated('products');
     addLog('Admin', 'Product Deleted', `Deleted product "${target.name}" (${target.gsm} GSM, ${target.size} cm)`, user);
   }
 }
@@ -3655,13 +3735,23 @@ export function getActiveProducts(): ProductItem[] {
 }
 
 export function deleteParty(id: string, user: string = 'Admin'): void {
-  const parties = getParties();
-  const target = parties.find(p => p.id === id);
+  const parties = getJSON<PartyItem[]>(KEYS.PARTIES, []);
+  const target = parties.find(p => p.id === id) || DEFAULT_PARTIES.find(p => p.id === id);
+  const updated = parties.filter(p => p.id !== id);
+  setJSON(KEYS.PARTIES, updated);
+
+  const deletedList = getJSON<string[]>(KEYS.DELETED_PARTIES, []);
+  if (!deletedList.some(d => d.toLowerCase() === id.toLowerCase())) {
+    deletedList.push(id);
+  }
+  if (target && target.name && !deletedList.some(d => d.toLowerCase() === target.name.toLowerCase().trim())) {
+    deletedList.push(target.name.toLowerCase().trim());
+  }
+  setJSON(KEYS.DELETED_PARTIES, deletedList, false);
+
+  pushDeleteToCloud('parties', 'id', id);
+  notifyDataUpdated('parties');
   if (target) {
-    target.active = false;
-    setJSON(KEYS.PARTIES, parties);
-    pushUpsertToCloud('parties', partyToDb(target));
-    notifyDataUpdated('parties');
     addLog('Admin', 'Party Deleted', `Deleted customer party "${target.name}"`, user);
   }
 }
@@ -3671,13 +3761,23 @@ export function getActiveParties(): PartyItem[] {
 }
 
 export function deleteVendor(id: string, user: string = 'Admin'): void {
-  const vendors = getVendors();
-  const target = vendors.find(v => v.id === id);
+  const vendors = getJSON<VendorItem[]>(KEYS.VENDORS, []);
+  const target = vendors.find(v => v.id === id) || DEFAULT_VENDORS.find(v => v.id === id);
+  const updated = vendors.filter(v => v.id !== id);
+  setJSON(KEYS.VENDORS, updated);
+
+  const deletedList = getJSON<string[]>(KEYS.DELETED_VENDORS, []);
+  if (!deletedList.some(d => d.toLowerCase() === id.toLowerCase())) {
+    deletedList.push(id);
+  }
+  if (target && target.name && !deletedList.some(d => d.toLowerCase() === target.name.toLowerCase().trim())) {
+    deletedList.push(target.name.toLowerCase().trim());
+  }
+  setJSON(KEYS.DELETED_VENDORS, deletedList, false);
+
+  pushDeleteToCloud('vendors', 'id', id);
+  notifyDataUpdated('vendors');
   if (target) {
-    target.active = false;
-    setJSON(KEYS.VENDORS, vendors);
-    pushUpsertToCloud('vendors', vendorToDb(target));
-    notifyDataUpdated('vendors');
     addLog('Admin', 'Vendor Deleted', `Deleted supplier vendor "${target.name}"`, user);
   }
 }
@@ -3687,13 +3787,23 @@ export function getActiveVendors(): VendorItem[] {
 }
 
 export function deleteVehicle(id: string, user: string = 'Admin'): void {
-  const vehicles = getVehicles();
-  const target = vehicles.find(v => v.id === id);
+  const vehicles = getJSON<VehicleItem[]>(KEYS.VEHICLES, []);
+  const target = vehicles.find(v => v.id === id) || DEFAULT_VEHICLES.find(v => v.id === id);
+  const updated = vehicles.filter(v => v.id !== id);
+  setJSON(KEYS.VEHICLES, updated);
+
+  const deletedList = getJSON<string[]>(KEYS.DELETED_VEHICLES, []);
+  if (!deletedList.some(d => d.toLowerCase() === id.toLowerCase())) {
+    deletedList.push(id);
+  }
+  if (target && target.vehicleNo && !deletedList.some(d => d.toLowerCase() === target.vehicleNo.toLowerCase().trim())) {
+    deletedList.push(target.vehicleNo.toLowerCase().trim());
+  }
+  setJSON(KEYS.DELETED_VEHICLES, deletedList, false);
+
+  pushDeleteToCloud('vehicles', 'id', id);
+  notifyDataUpdated('vehicles');
   if (target) {
-    target.active = false;
-    setJSON(KEYS.VEHICLES, vehicles);
-    pushUpsertToCloud('vehicles', vehicleToDb(target));
-    notifyDataUpdated('vehicles');
     addLog('Admin', 'Vehicle Deleted', `Deleted vehicle "${target.vehicleNo}" (${target.driverName})`, user);
   }
 }

@@ -111,6 +111,23 @@ export const AdminMasters: React.FC = () => {
   const [mastersSearchQuery, setMastersSearchQuery] = useState('');
   const [isMobileAddModalOpen, setIsMobileAddModalOpen] = useState(false);
 
+  useEffect(() => {
+    const handleSync = () => {
+      setProducts(getProducts());
+      setParties(getParties());
+      setVendors(getVendors());
+      setVehicles(getVehicles());
+      setLogs(getLogs());
+      setUsersList(getUsers());
+    };
+    window.addEventListener('saheb_data_updated', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('saheb_data_updated', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
+
   // Factory Reset Modal States
   const [isFactoryResetModalOpen, setIsFactoryResetModalOpen] = useState(false);
   const [resetConfirmationInput, setResetConfirmationInput] = useState('');

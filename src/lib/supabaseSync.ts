@@ -46,6 +46,10 @@ const KEYS = {
   CUSTOM_ROLES: 'saheb_custom_roles',
   DELETED_ROLES: 'saheb_deleted_roles',
   DELETED_REELS: 'saheb_deleted_reels',
+  DELETED_PRODUCTS: 'saheb_deleted_products',
+  DELETED_PARTIES: 'saheb_deleted_parties',
+  DELETED_VENDORS: 'saheb_deleted_vendors',
+  DELETED_VEHICLES: 'saheb_deleted_vehicles',
 };
 
 const getLocal = <T>(key: string, def: T): T => {
@@ -213,7 +217,6 @@ export const productToDb = (p: ProductItem) => ({
   gsm: p.gsm,
   size: p.size,
   ply: p.ply,
-  active: p.active ?? true,
 });
 
 export const productFromDb = (r: any): ProductItem => ({
@@ -232,7 +235,6 @@ export const partyToDb = (p: PartyItem) => ({
   name: p.name,
   contact: p.contact || null,
   address: p.address || null,
-  active: p.active ?? true,
 });
 
 export const partyFromDb = (r: any): PartyItem => ({
@@ -249,7 +251,6 @@ export const vendorToDb = (v: VendorItem) => ({
   name: v.name,
   contact: v.contact || null,
   address: v.address || null,
-  active: v.active ?? true,
 });
 
 export const vendorFromDb = (r: any): VendorItem => ({
@@ -266,7 +267,6 @@ export const vehicleToDb = (v: VehicleItem) => ({
   vehicle_no: v.vehicleNo,
   driver_name: v.driverName || null,
   driver_contact: v.driverContact || null,
-  active: v.active ?? true,
 });
 
 export const vehicleFromDb = (r: any): VehicleItem => ({
@@ -723,36 +723,80 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
         }
         case 'products': {
           const cloud = data.map(productFromDb);
-          const local = getLocal<ProductItem[]>(KEYS.PRODUCTS, []);
-          const base = local.length > 0 ? local : DEFAULT_PRODUCTS;
-          const merged = mergeByUniqueKey(base, cloud, p => p.id);
+          const deletedList = getLocal<string[]>(KEYS.DELETED_PRODUCTS, []);
+          const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+          const filteredCloud = cloud.filter((p: ProductItem) => {
+            if (deletedSet.has((p.id || '').toLowerCase()) || deletedSet.has((p.name || '').toLowerCase().trim())) {
+              pushDeleteToCloud('products', 'id', p.id);
+              return false;
+            }
+            return (p as any).active !== false;
+          });
+          const local = getLocal<ProductItem[] | null>(KEYS.PRODUCTS, null);
+          const base = ((local !== null ? local : DEFAULT_PRODUCTS) || []).filter(p =>
+            p && !deletedSet.has((p.id || '').toLowerCase()) && !deletedSet.has((p.name || '').toLowerCase().trim()) && (p as any).active !== false
+          );
+          const merged = mergeByUniqueKey(base, filteredCloud, p => p.id);
           setLocal(KEYS.PRODUCTS, merged);
           notifyChange(tableName);
           break;
         }
         case 'parties': {
           const cloud = data.map(partyFromDb);
-          const local = getLocal<PartyItem[]>(KEYS.PARTIES, []);
-          const base = local.length > 0 ? local : DEFAULT_PARTIES;
-          const merged = mergeByUniqueKey(base, cloud, p => p.id);
+          const deletedList = getLocal<string[]>(KEYS.DELETED_PARTIES, []);
+          const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+          const filteredCloud = cloud.filter((p: PartyItem) => {
+            if (deletedSet.has((p.id || '').toLowerCase()) || deletedSet.has((p.name || '').toLowerCase().trim())) {
+              pushDeleteToCloud('parties', 'id', p.id);
+              return false;
+            }
+            return (p as any).active !== false;
+          });
+          const local = getLocal<PartyItem[] | null>(KEYS.PARTIES, null);
+          const base = ((local !== null ? local : DEFAULT_PARTIES) || []).filter(p =>
+            p && !deletedSet.has((p.id || '').toLowerCase()) && !deletedSet.has((p.name || '').toLowerCase().trim()) && (p as any).active !== false
+          );
+          const merged = mergeByUniqueKey(base, filteredCloud, p => p.id);
           setLocal(KEYS.PARTIES, merged);
           notifyChange(tableName);
           break;
         }
         case 'vendors': {
           const cloud = data.map(vendorFromDb);
-          const local = getLocal<VendorItem[]>(KEYS.VENDORS, []);
-          const base = local.length > 0 ? local : DEFAULT_VENDORS;
-          const merged = mergeByUniqueKey(base, cloud, v => v.id);
+          const deletedList = getLocal<string[]>(KEYS.DELETED_VENDORS, []);
+          const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+          const filteredCloud = cloud.filter((v: VendorItem) => {
+            if (deletedSet.has((v.id || '').toLowerCase()) || deletedSet.has((v.name || '').toLowerCase().trim())) {
+              pushDeleteToCloud('vendors', 'id', v.id);
+              return false;
+            }
+            return (v as any).active !== false;
+          });
+          const local = getLocal<VendorItem[] | null>(KEYS.VENDORS, null);
+          const base = ((local !== null ? local : DEFAULT_VENDORS) || []).filter(v =>
+            v && !deletedSet.has((v.id || '').toLowerCase()) && !deletedSet.has((v.name || '').toLowerCase().trim()) && (v as any).active !== false
+          );
+          const merged = mergeByUniqueKey(base, filteredCloud, v => v.id);
           setLocal(KEYS.VENDORS, merged);
           notifyChange(tableName);
           break;
         }
         case 'vehicles': {
           const cloud = data.map(vehicleFromDb);
-          const local = getLocal<VehicleItem[]>(KEYS.VEHICLES, []);
-          const base = local.length > 0 ? local : DEFAULT_VEHICLES;
-          const merged = mergeByUniqueKey(base, cloud, v => v.id);
+          const deletedList = getLocal<string[]>(KEYS.DELETED_VEHICLES, []);
+          const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+          const filteredCloud = cloud.filter((v: VehicleItem) => {
+            if (deletedSet.has((v.id || '').toLowerCase()) || deletedSet.has((v.vehicleNo || '').toLowerCase().trim())) {
+              pushDeleteToCloud('vehicles', 'id', v.id);
+              return false;
+            }
+            return (v as any).active !== false;
+          });
+          const local = getLocal<VehicleItem[] | null>(KEYS.VEHICLES, null);
+          const base = ((local !== null ? local : DEFAULT_VEHICLES) || []).filter(v =>
+            v && !deletedSet.has((v.id || '').toLowerCase()) && !deletedSet.has((v.vehicleNo || '').toLowerCase().trim()) && (v as any).active !== false
+          );
+          const merged = mergeByUniqueKey(base, filteredCloud, v => v.id);
           setLocal(KEYS.VEHICLES, merged);
           notifyChange(tableName);
           break;

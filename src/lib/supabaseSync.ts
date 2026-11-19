@@ -21,7 +21,7 @@ import type {
   CustomRole,
 } from '../data/types';
 import { sortUsersByHierarchy } from '../data/types';
-import { DEFAULT_RAW_MATERIALS, DEFAULT_PRODUCTS, DEFAULT_PARTIES, DEFAULT_VENDORS, DEFAULT_VEHICLES, DEFAULT_REELS } from '../data/index';
+import { DEFAULT_RAW_MATERIALS, DEFAULT_PRODUCTS, DEFAULT_PARTIES, DEFAULT_VENDORS, DEFAULT_VEHICLES, DEFAULT_REELS, CANONICAL_DEMO_REEL_NOS } from '../data/index';
 
 // Storage keys matching src/data/index.ts
 const KEYS = {
@@ -819,7 +819,7 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
         }
         case 'reels': {
           const cloud: Reel[] = data.map(reelFromDb);
-          const ghostReels = new Set(['26110026', '26110027', '26110029']);
+          const ghostReels = new Set(['26110026', '26110027', '26110029', ...Array.from(CANONICAL_DEMO_REEL_NOS || [])]);
           const deletedList = getLocal<string[]>(KEYS.DELETED_REELS, []);
           const deletedNos = new Set([...deletedList.map(d => (d || '').trim().toLowerCase()), ...ghostReels]);
           const logs = getLocal<TransactionLog[]>(KEYS.LOGS, []);
@@ -838,7 +838,7 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             return true;
           });
           const local = getLocal<Reel[]>(KEYS.REELS, []);
-          const rawBase = (local && local.length > 0) ? local : DEFAULT_REELS;
+          const rawBase = (local && local.length > 0) ? local : [];
           const base = rawBase.filter(r => !deletedNos.has((r.reelNo || '').trim().toLowerCase()));
           const merged = mergeByUniqueKey(base, filteredCloud, r => (r.reelNo || '').trim().toUpperCase());
           setLocal(KEYS.REELS, merged);

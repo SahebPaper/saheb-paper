@@ -343,9 +343,16 @@ const DEFAULT_STORE_ITEMS: StoreItem[] = [
 
 import { CANONICAL_REELS } from './canonicalReels';
 
+export const OLD_DEMO_REEL_NOS: Set<string> = new Set(
+  CANONICAL_REELS
+    .filter(r => !r.productionDate || !r.productionDate.startsWith('2026-11-19'))
+    .map(r => (r.reelNo || '').trim().toLowerCase())
+);
+export const CANONICAL_DEMO_REEL_NOS: Set<string> = OLD_DEMO_REEL_NOS;
+
 export const DEFAULT_ROLLS: MachineRoll[] = [];
 
-export const DEFAULT_REELS: Reel[] = CANONICAL_REELS;
+export const DEFAULT_REELS: Reel[] = [];
 
 export function seedSampleReels(): Reel[] {
   return getJSON<Reel[]>(KEYS.REELS, []);
@@ -435,14 +442,14 @@ export function initializeStorage() {
   if (!localStorage.getItem(KEYS.CUSTOM_ROLES)) setJSON(KEYS.CUSTOM_ROLES, [], false);
   if (!localStorage.getItem(KEYS.DELETED_ROLES)) setJSON(KEYS.DELETED_ROLES, [], false);
 
-  // Instant purge of unwanted ghost reels
+  // Instant purge of unwanted ghost reels and old demo canonical reels
   try {
-    const ghostNos = new Set(['26110026', '26110027', '26110029']);
+    const ghostNos = new Set(['26110026', '26110027', '26110029', ...Array.from(CANONICAL_DEMO_REEL_NOS)]);
     const raw = localStorage.getItem(KEYS.REELS);
     if (raw) {
       const parsed: Reel[] = JSON.parse(raw);
-      if (parsed.some(r => ghostNos.has((r.reelNo || '').trim()))) {
-        const cleaned = parsed.filter(r => !ghostNos.has((r.reelNo || '').trim()));
+      if (parsed.some(r => ghostNos.has((r.reelNo || '').trim().toLowerCase()))) {
+        const cleaned = parsed.filter(r => !ghostNos.has((r.reelNo || '').trim().toLowerCase()));
         localStorage.setItem(KEYS.REELS, JSON.stringify(cleaned));
       }
     }
@@ -450,8 +457,9 @@ export function initializeStorage() {
     const delList: string[] = rawDel ? JSON.parse(rawDel) : [];
     let delChanged = false;
     ghostNos.forEach(g => {
-      if (!delList.some(d => d.toLowerCase() === g.toLowerCase())) {
-        delList.push(g);
+      const lower = g.toLowerCase();
+      if (!delList.some(d => d.toLowerCase() === lower)) {
+        delList.push(lower);
         delChanged = true;
       }
     });
@@ -2003,33 +2011,23 @@ export function getReels(): Reel[] {
   const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
 
   let existing = getJSON<Reel[] | null>(KEYS.REELS, null);
-  if (existing === null || existing === undefined || existing.length === 0) {
-    existing = DEFAULT_REELS.filter(r => !deletedSet.has((r.reelNo || '').trim().toLowerCase()));
+  if (existing === null || existing === undefined) {
+    existing = [];
     setJSON(KEYS.REELS, existing, false);
     return existing;
   }
 
-  if (existing && existing.length > 0 && existing.some(r => deletedSet.has((r.reelNo || '').trim().toLowerCase()))) {
-    existing = existing.filter(r => !deletedSet.has((r.reelNo || '').trim().toLowerCase()));
+  // Filter out any deleted reels or old canonical demo reels
+  const cleanedReels = existing.filter(r => {
+    if (!r || !r.reelNo) return false;
+    const cleanNo = r.reelNo.trim().toLowerCase();
+    return !deletedSet.has(cleanNo) && !CANONICAL_DEMO_REEL_NOS.has(cleanNo);
+  });
+
+  if (cleanedReels.length !== existing.length) {
+    existing = cleanedReels;
     setJSON(KEYS.REELS, existing, false);
   }
-
-  // Ensure newly introduced canonical production reels are populated if not deleted
-  let addedCanonical = false;
-  if (existing && existing.length > 0) {
-    DEFAULT_REELS.forEach(defR => {
-      const key = (defR.reelNo || '').trim().toLowerCase();
-      if (key && !deletedSet.has(key) && !existing!.some(r => (r.reelNo || '').trim().toLowerCase() === key)) {
-        existing!.push(defR);
-        addedCanonical = true;
-      }
-    });
-    if (addedCanonical) {
-      setJSON(KEYS.REELS, existing, false);
-    }
-  }
-
-
 
   if (!existing || existing.length === 0) {
     return [];
@@ -2502,15 +2500,14 @@ export function scanMissingReels(): MissingReelInfo[] {
     if (logMatch) {
       const reelNo = logMatch[1].trim();
       const key = reelNo.toLowerCase();
-      if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !missingMap.has(key)) {
-        const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
+      if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !CANONICAL_DEMO_REEL_NOS.has(key) && !missingMap.has(key)) {
         missingMap.set(key, {
           reelNo,
           product: logMatch[2].trim(),
           weight: parseFloat(logMatch[3]) || 0,
           gsm: parseFloat(logMatch[4]) || 15,
-          size: canonMatch ? canonMatch.size : 32,
-          ply: canonMatch ? canonMatch.ply : 2,
+          size: 32,
+          ply: 2,
           parentRollNo: 'MANUAL',
           status: 'QC_PENDING',
           source: `Audit Log (${log.action})`,
@@ -2524,15 +2521,14 @@ export function scanMissingReels(): MissingReelInfo[] {
     if (updateMatch) {
       const reelNo = updateMatch[1].trim();
       const key = reelNo.toLowerCase();
-      if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !missingMap.has(key)) {
-        const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
+      if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !CANONICAL_DEMO_REEL_NOS.has(key) && !missingMap.has(key)) {
         missingMap.set(key, {
           reelNo,
           product: updateMatch[2].trim(),
           weight: parseFloat(updateMatch[3]) || 0,
           gsm: parseFloat(updateMatch[4]) || 15,
-          size: canonMatch ? canonMatch.size : 32,
-          ply: canonMatch ? canonMatch.ply : 2,
+          size: 32,
+          ply: 2,
           parentRollNo: 'MANUAL',
           status: 'QC_PENDING',
           source: `Audit Log (${log.action})`,
@@ -2550,16 +2546,15 @@ export function scanMissingReels(): MissingReelInfo[] {
         const cleanNo = (rNo || '').trim();
         if (!cleanNo) continue;
         const key = cleanNo.toLowerCase();
-        if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !missingMap.has(key)) {
-          const canonMatch = DEFAULT_REELS.find(d => (d.reelNo || '').trim().toLowerCase() === key);
+        if (!currentReelNos.has(key) && !deletedReelNos.has(key) && !CANONICAL_DEMO_REEL_NOS.has(key) && !missingMap.has(key)) {
           missingMap.set(key, {
             reelNo: cleanNo,
-            product: canonMatch ? canonMatch.product : 'Napkin Tissue',
-            weight: canonMatch ? canonMatch.weight : 0,
-            gsm: canonMatch ? canonMatch.gsm : 15,
-            size: canonMatch ? canonMatch.size : 32,
-            ply: canonMatch ? canonMatch.ply : 2,
-            parentRollNo: canonMatch ? canonMatch.parentRollNo : 'MANUAL',
+            product: 'Napkin Tissue',
+            weight: 0,
+            gsm: 15,
+            size: 32,
+            ply: 2,
+            parentRollNo: 'MANUAL',
             status: 'DISPATCHED',
             source: `Packing Slip #${slip.slipNo}`,
             timestamp: slip.date || slip.dispatchDate,
@@ -3021,39 +3016,12 @@ export const CANONICAL_PS2_REEL_NOS: string[] = [
   '261106033',
 ];
 
-const DEFAULT_PACKING_SLIPS: PackingSlip[] = [
-  {
-    id: 'ps-1',
-    slipNo: 'PS-1',
-    date: '2026-11-17',
-    partyId: 'pt-ut',
-    vehicleId: 'vh-ut',
-    reelNos: CANONICAL_PS1_REEL_NOS,
-    driverSignature: '',
-    receiverSignature: '',
-    status: 'DISPATCHED',
-    dispatchDate: '2026-11-17',
-    dispatchTime: '10:00',
-  },
-  {
-    id: 'ps-2',
-    slipNo: 'PS-2',
-    date: '2026-11-17',
-    partyId: 'pt-2',
-    vehicleId: 'vh-1',
-    reelNos: CANONICAL_PS2_REEL_NOS,
-    driverSignature: '',
-    receiverSignature: '',
-    status: 'DISPATCHED',
-    dispatchDate: '2026-11-17',
-    dispatchTime: '11:30',
-  },
-];
+const DEFAULT_PACKING_SLIPS: PackingSlip[] = [];
 
 export function getPackingSlips(): PackingSlip[] {
   let existing = getJSON<PackingSlip[] | null>(KEYS.PACKING_SLIPS, null);
   if (existing === null || existing === undefined) {
-    existing = isSupabaseConfigured ? [] : [...DEFAULT_PACKING_SLIPS];
+    existing = [];
     setJSON(KEYS.PACKING_SLIPS, existing, false);
     return existing;
   }
@@ -3743,7 +3711,7 @@ export async function performFactoryReset(): Promise<void> {
   setJSON(KEYS.STORE_ITEMS, [], false);
   setJSON(KEYS.RAW_MATERIAL_LOTS, [], false);
   setJSON(KEYS.LAB_REPORTS, [], false);
-  setJSON(KEYS.DELETED_REELS, [], false);
+  setJSON(KEYS.DELETED_REELS, Array.from(CANONICAL_DEMO_REEL_NOS), false);
   setJSON(KEYS.DELETED_PRODUCTS, ['p-11', 'napkin b-grade'], false);
   setJSON(KEYS.DELETED_PARTIES, [], false);
   setJSON(KEYS.DELETED_VENDORS, [], false);

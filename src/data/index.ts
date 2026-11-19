@@ -25,6 +25,7 @@ export type { CustomRole };
 
 import { sortUsersByHierarchy, ROLE_LABELS, getDefaultModulesForRoles } from './types';
 import { hashPinSync, isPinHashed, revealPin } from '../lib/security';
+import { isSupabaseConfigured } from '../lib/supabase';
 import {
   pushUpsertToCloud,
   pushDeleteToCloud,
@@ -415,6 +416,31 @@ export function initializeStorage() {
   if (!localStorage.getItem(KEYS.RAW_MATERIAL_LOTS)) setJSON(KEYS.RAW_MATERIAL_LOTS, [], false);
   if (!localStorage.getItem(KEYS.CUSTOM_ROLES)) setJSON(KEYS.CUSTOM_ROLES, [], false);
   if (!localStorage.getItem(KEYS.DELETED_ROLES)) setJSON(KEYS.DELETED_ROLES, [], false);
+
+  // Instant purge of unwanted ghost reels
+  try {
+    const ghostNos = new Set(['26110026', '26110027', '26110029']);
+    const raw = localStorage.getItem(KEYS.REELS);
+    if (raw) {
+      const parsed: Reel[] = JSON.parse(raw);
+      if (parsed.some(r => ghostNos.has((r.reelNo || '').trim()))) {
+        const cleaned = parsed.filter(r => !ghostNos.has((r.reelNo || '').trim()));
+        localStorage.setItem(KEYS.REELS, JSON.stringify(cleaned));
+      }
+    }
+    const rawDel = localStorage.getItem(KEYS.DELETED_REELS);
+    const delList: string[] = rawDel ? JSON.parse(rawDel) : [];
+    let delChanged = false;
+    ghostNos.forEach(g => {
+      if (!delList.some(d => d.toLowerCase() === g.toLowerCase())) {
+        delList.push(g);
+        delChanged = true;
+      }
+    });
+    if (delChanged) {
+      localStorage.setItem(KEYS.DELETED_REELS, JSON.stringify(delList));
+    }
+  } catch (_) {}
 
   if (!localStorage.getItem(KEYS.LAB_REPORTS)) {
     const sample = createDefaultLabReport();
@@ -1866,21 +1892,33 @@ export function seedLocalhostTestReels(): Reel[] {
 
 // --- REWINDER ---
 export function getReels(): Reel[] {
-  const CANONICAL_REELS_VERSION_KEY = 'saheb_canonical_sync_v8_napkin_37_32';
-  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-    if (localStorage.getItem(CANONICAL_REELS_VERSION_KEY) !== 'true') {
-      localStorage.setItem(KEYS.REELS, JSON.stringify(DEFAULT_REELS));
-      localStorage.setItem(CANONICAL_REELS_VERSION_KEY, 'true');
-      pushUpsertToCloud('reels', DEFAULT_REELS.map(reelToDb));
-      return [...DEFAULT_REELS];
-    }
-  }
-
-  let existing = getJSON<Reel[]>(KEYS.REELS, []);
-  if (!existing || existing.length === 0) {
-    existing = [...DEFAULT_REELS];
+  let existing = getJSON<Reel[] | null>(KEYS.REELS, null);
+  if (existing === null || existing === undefined) {
+    existing = isSupabaseConfigured ? [] : [...DEFAULT_REELS];
     setJSON(KEYS.REELS, existing, false);
     return existing;
+  }
+
+  // Purge any ghost reels and deleted reels from memory and local storage
+  const ghostReels = new Set(['26110026', '26110027', '26110029']);
+  const deletedList = getJSON<string[]>(KEYS.DELETED_REELS, []);
+  const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+
+  let deletedListUpdated = false;
+  ghostReels.forEach(g => {
+    if (!deletedSet.has(g.toLowerCase())) {
+      deletedSet.add(g.toLowerCase());
+      deletedList.push(g);
+      deletedListUpdated = true;
+    }
+  });
+  if (deletedListUpdated) {
+    setJSON(KEYS.DELETED_REELS, deletedList, false);
+  }
+
+  if (existing && existing.length > 0 && existing.some(r => deletedSet.has((r.reelNo || '').trim().toLowerCase()))) {
+    existing = existing.filter(r => !deletedSet.has((r.reelNo || '').trim().toLowerCase()));
+    setJSON(KEYS.REELS, existing, false);
   }
 
 
@@ -1935,14 +1973,14 @@ export function getReels(): Reel[] {
     }
 
     if (fixedReel.status === 'QC_PENDING' || !fixedReel.qcGrade || fixedReel.qcGrade === 'PENDING') {
-      const targetGrade: 'A' | 'B' = idx % 6 === 0 ? 'B' : 'A';
+      const targetGrade: 'A' | 'B' = fixedReel.qcGrade === 'B' ? 'B' : 'A';
       return {
         ...fixedReel,
         status: (targetGrade === 'A' ? 'IN_STOCK' : 'IN_STOCK_B') as Reel['status'],
         qcGrade: targetGrade,
-        qcGsmResult: fixedReel.gsm ? Number((fixedReel.gsm + (idx % 2 === 0 ? 0.1 : -0.1)).toFixed(1)) : 18,
-        qcBrightness: 84 + (idx % 5),
-        qcSoftness: targetGrade === 'A' ? 7 + (idx % 3) : 5,
+        qcGsmResult: fixedReel.gsm ? Number(fixedReel.gsm.toFixed(1)) : 18,
+        qcBrightness: 85,
+        qcSoftness: targetGrade === 'A' ? 7 : 5,
         qcInspector: fixedReel.qcInspector || 'Rajesh Sharma (QC Specialist)',
         qcTimestamp: fixedReel.qcTimestamp || '2026-09-14 12:00',
       };
@@ -1975,7 +2013,6 @@ export function getReels(): Reel[] {
 
   if (hasDuplicates) {
     setJSON(KEYS.REELS, cleaned, false);
-    pushUpsertToCloud('reels', cleaned.filter(r => !(r as any).isLocalhostTest).map(reelToDb));
   }
 
   return cleaned;
@@ -2008,6 +2045,7 @@ export function saveReelsFromRoll(
   }
 
   // 2. Save new reels with strictly guaranteed unique reel numbers
+  const newlyCreatedReels: Reel[] = [];
   reels.forEach(newReel => {
     let finalReelNo = newReel.reelNo ? newReel.reelNo.trim() : '';
     if (!finalReelNo || existingSet.has(finalReelNo)) {
@@ -2016,14 +2054,17 @@ export function saveReelsFromRoll(
     }
     existingSet.add(finalReelNo);
 
-    if (!newReel.status) {
-      newReel.status = 'QC_PENDING';
-      newReel.qcGrade = 'PENDING';
+    if (!newReel.status || newReel.status === 'QC_PENDING') {
+      newReel.status = newReel.qcGrade === 'B' ? 'IN_STOCK_B' : 'IN_STOCK';
+      newReel.qcGrade = newReel.qcGrade === 'B' ? 'B' : 'A';
     }
-    currentReels.push({ ...newReel, reelNo: finalReelNo });
+    const createdReel = { ...newReel, reelNo: finalReelNo };
+    currentReels.push(createdReel);
+    newlyCreatedReels.push(createdReel);
   });
 
-  pushUpsertToCloud('reels', currentReels.map(reelToDb));
+  setJSON(KEYS.REELS, currentReels);
+  pushUpsertToCloud('reels', newlyCreatedReels.map(reelToDb));
   markRollAsConsumed(rollNo);
   addLog(
     'Rewinder',
@@ -2062,9 +2103,9 @@ export function saveSingleReel(
     finalReelNo = String(maxNumeric + 1);
   }
 
-  if (!reel.status) {
-    reel.status = 'QC_PENDING';
-    reel.qcGrade = 'PENDING';
+  if (!reel.status || reel.status === 'QC_PENDING') {
+    reel.status = reel.qcGrade === 'B' ? 'IN_STOCK_B' : 'IN_STOCK';
+    reel.qcGrade = reel.qcGrade === 'B' ? 'B' : 'A';
   }
 
   const newReelObj = { ...reel, reelNo: finalReelNo };
@@ -2210,9 +2251,16 @@ export function updateBatchReels(
       }
     }
 
-    // Delete removed/renamed reel numbers from Supabase cloud
+    // Delete removed/renamed reel numbers from Supabase cloud and update deleted list
     if (deletedNos.length > 0) {
       pushDeleteToCloud('reels', 'reel_no', deletedNos);
+      const deletedList = getJSON<string[]>(KEYS.DELETED_REELS, []);
+      deletedNos.forEach(n => {
+        if (!deletedList.some(d => d.toLowerCase() === n.toLowerCase())) {
+          deletedList.push(n);
+        }
+      });
+      setJSON(KEYS.DELETED_REELS, deletedList, false);
     }
 
     // 2. Broke stock adjustment in Raw Materials (Rule 6: Broke = Parent Roll Weight - Sum of Cut Reels)
@@ -2308,6 +2356,16 @@ export function scanMissingReels(): MissingReelInfo[] {
 
   // 1. Scan transaction logs
   const logs = getLogs();
+
+  // First pass: Collect all explicitly deleted reels from audit logs so they are never flagged as missing
+  for (const log of logs) {
+    if (!log.details) continue;
+    const delMatch = log.details.match(/Deleted Reel\s*#?([A-Za-z0-9\-_]+)/i);
+    if (delMatch) {
+      deletedReelNos.add(delMatch[1].trim().toLowerCase());
+    }
+  }
+
   for (const log of logs) {
     if (!log.details) continue;
 
@@ -3069,7 +3127,9 @@ export function savePackingSlip(slip: PackingSlip, user: string): PackingSlip {
 
   if (reelsChanged) {
     setJSON(KEYS.REELS, reels);
-    pushUpsertToCloud('reels', reels.map(reelToDb));
+    const slipReelSet = new Set((slip.reelNos || []).map(r => (r || '').trim().toUpperCase()));
+    const affectedReels = reels.filter(r => slipReelSet.has((r.reelNo || '').trim().toUpperCase()));
+    pushUpsertToCloud('reels', affectedReels.map(reelToDb));
   }
 
   setJSON(KEYS.PACKING_SLIPS, slips);
@@ -3110,7 +3170,9 @@ export function deletePackingSlip(slipId: string, user: string): boolean {
     });
     if (reelsChanged) {
       setJSON(KEYS.REELS, reels);
-      pushUpsertToCloud('reels', reels.map(reelToDb));
+      const slipReelSet = new Set((slip.reelNos || []).map(r => (r || '').trim().toUpperCase()));
+      const affectedReels = reels.filter(r => slipReelSet.has((r.reelNo || '').trim().toUpperCase()));
+      pushUpsertToCloud('reels', affectedReels.map(reelToDb));
     }
   }
 
@@ -3153,7 +3215,10 @@ export function clearAllPackingSlips(user: string = 'Admin'): void {
 
   if (reelsChanged) {
     setJSON(KEYS.REELS, reels);
-    pushUpsertToCloud('reels', reels.map(reelToDb));
+    const allAffectedNos = new Set<string>();
+    slips.forEach(s => (s.reelNos || []).forEach(no => allAffectedNos.add((no || '').trim().toUpperCase())));
+    const affectedReels = reels.filter(r => allAffectedNos.has((r.reelNo || '').trim().toUpperCase()));
+    pushUpsertToCloud('reels', affectedReels.map(reelToDb));
   }
 
   setJSON(KEYS.PACKING_SLIPS, []);
@@ -3240,7 +3305,9 @@ export function confirmDispatch(slipId: string, user: string): void {
 
   if (reelsChanged) {
     setJSON(KEYS.REELS, reels);
-    pushUpsertToCloud('reels', reels.map(reelToDb));
+    const slipReelSet = new Set((slip.reelNos || []).map(r => (r || '').trim().toUpperCase()));
+    const affectedReels = reels.filter(r => slipReelSet.has((r.reelNo || '').trim().toUpperCase()));
+    pushUpsertToCloud('reels', affectedReels.map(reelToDb));
   }
 
   setJSON(KEYS.PACKING_SLIPS, slips);

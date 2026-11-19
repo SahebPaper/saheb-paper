@@ -45,6 +45,7 @@ const KEYS = {
   LAB_REPORTS: 'saheb_lab_reports',
   CUSTOM_ROLES: 'saheb_custom_roles',
   DELETED_ROLES: 'saheb_deleted_roles',
+  DELETED_REELS: 'saheb_deleted_reels',
 };
 
 const getLocal = <T>(key: string, def: T): T => {
@@ -769,10 +770,28 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
           break;
         }
         case 'reels': {
-          const cloud = data.map(reelFromDb);
+          const cloud: Reel[] = data.map(reelFromDb);
+          const ghostReels = new Set(['26110026', '26110027', '26110029']);
+          const deletedList = getLocal<string[]>(KEYS.DELETED_REELS, []);
+          const deletedNos = new Set([...deletedList.map(d => (d || '').trim().toLowerCase()), ...ghostReels]);
+          const logs = getLocal<TransactionLog[]>(KEYS.LOGS, []);
+          logs.forEach(l => {
+            if (l.details) {
+              const m = l.details.match(/Deleted Reel\s*#?([A-Za-z0-9\-_]+)/i);
+              if (m) deletedNos.add(m[1].trim().toLowerCase());
+            }
+          });
+          const filteredCloud = cloud.filter((r: Reel) => {
+            const rNo = (r.reelNo || '').trim().toLowerCase();
+            if (deletedNos.has(rNo)) {
+              pushDeleteToCloud('reels', 'reel_no', r.reelNo);
+              return false;
+            }
+            return true;
+          });
           const local = getLocal<Reel[]>(KEYS.REELS, []);
           const localTests = local.filter((r: any) => (r as any).isLocalhostTest);
-          setLocal(KEYS.REELS, [...cloud, ...localTests]);
+          setLocal(KEYS.REELS, [...filteredCloud, ...localTests]);
           notifyChange(tableName);
           break;
         }
@@ -781,6 +800,26 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
           const local = getLocal<TransactionLog[]>(KEYS.LOGS, []);
           const merged = mergeByUniqueKey(local, cloud, l => l.id);
           setLocal(KEYS.LOGS, merged.slice(0, 500));
+          // Extract deleted reels into DELETED_REELS
+          const deletedList = getLocal<string[]>(KEYS.DELETED_REELS, []);
+          const deletedSet = new Set(deletedList.map(d => (d || '').trim().toLowerCase()));
+          let addedDeleted = false;
+          merged.forEach(l => {
+            if (l.details) {
+              const m = l.details.match(/Deleted Reel\s*#?([A-Za-z0-9\-_]+)/i);
+              if (m) {
+                const rNo = m[1].trim();
+                if (!deletedSet.has(rNo.toLowerCase())) {
+                  deletedSet.add(rNo.toLowerCase());
+                  deletedList.push(rNo);
+                  addedDeleted = true;
+                }
+              }
+            }
+          });
+          if (addedDeleted) {
+            setLocal(KEYS.DELETED_REELS, deletedList);
+          }
           notifyChange(tableName);
           break;
         }

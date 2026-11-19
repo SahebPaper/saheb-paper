@@ -1,19 +1,19 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// ── 1. MAIN PRODUCTION DATABASE (Live Factory Data for Cloudflare / GitHub / APK / EXE) ──
+// ── 1. MAIN PRODUCTION DATABASE (Live Factory Data for GitHub Pages / Cloudflare / APK / EXE) ──
 export const PROD_SUPABASE_CONFIG = {
-  url: 'https://znyvmlwggwckjxxsxiwq.supabase.co',
+  url: 'https://scyiwfqkknuphzhvklok.supabase.co',
   anonKey:
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpueXZtbHdnZ3dja2p4eHN4aXdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0OTE0NjUsImV4cCI6MjEwNTA2NzQ2NX0._NNVeLFW1OvXnTGYZbCcEmd4eYSF2J8g5Zxi6T4kdqY',
-  name: 'Main Factory Database (Production)',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjeWl3ZnFra251cGh6aHZrbG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2OTI1NjgsImV4cCI6MjEwNDI2ODU2OH0.uSIcsebYEW2uIgn_E6__Y2jg9te2NSHLMl3liZp3qmw',
+  name: 'Main Factory Database (Live Production)',
   target: 'prod' as const,
 };
 
 // ── 2. DEMO / TEST DATABASE (Isolated Sandbox for Localhost Testing) ──
 export const DEMO_SUPABASE_CONFIG = {
-  url: 'https://scyiwfqkknuphzhvklok.supabase.co',
+  url: 'https://znyvmlwggwckjxxsxiwq.supabase.co',
   anonKey:
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjeWl3ZnFra251cGh6aHZrbG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2OTI1NjgsImV4cCI6MjEwNDI2ODU2OH0.uSIcsebYEW2uIgn_E6__Y2jg9te2NSHLMl3liZp3qmw',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpueXZtbHdnZ3dja2p4eHN4aXdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0OTE0NjUsImV4cCI6MjEwNTA2NzQ2NX0._NNVeLFW1OvXnTGYZbCcEmd4eYSF2J8g5Zxi6T4kdqY',
   name: 'Demo Sandbox Database (Testing)',
   target: 'demo' as const,
 };
@@ -60,10 +60,10 @@ export function getActiveDatabaseConfig(): SupabaseDatabaseConfig {
   // Auto-detect based on host / build environment:
   const isLocalDev = Boolean(
     import.meta.env?.DEV ||
-      (typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' ||
-          window.location.hostname === '127.0.0.1' ||
-          window.location.hostname.startsWith('192.168.')))
+    (typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.startsWith('192.168.')))
   );
 
   return isLocalDev ? DEMO_SUPABASE_CONFIG : PROD_SUPABASE_CONFIG;
@@ -115,12 +115,12 @@ export const ERP_SECRET_HEADER_VAL = 'Saheb-ERP-SecKey-8000563666-2025';
 // Safely initialize Supabase client only when valid credentials exist.
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          [ERP_SECRET_HEADER_KEY]: ERP_SECRET_HEADER_VAL,
-        },
+    global: {
+      headers: {
+        [ERP_SECRET_HEADER_KEY]: ERP_SECRET_HEADER_VAL,
       },
-    })
+    },
+  })
   : null;
 
 // Inform developer in console

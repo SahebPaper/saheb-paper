@@ -3126,9 +3126,12 @@ export const RewinderView: React.FC = () => {
                         </label>
                         <input
                           type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           required
                           value={row.reelNo}
-                          onChange={e => handleUpdateManualReelRow(row.id, 'reelNo', e.target.value)}
+                          onFocus={e => e.target.select()}
+                          onChange={e => handleUpdateManualReelRow(row.id, 'reelNo', e.target.value.replace(/\D/g, ''))}
                           className="w-full p-2 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-[#4B32C3] dark:text-purple-300 rounded-xl text-xs font-black font-mono focus:ring-2 focus:ring-[#4B32C3] focus:outline-none"
                           placeholder="Reel No"
                         />
@@ -3555,11 +3558,14 @@ export const RewinderView: React.FC = () => {
                         </span>
                         <input
                           type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           required
                           value={item.reelNo}
                           placeholder="Reel No"
+                          onFocus={e => e.target.select()}
                           onChange={e => {
-                            const val = e.target.value;
+                            const val = e.target.value.replace(/\D/g, '');
                             setCutReels(prev => {
                               const updated = [...prev];
                               updated[idx] = { ...updated[idx], reelNo: val };
@@ -3763,8 +3769,14 @@ export const RewinderView: React.FC = () => {
                   </label>
                   <input
                     type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={editingSingleReel.reelNo}
-                    onChange={(e) => setEditingSingleReel(prev => prev ? { ...prev, reelNo: e.target.value } : null)}
+                    onFocus={e => e.target.select()}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '');
+                      setEditingSingleReel(prev => prev ? { ...prev, reelNo: val } : null);
+                    }}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-bold text-xs focus:ring-2 focus:ring-primary outline-hidden"
                     required
                   />
@@ -4183,10 +4195,13 @@ export const RewinderView: React.FC = () => {
                           <div className="relative flex-1 min-w-0">
                             <input
                               type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
                               value={item.reelNo}
                               placeholder="Reel No"
+                              onFocus={e => e.target.select()}
                               onChange={e => {
-                                const val = e.target.value;
+                                const val = e.target.value.replace(/\D/g, '');
                                 setEditingBatch(prev => {
                                   if (!prev) return null;
                                   const updated = [...prev.cutReels];

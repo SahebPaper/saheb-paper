@@ -1011,8 +1011,11 @@ export const QRScannerViewInner: React.FC<QRScannerViewProps> = ({ onOpenPrintSt
                       <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Reel No</label>
                       <input
                         type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         value={editForm.reelNo}
-                        onChange={e => setEditForm({ ...editForm, reelNo: e.target.value })}
+                        onFocus={e => e.target.select()}
+                        onChange={e => setEditForm({ ...editForm, reelNo: e.target.value.replace(/\D/g, '') })}
                         className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold font-mono"
                       />
                     </div>

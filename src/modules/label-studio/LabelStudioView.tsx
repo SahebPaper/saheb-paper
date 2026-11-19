@@ -1245,9 +1245,12 @@ export const LabelStudioView: React.FC = () => {
                   </label>
                   <input
                     type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     required
                     value={manualForm.reelNo}
-                    onChange={e => setManualForm({ ...manualForm, reelNo: e.target.value })}
+                    onFocus={e => e.target.select()}
+                    onChange={e => setManualForm({ ...manualForm, reelNo: e.target.value.replace(/\D/g, '') })}
                     placeholder="e.g. 26100099"
                     className="w-full p-2.5 bg-slate-50 dark:bg-[#0f2828] border border-slate-200 dark:border-[#2c4a4a] rounded-xl text-xs font-mono font-bold dark:text-white"
                   />

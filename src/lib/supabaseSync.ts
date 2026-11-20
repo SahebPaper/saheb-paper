@@ -923,7 +923,7 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
           logs.forEach(l => {
             if (l.details) {
               const m = l.details.match(/Delivery Challan #([A-Za-z0-9\-_]+)/i) || l.details.match(/Challan #?([A-Za-z0-9\-_]+)/i);
-              if (m && (l.action === 'Challan Deleted' || l.action === 'Delete Challan' || l.action.includes('Deleted'))) {
+              if (m && (l.action === 'Challan Deleted' || l.action === 'Delete Challan' || (l.action && l.action.includes('Deleted')) || ((l as any).title && (l as any).title.includes('Deleted')))) {
                 const cNo = m[1].trim().toUpperCase();
                 if (!deletedSet.has(cNo)) {
                   deletedSet.add(cNo);

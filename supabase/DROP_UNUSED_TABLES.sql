@@ -10,12 +10,13 @@
 --   6. Spares Store (store_items)
 --
 -- Retained Tables (100% Intact & Active):
---   - machine_rolls & reels (Rewinder Roll-to-Reel & Stock Categorization)
+--   - reels (Rewinder Production & Stock Categorization)
 --   - packing_slips (Dispatch Receipt)
 --   - products, parties, vendors, vehicles (Admin Masters & Label Studio)
 --   - users & transaction_logs (Access & Audit Trail)
 -- ==============================================================================
 
+DROP TABLE IF EXISTS public.machine_rolls CASCADE;
 DROP TABLE IF EXISTS public.raw_materials CASCADE;
 DROP TABLE IF EXISTS public.raw_material_lots CASCADE;
 DROP TABLE IF EXISTS public.pulp_formulas CASCADE;

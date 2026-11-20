@@ -1855,7 +1855,6 @@ export function saveRoll(roll: MachineRoll, user: string): MachineRoll {
     rolls.push(roll);
   }
   setJSON(KEYS.ROLLS, rolls);
-  pushUpsertToCloud('machine_rolls', machineRollToDb(roll));
   notifyDataUpdated('machine_rolls');
 
   addLog(
@@ -1884,9 +1883,6 @@ export function markRollAsConsumed(rollNo: string): void {
   });
   if (modified) {
     setJSON(KEYS.ROLLS, updated);
-    if (updatedRoll) {
-      pushUpsertToCloud('machine_rolls', machineRollToDb(updatedRoll));
-    }
     notifyDataUpdated('machine_rolls');
   }
 }
@@ -1949,7 +1945,6 @@ export function updateMachineRoll(
 
   rolls[rollIdx] = updated;
   setJSON(KEYS.ROLLS, rolls);
-  pushUpsertToCloud('machine_rolls', machineRollToDb(updated));
   notifyDataUpdated('machine_rolls');
 
   addLog(
@@ -1984,7 +1979,6 @@ export function updateMachineRollSpecs(
 
   rolls[rollIdx] = updated;
   setJSON(KEYS.ROLLS, rolls);
-  pushUpsertToCloud('machine_rolls', machineRollToDb(updated));
   notifyDataUpdated('machine_rolls');
   return true;
 }
@@ -2030,7 +2024,6 @@ export function deleteMachineRoll(rollNo: string, user: string = 'Operator'): bo
 
   rolls.splice(rollIdx, 1);
   setJSON(KEYS.ROLLS, rolls);
-  pushDeleteToCloud('machine_rolls', 'roll_no', current.rollNo);
   notifyDataUpdated('machine_rolls');
 
   addLog(

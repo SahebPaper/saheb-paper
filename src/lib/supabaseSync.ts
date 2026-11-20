@@ -84,7 +84,6 @@ const TABLE_ALIASES: Record<string, string[]> = {
   vendors: ['vendors', 'saheb_vendors'],
   vehicles: ['vehicles', 'saheb_vehicles'],
   pulp_formulas: ['pulp_formulas', 'pulp_mill_operations', 'formulas', 'saheb_formulas'],
-  machine_rolls: ['machine_rolls', 'machine_production', 'rolls', 'saheb_rolls'],
   reels: ['reels', 'rewinder_production', 'finished_stock', 'saheb_reels'],
   transaction_logs: ['transaction_logs', 'logs', 'saheb_logs'],
   boiler_logs: ['boiler_logs', 'boiler_operations', 'boiler', 'saheb_boiler_logs'],
@@ -811,12 +810,6 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
           notifyChange(tableName);
           break;
         }
-        case 'machine_rolls': {
-          const cloud = data.map(machineRollFromDb);
-          setLocal(KEYS.ROLLS, cloud);
-          notifyChange(tableName);
-          break;
-        }
         case 'reels': {
           const cloud: Reel[] = data.map(reelFromDb);
           const ghostReels = new Set(['26110026', '26110027', '26110029', ...Array.from(CANONICAL_DEMO_REEL_NOS || [])]);
@@ -1029,10 +1022,6 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             setLocal(KEYS.VEHICLES, []);
             notifyChange(tableName);
             break;
-          case 'machine_rolls':
-            setLocal(KEYS.ROLLS, []);
-            notifyChange(tableName);
-            break;
           case 'reels': {
             const local = getLocal<Reel[]>(KEYS.REELS, []);
             const valid = local.filter(r => r && r.reelNo && (!r.productionDate || r.productionDate >= '2026-11-19'));
@@ -1138,8 +1127,7 @@ export function pushUpsertToCloud(tableName: string, recordOrArray: any): Promis
         if (records.length === 0) return resolve();
 
         let onConflict: string | undefined;
-        if (canonical === 'machine_rolls') onConflict = 'roll_no';
-        else if (canonical === 'reels') onConflict = 'reel_no';
+        if (canonical === 'reels') onConflict = 'reel_no';
         else if (canonical === 'users') onConflict = 'username';
         else if (canonical === 'raw_material_lots') onConflict = 'lot_no';
         else if (canonical === 'custom_roles') onConflict = 'key';
@@ -1261,8 +1249,6 @@ const TABLE_PK_MAP: Record<string, string> = {
   deleted_store_items: 'id',
   raw_material_lots: 'lot_no',
   saheb_raw_material_lots: 'lot_no',
-  machine_rolls: 'roll_no',
-  saheb_rolls: 'roll_no',
   reels: 'reel_no',
   saheb_reels: 'reel_no',
 };

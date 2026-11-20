@@ -1240,36 +1240,8 @@ export const RewinderView: React.FC = () => {
       return;
     }
 
-    if (!reelForm.runningRollNo.trim()) {
-      setModalError('Please enter a Running Roll No');
-      setToast({
-        type: 'warning',
-        title: 'Input Required',
-        message: 'Please enter a running roll to cut into reels.',
-      });
-      return;
-    }
-
     const plyVal = parseInt(reelForm.ply) || 1;
-    if (plyVal === 2) {
-      if (!reelForm.runningRollNo2.trim()) {
-        setModalError('Please select Running Roll No 2');
-        return;
-      }
-      if (reelForm.runningRollNo.trim().toLowerCase() === reelForm.runningRollNo2.trim().toLowerCase()) {
-        setModalError('Running Roll 1 and Running Roll 2 cannot be the same roll!');
-        setToast({
-          type: 'warning',
-          title: 'Duplicate Rolls',
-          message: 'Running Roll 1 and Running Roll 2 cannot be the same roll.',
-        });
-        return;
-      }
-    }
-    let parentRollStr = reelForm.runningRollNo.trim();
-    if (plyVal === 2 && reelForm.runningRollNo2.trim()) {
-      parentRollStr = `${reelForm.runningRollNo.trim()} / ${reelForm.runningRollNo2.trim()}`;
-    }
+    const parentRollStr = (reelForm.runningRollNo || '').trim() || 'MANUAL';
 
     if (!cutReels || cutReels.length === 0) {
       setModalError('Please configure at least 1 cut reel.');
@@ -1751,7 +1723,7 @@ export const RewinderView: React.FC = () => {
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search Reel No, Running Roll, GSM, Decal..."
+                placeholder="Search Reel No, Product, GSM, Size..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 sm:py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#5E3BE8] shadow-2xs"
@@ -1950,7 +1922,7 @@ export const RewinderView: React.FC = () => {
           <div className="p-12 text-center text-slate-400 dark:text-slate-500">
             <RotateCw className="h-10 w-10 mx-auto opacity-30 mb-3" />
             <p className="font-bold text-sm">No rewound reels found matching the current filters.</p>
-            <p className="text-xs mt-1">Click &quot;+ Add Reel Entry&quot; above to log reels from available machine rolls.</p>
+            <p className="text-xs mt-1">Click &quot;+ Add Reel&quot; above to log new reels into stock.</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -2925,9 +2897,9 @@ export const RewinderView: React.FC = () => {
 
 
 
-              {/* Row 1: Ply (1st), Running Roll No (2nd - dynamic 1 or 2 boxes), Reels Cut (3rd - 1 to 20 Max) */}
+              {/* Row 1: Ply (1st) & Reels Cut Count (2nd) */}
               <div className="space-y-3">
-                <div className={`grid grid-cols-1 ${reelForm.ply === '1' ? 'sm:grid-cols-3' : 'sm:grid-cols-4'} gap-3 items-start`}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
                   {/* 1st: Ply */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -2936,18 +2908,6 @@ export const RewinderView: React.FC = () => {
                     <CustomSearchableSelect
                       value={reelForm.ply}
                       onChange={newPly => {
-                        let newWeight = reelForm.weightKg;
-                        let newRoll2 = reelForm.runningRollNo2;
-                        if (newPly === '2') {
-                          const r1 = availableRolls.find(r => r.rollNo === reelForm.runningRollNo);
-                          const r2 = availableRolls.find(r => r.rollNo === reelForm.runningRollNo2);
-                          newRoll2 = r2 ? r2.rollNo : '';
-                          const combWeight = (r1?.weight || 0) + (r2?.weight || 0);
-                          if (combWeight > 0) newWeight = String(combWeight);
-                        } else if (newPly === '1') {
-                          const r1 = availableRolls.find(r => r.rollNo === reelForm.runningRollNo);
-                          if (r1) newWeight = String(r1.weight);
-                        }
                         const maxAllowedCut = newPly === '1' ? 17 : 20;
                         if (reelsCutCount > maxAllowedCut) {
                           setReelsCutCount(maxAllowedCut);
@@ -2972,7 +2932,7 @@ export const RewinderView: React.FC = () => {
                           }
                           setCutReels(items);
                         }
-                        setReelForm({ ...reelForm, ply: newPly, runningRollNo2: newRoll2, weightKg: newWeight });
+                        setReelForm({ ...reelForm, ply: newPly });
                       }}
                       options={[
                         { value: '1', label: '1 Ply' },
@@ -2982,53 +2942,7 @@ export const RewinderView: React.FC = () => {
                     />
                   </div>
 
-                  {/* 2nd: Running Roll No (Manual Text Input) */}
-                  {reelForm.ply === '1' ? (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Running Roll No
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={reelForm.runningRollNo}
-                        onChange={e => setReelForm(prev => ({ ...prev, runningRollNo: e.target.value }))}
-                        placeholder="e.g. R-20261028-0001"
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
-                      />
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Running Roll No 1
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={reelForm.runningRollNo}
-                          onChange={e => setReelForm(prev => ({ ...prev, runningRollNo: e.target.value }))}
-                          placeholder="e.g. R-20261028-0001"
-                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Running Roll No 2
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={reelForm.runningRollNo2}
-                          onChange={e => setReelForm(prev => ({ ...prev, runningRollNo2: e.target.value }))}
-                          placeholder="e.g. R-20261028-0002"
-                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-primary focus:outline-none"
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {/* 3rd: Reels Cut (1 to 17 Max for 1 Ply, 1 to 20 Max for 2 Ply) */}
+                  {/* 2nd: Reels Cut (1 to 17 Max for 1 Ply, 1 to 20 Max for 2 Ply) */}
                   {(() => {
                     const maxAllowedCut = reelForm.ply === '1' ? 17 : 20;
                     return (
@@ -3380,7 +3294,7 @@ export const RewinderView: React.FC = () => {
                     Edit Reel #{editingSingleReel.originalReelNo}
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Roll #{editingSingleReel.parentRollNo} &bull; Safe single-reel edit
+                    Safe single-reel edit
                   </p>
                 </div>
               </div>
@@ -3576,14 +3490,11 @@ export const RewinderView: React.FC = () => {
                       <span>
                         {editingBatch.focusReelNo
                           ? `Edit Reels • Reel #${editingBatch.focusReelNo}`
-                          : `Edit Reels • Roll #${editingBatch.parentRollNo}`}
-                      </span>
-                      <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-primary dark:text-blue-400 border border-blue-500/20 shrink-0">
-                        Roll #{editingBatch.parentRollNo}
+                          : `Edit Reels • ${cleanProductName(editingBatch.product)}`}
                       </span>
                     </h3>
                     <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                      {editingBatch.cutReels.length} Reel(s) &bull; Broke automatically updates Raw Material Stock (Rule 6)
+                      {editingBatch.cutReels.length} Reel(s)
                     </p>
                   </div>
                 </div>
@@ -3605,9 +3516,9 @@ export const RewinderView: React.FC = () => {
                 </div>
               )}
 
-              {/* Row 1: Ply, Reels Cut, Running Roll No (2-col compact on mobile, 3-col on desktop) */}
+              {/* Row 1: Ply & Reels Cut (Clean 2-col row) */}
               <div className="space-y-2.5 sm:space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 items-start">
+                <div className="grid grid-cols-2 gap-2.5 sm:gap-3 items-start">
                   {/* 1st: Ply */}
                   <div>
                     <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -3626,7 +3537,7 @@ export const RewinderView: React.FC = () => {
                     />
                   </div>
 
-                  {/* 2nd: Reels Cut (Positioned beside Ply on mobile for a neat 2-col row!) */}
+                  {/* 2nd: Reels Cut */}
                   <div>
                     <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 truncate">
                       Reels Cut <span className="text-[10px] text-slate-400 font-normal">({editingBatch.ply === '1' ? '1-17' : '1-20'})</span>
@@ -3639,19 +3550,6 @@ export const RewinderView: React.FC = () => {
                         label: `${i + 1} Reel${i > 0 ? 's' : ''}`,
                       }))}
                       hideSearch
-                    />
-                  </div>
-
-                  {/* 3rd: Running Roll No (Spans 2 cols on mobile, 1 col on desktop) */}
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="block text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Running Roll No
-                    </label>
-                    <input
-                      type="text"
-                      readOnly
-                      value={editingBatch.parentRollNo}
-                      className="w-full p-2 sm:p-2.5 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold font-mono cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -4132,7 +4030,7 @@ export const RewinderView: React.FC = () => {
                         {reel.product}
                       </div>
                       <div className="text-[7.5px] font-bold text-slate-500">
-                        Roll #{reel.parentRollNo} &bull; Rewinder #2 &bull; Shift A
+                        Rewinder #2 &bull; Shift A
                       </div>
                     </div>
                   </div>

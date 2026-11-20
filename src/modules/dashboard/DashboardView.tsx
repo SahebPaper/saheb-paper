@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { useDateFilter } from '../../context/DateFilterContext';
 import { useDataSync } from '../../hooks/useDataSync';
-import { syncAllTables } from '../../lib/supabaseSync';
+import { syncAllTables, syncLocalInventoryToCloud } from '../../lib/supabaseSync';
 
 // ─── CLEAN DASHBOARD ────────────────────────────────────────────────────
 
@@ -192,6 +192,7 @@ export const DashboardView: React.FC = () => {
     setIsRefreshing(true);
     try {
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+      await syncLocalInventoryToCloud();
       await syncAllTables(true);
       window.dispatchEvent(new CustomEvent('saheb_data_updated', { detail: { tables: ['all'], table: 'all' } }));
       window.dispatchEvent(new Event('storage'));

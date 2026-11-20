@@ -849,6 +849,20 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
           });
           const merged = mergeByUniqueKey(base, filteredCloud, r => (r.reelNo || '').trim().toUpperCase());
           setLocal(KEYS.REELS, merged);
+
+          // BIDIRECTIONAL SYNC: Push any valid local reels (productionDate >= 2026-11-19)
+          // that are present in local storage but missing in cloud, so that all devices stay synchronized!
+          const cloudNos = new Set(filteredCloud.map(c => (c.reelNo || '').trim().toUpperCase()));
+          const missingInCloud = base.filter(r => {
+            if (!r || !r.reelNo) return false;
+            const rNo = (r.reelNo || '').trim().toUpperCase();
+            return !cloudNos.has(rNo) && !deletedNos.has(rNo.toLowerCase()) && (!r.productionDate || r.productionDate >= '2026-11-19');
+          });
+          if (missingInCloud.length > 0) {
+            console.log(`[SupabaseSync] Auto-pushing ${missingInCloud.length} local reels to cloud:`, missingInCloud.map(r => r.reelNo));
+            pushUpsertToCloud('reels', missingInCloud.map(reelToDb));
+          }
+
           notifyChange(tableName);
           break;
         }
@@ -911,7 +925,21 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             const d = s.date || s.dispatchDate;
             return !d || d >= '2026-11-19';
           });
-          setLocal(KEYS.PACKING_SLIPS, cloud);
+          const local = getLocal<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
+          const merged = mergeByUniqueKey(local, cloud, s => (s.slipNo || s.id || '').trim().toUpperCase());
+          setLocal(KEYS.PACKING_SLIPS, merged);
+
+          // Push any local packing slips missing from cloud
+          const cloudSlipKeys = new Set(cloud.map((s: PackingSlip) => (s.slipNo || s.id || '').trim().toUpperCase()));
+          const missingSlips = local.filter((s: PackingSlip) => {
+            const sKey = (s.slipNo || s.id || '').trim().toUpperCase();
+            const d = s.date || s.dispatchDate;
+            return sKey && !cloudSlipKeys.has(sKey) && (!d || d >= '2026-11-19');
+          });
+          if (missingSlips.length > 0) {
+            pushUpsertToCloud('packing_slips', missingSlips.map(packingSlipToDb));
+          }
+
           notifyChange(tableName);
           break;
         }
@@ -1005,18 +1033,35 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             setLocal(KEYS.ROLLS, []);
             notifyChange(tableName);
             break;
-          case 'reels':
-            setLocal(KEYS.REELS, []);
+          case 'reels': {
+            const local = getLocal<Reel[]>(KEYS.REELS, []);
+            const valid = local.filter(r => r && r.reelNo && (!r.productionDate || r.productionDate >= '2026-11-19'));
+            if (valid.length > 0) {
+              pushUpsertToCloud('reels', valid.map(reelToDb));
+            } else {
+              setLocal(KEYS.REELS, []);
+            }
             notifyChange(tableName);
             break;
+          }
           case 'pulp_formulas':
             setLocal(KEYS.FORMULAS, []);
             notifyChange(tableName);
             break;
-          case 'packing_slips':
-            setLocal(KEYS.PACKING_SLIPS, []);
+          case 'packing_slips': {
+            const local = getLocal<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
+            const valid = local.filter(s => {
+              const d = s.date || s.dispatchDate;
+              return !d || d >= '2026-11-19';
+            });
+            if (valid.length > 0) {
+              pushUpsertToCloud('packing_slips', valid.map(packingSlipToDb));
+            } else {
+              setLocal(KEYS.PACKING_SLIPS, []);
+            }
             notifyChange(tableName);
             break;
+          }
           case 'transaction_logs':
             setLocal(KEYS.LOGS, []);
             notifyChange(tableName);
@@ -1251,6 +1296,30 @@ let lastFullSyncTime = 0;
 let isSyncingAll = false;
 const FULL_SYNC_THROTTLE_MS = 15000;
 
+export async function syncLocalInventoryToCloud(): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) return;
+  try {
+    const localReels = getLocal<Reel[]>(KEYS.REELS, []);
+    const validLocalReels = localReels.filter(r => {
+      if (!r || !r.reelNo) return false;
+      if (r.productionDate && r.productionDate < '2026-11-19') return false;
+      return true;
+    });
+
+    if (validLocalReels.length > 0) {
+      const { data: cloudReels } = await supabase.from('reels').select('reel_no');
+      const cloudNos = new Set((cloudReels || []).map((c: any) => (c.reel_no || '').trim().toUpperCase()));
+      const missing = validLocalReels.filter(r => !cloudNos.has((r.reelNo || '').trim().toUpperCase()));
+      if (missing.length > 0) {
+        console.log(`[SupabaseSync] Auto-uploading ${missing.length} missing local reels to cloud:`, missing.map(r => r.reelNo));
+        await pushUpsertToCloud('reels', missing.map(reelToDb));
+      }
+    }
+  } catch (err) {
+    console.warn('[SupabaseSync] syncLocalInventoryToCloud failed:', err);
+  }
+}
+
 export async function syncAllTables(force = false): Promise<void> {
   if (!isSupabaseConfigured || !supabase || isSyncingAll) return;
   const now = Date.now();
@@ -1259,6 +1328,9 @@ export async function syncAllTables(force = false): Promise<void> {
   }
   lastFullSyncTime = now;
   isSyncingAll = true;
+
+  // First sync any unsynced local inventory up to cloud
+  syncLocalInventoryToCloud().catch(() => {});
 
   const tables = [
     'users',

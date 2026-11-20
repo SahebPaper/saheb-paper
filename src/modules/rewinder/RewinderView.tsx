@@ -1969,10 +1969,7 @@ export const RewinderView: React.FC = () => {
                 {/* Batch Header Bar */}
                 <div className="px-4 py-3 bg-slate-50/80 dark:bg-slate-850 border-b border-slate-200/60 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-primary dark:text-blue-400 font-mono font-black text-xs border border-blue-200/60 dark:border-blue-800/60">
-                      Roll #{batch.parentRollNo}
-                    </span>
-                    <span className="font-extrabold text-xs text-slate-900 dark:text-white">
+                    <span className="font-extrabold text-sm text-slate-900 dark:text-white">
                       {cleanProductName(batch.product)}
                     </span>
                     <span className="text-[11px] text-slate-400 font-medium">
@@ -1995,14 +1992,8 @@ export const RewinderView: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-3 text-xs font-mono font-bold flex-wrap">
-                    <span className="text-slate-600 dark:text-slate-300">
-                      Roll: <strong>{batch.rollWeight > 0 ? `${batch.rollWeight.toLocaleString()} kg` : 'N/A'}</strong>
-                    </span>
                     <span className="text-emerald-600 dark:text-emerald-400">
-                      Net: <strong>{batch.totalWeight.toLocaleString()} kg</strong>
-                    </span>
-                    <span className="text-red-500">
-                      Broke: <strong>+{batch.totalBroke.toLocaleString()} kg</strong>
+                      Total Weight: <strong>{batch.totalWeight.toLocaleString()} kg</strong>
                     </span>
                   </div>
                 </div>
@@ -2013,7 +2004,6 @@ export const RewinderView: React.FC = () => {
                     <thead>
                       <tr className="text-slate-500 dark:text-slate-400 uppercase tracking-wider font-extrabold text-[10px] border-b border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900">
                         <th className="py-3 px-4">REEL NO</th>
-                        <th className="py-3 px-4">RUNNING ROLL</th>
                         <th className="py-3 px-4">PRODUCT &amp; GRADE</th>
                         <th className="py-3 px-4">GSM / SIZE / PLY</th>
                         <th className="py-3 px-4">JOINT</th>
@@ -2063,7 +2053,6 @@ export const RewinderView: React.FC = () => {
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 font-mono text-xs">{reel.parentRollNo}</td>
                                 <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white">
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                     <span>{cleanProductName(reel.product)}</span>
@@ -2144,7 +2133,6 @@ export const RewinderView: React.FC = () => {
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 font-mono text-xs">{reel.parentRollNo}</td>
                                 <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white">
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                     <span>{cleanProductName(reel.product)}</span>
@@ -2438,45 +2426,19 @@ export const RewinderView: React.FC = () => {
                   key={batch.batchId}
                   className="bg-white rounded-[18px] p-4 shadow-sm border border-slate-100 space-y-3"
                 >
-                  {/* Group Header (Product, GSM, Size, Ply shown ONLY ONCE) */}
+                  {/* Group Header */}
                   <div>
                     <div className="flex items-center justify-between">
-                      <span className="bg-[#EDE9FD] text-[#4B32C3] font-mono font-bold text-xs px-2.5 py-1 rounded-lg">
-                        Roll #{batch.parentRollNo}
-                      </span>
-                      <span className="text-xs font-medium text-[#4A5270]">
-                        {batch.reels.length} {batch.reels.length === 1 ? 'reel' : 'reels'}
-                      </span>
-                    </div>
-
-                    <h2 className="text-[20px] font-extrabold text-[#1B1F3B] leading-snug mt-1.5">
-                      {cleanProductName(batch.product)}
-                    </h2>
-                    <p className="text-xs font-medium text-[#4A5270] mt-0.5">
-                      {batchGsm ? `${batchGsm} GSM \u00B7 ` : ''}{batchSize ? `${batchSize} cm \u00B7 ` : ''}{batchPly ? `${batchPly} Ply` : '1 Ply'}
-                    </p>
-                  </div>
-
-                  {/* 3-Column Stats Row: Roll, Net (green), Broke (red) */}
-                  <div className="bg-[#F3F4FA] rounded-[12px] p-2.5 grid grid-cols-3 text-center divide-x divide-slate-200/60">
-                    <div className="px-1">
-                      <div className="text-[11px] font-medium text-[#4A5270]">Roll</div>
-                      <div className="text-xs font-extrabold text-[#1B1F3B] mt-0.5">
-                        {batch.rollWeight > 0 ? `${batch.rollWeight.toLocaleString()} kg` : 'N/A'}
-                      </div>
-                    </div>
-                    <div className="px-1">
-                      <div className="text-[11px] font-medium text-[#4A5270]">Net</div>
-                      <div className="text-xs font-extrabold text-[#0B6B3A] mt-0.5">
+                      <h2 className="text-[20px] font-extrabold text-[#1B1F3B] leading-snug">
+                        {cleanProductName(batch.product)}
+                      </h2>
+                      <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg">
                         {batch.totalWeight.toLocaleString()} kg
-                      </div>
+                      </span>
                     </div>
-                    <div className="px-1">
-                      <div className="text-[11px] font-medium text-[#4A5270]">Broke</div>
-                      <div className="text-xs font-extrabold text-[#B3261E] mt-0.5">
-                        +{batch.totalBroke.toLocaleString()} kg
-                      </div>
-                    </div>
+                    <p className="text-xs font-medium text-[#4A5270] mt-1">
+                      {batchGsm ? `${batchGsm} GSM \u00B7 ` : ''}{batchSize ? `${batchSize} cm \u00B7 ` : ''}{batchPly ? `${batchPly} Ply` : '1 Ply'} &bull; {batch.reels.length} {batch.reels.length === 1 ? 'reel' : 'reels'}
+                    </p>
                   </div>
 
                   {/* GRADE A SECTION */}

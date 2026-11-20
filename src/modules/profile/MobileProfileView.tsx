@@ -12,6 +12,7 @@ import {
   HelpCircle,
   LogOut,
   ChevronRight,
+  ChevronLeft,
   ShieldCheck,
   Users,
   Globe,
@@ -198,8 +199,117 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
         .toUpperCase()
     : 'U';
 
+  const todayFormatted = new Date().toLocaleDateString('en-GB');
+
   return (
-    <div className="w-full font-sans px-4 pt-2 select-none">
+    <div className="w-full min-h-screen bg-[#F3F4FA] dark:bg-slate-900 px-4 pt-3 pb-10 font-sans select-none max-w-[480px] mx-auto">
+      {/* Scoped CSS for Uiverse.io JkHuger Sun/Moon Theme Toggle */}
+      <style>{`
+        .theme {
+          display: flex;
+          align-items: center;
+          -webkit-tap-highlight-color: transparent;
+          cursor: pointer;
+          user-select: none;
+        }
+        .theme__toggle-wrap {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          width: 58px;
+          height: 32px;
+        }
+        .theme__toggle {
+          background-color: #8FD5FF;
+          border-radius: 9999px;
+          box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08) inset;
+          cursor: pointer;
+          width: 58px;
+          height: 32px;
+          -webkit-appearance: none;
+          appearance: none;
+          transition: background-color 0.35s ease-in-out;
+          outline: none;
+          margin: 0;
+          display: block;
+        }
+        .theme__toggle:checked {
+          background-color: #1E2238;
+        }
+        .theme__toggle:before {
+          content: "";
+          display: block;
+          position: absolute;
+          top: 4px;
+          left: 4px;
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          background-color: #FBBF24;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+          transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.35s ease-in-out;
+        }
+        .theme__toggle:checked:before {
+          transform: translateX(26px);
+          background-color: #F8FAFC;
+        }
+        .theme__icon {
+          position: absolute;
+          top: 4px;
+          left: 4px;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          pointer-events: none;
+          transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+          z-index: 1;
+        }
+        .theme__toggle:checked ~ .theme__icon {
+          transform: translateX(26px);
+        }
+        .theme__icon-part {
+          position: absolute;
+          border-radius: 50%;
+          top: calc(50% - 6px);
+          left: calc(50% - 6px);
+          width: 12px;
+          height: 12px;
+          transition: box-shadow 0.35s ease-in-out, opacity 0.35s ease-in-out, transform 0.35s ease-in-out;
+          transform: scale(0.5);
+        }
+        .theme__icon-part ~ .theme__icon-part {
+          background-color: #D97706;
+          border-radius: 2px;
+          top: 50%;
+          left: calc(50% - 1px);
+          transform: rotate(0deg) translateY(7px);
+          transform-origin: 50% 0;
+          width: 2px;
+          height: 3px;
+        }
+        .theme__icon-part:nth-child(3) { transform: rotate(45deg) translateY(7px); }
+        .theme__icon-part:nth-child(4) { transform: rotate(90deg) translateY(7px); }
+        .theme__icon-part:nth-child(5) { transform: rotate(135deg) translateY(7px); }
+        .theme__icon-part:nth-child(6) { transform: rotate(180deg) translateY(7px); }
+        .theme__icon-part:nth-child(7) { transform: rotate(225deg) translateY(7px); }
+        .theme__icon-part:nth-child(8) { transform: rotate(270deg) translateY(7px); }
+        .theme__icon-part:nth-child(9) { transform: rotate(315deg) translateY(7px); }
+        .theme__toggle:checked ~ .theme__icon .theme__icon-part:nth-child(1) {
+          box-shadow: 4px -4px 0 2px #1E2238 inset;
+          transform: scale(0.95);
+          top: 1px;
+          left: -1px;
+        }
+        .theme__toggle:checked ~ .theme__icon .theme__icon-part ~ .theme__icon-part {
+          opacity: 0;
+          transform: rotate(0deg) translateY(12px);
+        }
+        .theme__fill {
+          display: none;
+        }
+      `}</style>
       
       {/* Toast Notification Alert */}
       {feedbackMsg && (
@@ -213,244 +323,310 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
         </div>
       )}
 
-      {/* 1. TOP NATIVE HEADER BAR */}
-      <div className="py-2 mb-4">
-        <h1 className="text-xl font-black text-slate-900 dark:text-white tracking-tight font-heading">
-          Profile
-        </h1>
+      {/* 1. TOP HEADER */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="w-11 h-11 rounded-[14px] bg-white dark:bg-slate-800 border border-[#E8EBF5] dark:border-slate-700 flex items-center justify-center text-[#4B32C3] dark:text-indigo-400 shadow-xs active:scale-95 transition cursor-pointer shrink-0"
+            aria-label="Go back"
+          >
+            <ChevronLeft className="w-5 h-5 stroke-[2.5]" />
+          </button>
+          <h1 className="text-[19px] font-[800] text-[#1B1F3B] dark:text-white tracking-tight leading-none">
+            My Profile
+          </h1>
+        </div>
+        <span className="text-[13px] font-[600] text-[#4A5270] dark:text-slate-400 tracking-wide">
+          {todayFormatted}
+        </span>
       </div>
 
-      {/* 2. USER PROFILE HERO AREA (Centered Native App Style) */}
-      <div className="flex flex-col items-center justify-center text-center mb-6">
-        {/* Monogram Avatar Circle (No image upload required) */}
-        <div className="relative mb-3">
-          <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-slate-800 via-blue-900 to-indigo-950 text-white font-black text-3xl flex items-center justify-center shadow-lg shadow-blue-950/20 border-4 border-white dark:border-slate-800 ring-2 ring-primary/20">
-            {initials}
+      {/* 2. HERO CARD */}
+      <div className="rounded-[24px] bg-gradient-to-br from-[#3B27B0] to-[#6B4DF0] p-5 text-white shadow-[0_12px_28px_rgba(75,50,195,0.28)] relative overflow-hidden mb-5">
+        <div className="flex items-start">
+          {/* Avatar */}
+          <div className="relative shrink-0">
+            <div className="w-16 h-16 rounded-[18px] bg-white text-[#3B27B0] font-[900] text-[22px] flex items-center justify-center shadow-md tracking-wider">
+              {initials}
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#10B981] border-2 border-white flex items-center justify-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            </div>
           </div>
-          <div className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900 flex items-center justify-center">
-            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+
+          {/* User Info */}
+          <div className="flex-1 min-w-0 pl-4">
+            <h2 className="text-[18px] font-[800] text-white leading-tight break-words">
+              {user.displayName}
+            </h2>
+            <p className="text-[12px] font-[500] text-white/85 mt-1 break-all">
+              {user.email || `${user.username.toLowerCase()}@sahebpaper.com`}
+            </p>
           </div>
         </div>
 
-        {/* User Display Name */}
-        <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight font-heading">
-          {user.displayName}
-        </h2>
-
-        {/* Subtitle / Email */}
-        <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
-          {user.email || `${user.username.toLowerCase()}@sahebpaper.com`}
-        </p>
-
-        {/* Role & ID Badge */}
-        <div className="flex items-center gap-2 mt-2">
-          <span className="px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-primary/10 text-primary dark:text-blue-400 border border-primary/20">
+        {/* Chips */}
+        <div className="flex items-center gap-2 mt-4 flex-wrap">
+          <span className="min-h-[30px] px-3.5 py-1 rounded-full bg-white text-[#3A25A8] text-[11px] font-[800] uppercase tracking-wider shadow-xs flex items-center">
             {ROLE_LABELS[user.role] || user.role}
           </span>
-          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold text-slate-600 dark:text-slate-300 bg-slate-200/70 dark:bg-slate-800">
-            {user.empId || `EMP-001`}
+          <span className="min-h-[30px] px-3.5 py-1 rounded-full bg-white/20 text-white text-[11px] font-[700] tracking-wide border border-white/20 backdrop-blur-xs flex items-center">
+            {user.empId || 'EMP-001'}
           </span>
         </div>
       </div>
 
-      {/* 3. MENU ITEMS CONTAINER (White Rounded Group Card Pattern) */}
-      <div className="bg-white dark:bg-surface-dark border border-slate-200/90 dark:border-slate-800 rounded-3xl overflow-hidden shadow-xs divide-y divide-slate-100 dark:divide-slate-800/80 mb-6">
-        
-        {/* 1. Edit Profile */}
-        <button
-          type="button"
-          onClick={openEditModal}
-          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer text-left group"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:text-primary transition">
-              <Edit3 className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-900 dark:text-white">Edit Profile</div>
-              <div className="text-[11px] text-slate-400 font-medium">Name, Phone, Email Address</div>
-            </div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-        </button>
-
-        {/* 2. Account Settings */}
-        <button
-          type="button"
-          onClick={openSecurityModal}
-          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer text-left group"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:text-primary transition">
-              <Settings className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-900 dark:text-white">Account Settings</div>
-              <div className="text-[11px] text-slate-400 font-medium">Security PIN &amp; Password</div>
-            </div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-        </button>
-
-        {/* 3. Notification Preferences */}
-        <button
-          type="button"
-          onClick={() => setActiveModal('notifications')}
-          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer text-left group"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:text-primary transition">
-              <Bell className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-900 dark:text-white">Notification Preferences</div>
-              <div className="text-[11px] text-slate-400 font-medium">Mill Shifts &amp; Stock Alerts</div>
-            </div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-        </button>
-
-        {/* 4. Privacy & Security */}
-        <button
-          type="button"
-          onClick={() => setActiveModal('privacy')}
-          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer text-left group"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:text-primary transition">
-              <Lock className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-900 dark:text-white">Privacy &amp; Security</div>
-              <div className="text-[11px] text-slate-400 font-medium">Session, Role Access &amp; Audit</div>
-            </div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-        </button>
-
-        {/* 5. Role Management (Admin only shortcut) */}
-        {isAdmin && (
+      {/* 3. SECTION: MY ACCOUNT */}
+      <div className="mb-5">
+        <h2 className="text-[15px] font-[800] text-[#1B1F3B] dark:text-white mb-3">
+          My account
+        </h2>
+        <div className="grid grid-cols-2 gap-3">
+          {/* Edit Profile */}
           <button
             type="button"
-            onClick={() => navigate('/role-management')}
-            className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer text-left group"
+            onClick={openEditModal}
+            className="w-full bg-white dark:bg-slate-800 rounded-[20px] p-4 border border-[#E8EBF5] dark:border-slate-700 shadow-[0_2px_8px_rgba(27,31,59,0.04)] flex flex-col justify-between text-left min-h-[116px] hover:border-[#4B32C3]/30 active:scale-[0.98] transition cursor-pointer"
           >
-            <div className="flex items-center gap-3.5">
-              <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:text-primary transition">
-                <ShieldCheck className="h-4 w-4" />
-              </div>
-              <div>
-                <div className="text-xs font-black text-slate-900 dark:text-white">Role Permission Matrix</div>
-                <div className="text-[11px] text-slate-400 font-medium">Configure 13 Worker Modules</div>
-              </div>
+            <div className="w-11 h-11 rounded-[14px] bg-[#EDE9FD] dark:bg-indigo-950/60 text-[#4B32C3] dark:text-indigo-400 flex items-center justify-center mb-3 shrink-0">
+              <Edit3 className="w-5 h-5 stroke-[2.2]" />
             </div>
-            <ChevronRight className="h-4 w-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            <div>
+              <span className="text-[14px] font-[800] text-[#1B1F3B] dark:text-white leading-tight block">
+                Edit Profile
+              </span>
+              <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-1 leading-snug block">
+                Name, phone, email
+              </span>
+            </div>
           </button>
-        )}
 
-        {/* 6. User Accounts (Admin only shortcut) */}
-        {isAdmin && (
+          {/* Account Settings */}
           <button
             type="button"
-            onClick={() => navigate('/user-management')}
-            className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer text-left group"
+            onClick={openSecurityModal}
+            className="w-full bg-white dark:bg-slate-800 rounded-[20px] p-4 border border-[#E8EBF5] dark:border-slate-700 shadow-[0_2px_8px_rgba(27,31,59,0.04)] flex flex-col justify-between text-left min-h-[116px] hover:border-[#4B32C3]/30 active:scale-[0.98] transition cursor-pointer"
           >
-            <div className="flex items-center gap-3.5">
-              <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:text-primary transition">
-                <Users className="h-4 w-4" />
-              </div>
-              <div>
-                <div className="text-xs font-black text-slate-900 dark:text-white">User Accounts</div>
-                <div className="text-[11px] text-slate-400 font-medium">Create &amp; Manage Workers</div>
-              </div>
+            <div className="w-11 h-11 rounded-[14px] bg-[#EDE9FD] dark:bg-indigo-950/60 text-[#4B32C3] dark:text-indigo-400 flex items-center justify-center mb-3 shrink-0">
+              <Settings className="w-5 h-5 stroke-[2.2]" />
             </div>
-            <ChevronRight className="h-4 w-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+            <div>
+              <span className="text-[14px] font-[800] text-[#1B1F3B] dark:text-white leading-tight block">
+                Account Settings
+              </span>
+              <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-1 leading-snug block">
+                Security PIN &amp; password
+              </span>
+            </div>
           </button>
-        )}
 
-        {/* 7. Language & Appearance */}
-        <button
-          type="button"
-          onClick={() => setActiveModal('theme')}
-          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer text-left group"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:text-primary transition">
-              <Palette className="h-4 w-4" />
+          {/* Notifications */}
+          <button
+            type="button"
+            onClick={() => setActiveModal('notifications')}
+            className="w-full bg-white dark:bg-slate-800 rounded-[20px] p-4 border border-[#E8EBF5] dark:border-slate-700 shadow-[0_2px_8px_rgba(27,31,59,0.04)] flex flex-col justify-between text-left min-h-[116px] hover:border-[#4B32C3]/30 active:scale-[0.98] transition cursor-pointer"
+          >
+            <div className="w-11 h-11 rounded-[14px] bg-[#EDE9FD] dark:bg-indigo-950/60 text-[#4B32C3] dark:text-indigo-400 flex items-center justify-center mb-3 shrink-0">
+              <Bell className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <div className="text-xs font-black text-slate-900 dark:text-white">Theme &amp; Appearance</div>
-              <div className="text-[11px] text-slate-400 font-medium">
-                {darkMode ? 'Dark Mode Active' : 'Light Mode Active'}
-              </div>
+              <span className="text-[14px] font-[800] text-[#1B1F3B] dark:text-white leading-tight block">
+                Notifications
+              </span>
+              <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-1 leading-snug block">
+                Mill shifts &amp; stock alerts
+              </span>
             </div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-        </button>
+          </button>
 
-        {/* 8. Help & Support */}
-        <button
-          type="button"
-          onClick={() => setActiveModal('help')}
-          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer text-left group"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:text-primary transition">
-              <HelpCircle className="h-4 w-4" />
+          {/* Privacy & Security */}
+          <button
+            type="button"
+            onClick={() => setActiveModal('privacy')}
+            className="w-full bg-white dark:bg-slate-800 rounded-[20px] p-4 border border-[#E8EBF5] dark:border-slate-700 shadow-[0_2px_8px_rgba(27,31,59,0.04)] flex flex-col justify-between text-left min-h-[116px] hover:border-[#4B32C3]/30 active:scale-[0.98] transition cursor-pointer"
+          >
+            <div className="w-11 h-11 rounded-[14px] bg-[#EDE9FD] dark:bg-indigo-950/60 text-[#4B32C3] dark:text-indigo-400 flex items-center justify-center mb-3 shrink-0">
+              <Lock className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <div className="text-xs font-black text-slate-900 dark:text-white">Help &amp; Support</div>
-              <div className="text-[11px] text-slate-400 font-medium">SOP Guides &amp; Mill Helpline</div>
+              <span className="text-[14px] font-[800] text-[#1B1F3B] dark:text-white leading-tight block">
+                Privacy &amp; Security
+              </span>
+              <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-1 leading-snug block">
+                Session, role access &amp; audit
+              </span>
             </div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-        </button>
-
-        {/* 9. App Updates & Changelog */}
-        <button
-          type="button"
-          onClick={() => {
-            setIsUpdateModalOpen(true);
-          }}
-          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer text-left group"
-        >
-          <div className="flex items-center gap-3.5">
-            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 group-hover:text-primary transition">
-              <RefreshCw className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-2">
-                <span>System Updates</span>
-                <span className="px-1.5 py-0.2 rounded-md bg-slate-100 dark:bg-slate-800 text-[9px] font-mono font-bold text-slate-600 dark:text-slate-300">
-                  v{APP_VERSION}
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-medium">Version history &amp; release changelogs</div>
-            </div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-        </button>
-
+          </button>
+        </div>
       </div>
 
-      {/* 4. RED LOGOUT BUTTON (Bottom Action) */}
-      <div className="mb-4">
+      {/* 4. SECTION: ADMIN TOOLS (Only if admin) */}
+      {isAdmin && (
+        <div className="mb-5">
+          <h2 className="text-[15px] font-[800] text-[#1B1F3B] dark:text-white mb-3">
+            Admin tools
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Role Permission Matrix */}
+            <button
+              type="button"
+              onClick={() => navigate('/role-management')}
+              className="w-full bg-white dark:bg-slate-800 rounded-[20px] p-4 border border-[#E8EBF5] dark:border-slate-700 shadow-[0_2px_8px_rgba(27,31,59,0.04)] flex flex-col justify-between text-left min-h-[116px] hover:border-[#8A4B00]/30 active:scale-[0.98] transition cursor-pointer"
+            >
+              <div className="w-11 h-11 rounded-[14px] bg-[#FFF1D6] dark:bg-amber-950/50 text-[#8A4B00] dark:text-amber-400 flex items-center justify-center mb-3 shrink-0">
+                <ShieldCheck className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <span className="text-[14px] font-[800] text-[#1B1F3B] dark:text-white leading-tight block">
+                  Role Permission Matrix
+                </span>
+                <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-1 leading-snug block">
+                  Configure 13 worker modules
+                </span>
+              </div>
+            </button>
+
+            {/* User Accounts */}
+            <button
+              type="button"
+              onClick={() => navigate('/user-management')}
+              className="w-full bg-white dark:bg-slate-800 rounded-[20px] p-4 border border-[#E8EBF5] dark:border-slate-700 shadow-[0_2px_8px_rgba(27,31,59,0.04)] flex flex-col justify-between text-left min-h-[116px] hover:border-[#8A4B00]/30 active:scale-[0.98] transition cursor-pointer"
+            >
+              <div className="w-11 h-11 rounded-[14px] bg-[#FFF1D6] dark:bg-amber-950/50 text-[#8A4B00] dark:text-amber-400 flex items-center justify-center mb-3 shrink-0">
+                <Users className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <span className="text-[14px] font-[800] text-[#1B1F3B] dark:text-white leading-tight block">
+                  User Accounts
+                </span>
+                <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-1 leading-snug block">
+                  Create &amp; manage workers
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 5. SECTION: APP */}
+      <div className="mb-5">
+        <h2 className="text-[15px] font-[800] text-[#1B1F3B] dark:text-white mb-3">
+          App
+        </h2>
+        <div className="bg-white dark:bg-slate-800 rounded-[20px] border border-[#E8EBF5] dark:border-slate-700 shadow-[0_2px_8px_rgba(27,31,59,0.04)] divide-y divide-[#E8EBF5] dark:divide-slate-700/80 overflow-hidden">
+          {/* Row 1: Dark Mode */}
+          <div className="min-h-[64px] p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-[12px] bg-[#E8EBF5] dark:bg-slate-700/60 text-[#3A4160] dark:text-slate-300 flex items-center justify-center shrink-0">
+                <Palette className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <span className="text-[14px] font-[800] text-[#1B1F3B] dark:text-white leading-tight block">
+                  Dark mode
+                </span>
+                <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-0.5 leading-snug block">
+                  {darkMode ? 'Dark mode active' : 'Light mode active'}
+                </span>
+              </div>
+            </div>
+
+            {/* Animated Uiverse.io Sun/Moon Theme Toggle */}
+            <div className="min-h-[44px] flex items-center">
+              <label className="theme min-h-[44px] flex items-center cursor-pointer m-0" htmlFor="theme">
+                <span className="theme__toggle-wrap">
+                  <input
+                    id="theme"
+                    className="theme__toggle"
+                    type="checkbox"
+                    role="switch"
+                    name="theme"
+                    checked={darkMode}
+                    onChange={toggleDarkMode}
+                  />
+                  <span className="theme__fill"></span>
+                  <span className="theme__icon">
+                    <span className="theme__icon-part"></span>
+                    <span className="theme__icon-part"></span>
+                    <span className="theme__icon-part"></span>
+                    <span className="theme__icon-part"></span>
+                    <span className="theme__icon-part"></span>
+                    <span className="theme__icon-part"></span>
+                    <span className="theme__icon-part"></span>
+                    <span className="theme__icon-part"></span>
+                    <span className="theme__icon-part"></span>
+                  </span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* Row 2: Help & Support */}
+          <button
+            type="button"
+            onClick={() => setActiveModal('help')}
+            className="w-full min-h-[64px] p-4 flex items-center justify-between text-left hover:bg-slate-50 dark:hover:bg-slate-700/40 active:scale-[0.99] transition cursor-pointer"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-[12px] bg-[#E8EBF5] dark:bg-slate-700/60 text-[#3A4160] dark:text-slate-300 flex items-center justify-center shrink-0">
+                <HelpCircle className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <span className="text-[14px] font-[800] text-[#1B1F3B] dark:text-white leading-tight block">
+                  Help &amp; Support
+                </span>
+                <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-0.5 leading-snug block">
+                  SOP guides &amp; mill helpline
+                </span>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-[#4A5270] dark:text-slate-400 shrink-0 stroke-[2.2]" />
+          </button>
+
+          {/* Row 3: System Updates */}
+          <button
+            type="button"
+            onClick={() => setIsUpdateModalOpen(true)}
+            className="w-full min-h-[64px] p-4 flex items-center justify-between text-left hover:bg-slate-50 dark:hover:bg-slate-700/40 active:scale-[0.99] transition cursor-pointer"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-[12px] bg-[#E8EBF5] dark:bg-slate-700/60 text-[#3A4160] dark:text-slate-300 flex items-center justify-center shrink-0">
+                <RefreshCw className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <span className="text-[14px] font-[800] text-[#1B1F3B] dark:text-white leading-tight block">
+                  System Updates
+                </span>
+                <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-0.5 leading-snug block">
+                  Version history &amp; changelogs
+                </span>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-[#4A5270] dark:text-slate-400 shrink-0 stroke-[2.2]" />
+          </button>
+        </div>
+      </div>
+
+      {/* 6. LOGOUT BUTTON */}
+      <div className="mt-6 mb-4">
         <button
           type="button"
           onClick={() => setLogoutConfirmOpen(true)}
-          className="w-full flex items-center justify-center gap-2 p-3.5 bg-white dark:bg-surface-dark border border-red-200/80 dark:border-red-900/50 rounded-2xl text-xs font-black text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer shadow-2xs active:scale-[0.98]"
+          className="w-full min-h-[52px] rounded-[16px] bg-[#FDECEA] dark:bg-red-950/40 text-[#B3261E] dark:text-red-400 font-[800] text-[15px] flex items-center justify-center gap-2 hover:bg-[#FCD8D4] dark:hover:bg-red-900/50 active:scale-[0.98] transition cursor-pointer border border-[#F9C3BE]/60 dark:border-red-900/60 shadow-xs"
         >
-          <LogOut className="h-4 w-4" />
+          <LogOut className="w-5 h-5 stroke-[2.2]" />
           <span>Logout</span>
         </button>
       </div>
 
-      {/* App Version Info Footer */}
+      {/* 7. FOOTER */}
       <div
         onClick={() => setIsUpdateModalOpen(true)}
-        className="text-center text-[10px] text-slate-400 font-mono flex items-center justify-center gap-1.5 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition"
+        className="text-center text-[11px] text-[#4A5270] dark:text-slate-400 font-sans pb-8 pt-2 space-y-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition"
       >
-        <span>{companyConfig.name} ERP &bull; v{APP_VERSION} (Mobile)</span>
+        <div className="font-[700] tracking-wider uppercase">SAHEB PAPER PVT. LTD. ERP</div>
+        <div className="font-[500]">vBeta 1.10.34 (Mobile)</div>
       </div>
 
       {/* ======================================================== */}

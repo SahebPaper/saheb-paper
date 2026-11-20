@@ -835,19 +835,26 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
               pushDeleteToCloud('reels', 'reel_no', r.reelNo);
               return false;
             }
+            if (r.productionDate && r.productionDate < '2026-11-19') return false;
             return true;
           });
           const local = getLocal<Reel[]>(KEYS.REELS, []);
           const rawBase = (local && local.length > 0) ? local : [];
-          const base = rawBase.filter(r => !deletedNos.has((r.reelNo || '').trim().toLowerCase()));
+          const base = rawBase.filter(r => {
+            if (!r || !r.reelNo) return false;
+            const rNo = (r.reelNo || '').trim().toLowerCase();
+            if (deletedNos.has(rNo)) return false;
+            if (r.productionDate && r.productionDate < '2026-11-19') return false;
+            return true;
+          });
           const merged = mergeByUniqueKey(base, filteredCloud, r => (r.reelNo || '').trim().toUpperCase());
           setLocal(KEYS.REELS, merged);
           notifyChange(tableName);
           break;
         }
         case 'transaction_logs': {
-          const cloud = data.map(logFromDb);
-          const local = getLocal<TransactionLog[]>(KEYS.LOGS, []);
+          const cloud = data.map(logFromDb).filter((l: TransactionLog) => !l.timestamp || l.timestamp >= '2026-11-19');
+          const local = getLocal<TransactionLog[]>(KEYS.LOGS, []).filter((l: TransactionLog) => !l.timestamp || l.timestamp >= '2026-11-19');
           const merged = mergeByUniqueKey(local, cloud, l => l.id);
           setLocal(KEYS.LOGS, merged.slice(0, 500));
           // Extract deleted reels into DELETED_REELS
@@ -900,7 +907,10 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
           break;
         }
         case 'packing_slips': {
-          const cloud = data.map(packingSlipFromDb);
+          const cloud = data.map(packingSlipFromDb).filter((s: PackingSlip) => {
+            const d = s.date || s.dispatchDate;
+            return !d || d >= '2026-11-19';
+          });
           setLocal(KEYS.PACKING_SLIPS, cloud);
           notifyChange(tableName);
           break;

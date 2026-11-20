@@ -411,7 +411,7 @@ export function createDefaultLabReport(): PaperTestReport {
 export function initializeStorage() {
   if (!localStorage.getItem(KEYS.USERS)) setJSON(KEYS.USERS, [DEFAULT_USERS[0]], false);
   if (!localStorage.getItem(KEYS.RAW_MATERIALS)) setJSON(KEYS.RAW_MATERIALS, [], false);
-  
+
   const curProds = getJSON<ProductItem[]>(KEYS.PRODUCTS, []);
   if (!curProds || curProds.length === 0) {
     setJSON(KEYS.PRODUCTS, DEFAULT_PRODUCTS.filter(p => p.id !== 'p-11'), false);
@@ -428,6 +428,19 @@ export function initializeStorage() {
   if (!curVehicles || curVehicles.length === 0) {
     setJSON(KEYS.VEHICLES, DEFAULT_VEHICLES, false);
   }
+  // One-time automatic cleanup for all mobile/web devices to purge legacy pre-Nov-19 data
+  const PURGE_FLAG = 'saheb_purge_pre_nov19_v1';
+  try {
+    if (!localStorage.getItem(PURGE_FLAG)) {
+      localStorage.removeItem(KEYS.REELS);
+      localStorage.removeItem(KEYS.LOGS);
+      localStorage.removeItem(KEYS.PACKING_SLIPS);
+      localStorage.removeItem(KEYS.DELETED_REELS);
+      localStorage.removeItem(KEYS.ROLLS);
+      localStorage.setItem(PURGE_FLAG, 'true');
+    }
+  } catch (_) { }
+
   if (!localStorage.getItem(KEYS.FORMULAS)) setJSON(KEYS.FORMULAS, [], false);
   if (!localStorage.getItem(KEYS.ROLLS)) setJSON(KEYS.ROLLS, [], false);
   if (!localStorage.getItem(KEYS.REELS)) setJSON(KEYS.REELS, [], false);
@@ -442,14 +455,20 @@ export function initializeStorage() {
   if (!localStorage.getItem(KEYS.CUSTOM_ROLES)) setJSON(KEYS.CUSTOM_ROLES, [], false);
   if (!localStorage.getItem(KEYS.DELETED_ROLES)) setJSON(KEYS.DELETED_ROLES, [], false);
 
-  // Instant purge of unwanted ghost reels and old demo canonical reels
+  // Instant purge of unwanted ghost reels, old demo canonical reels, and pre-Nov-19 legacy reels
   try {
     const ghostNos = new Set(['26110026', '26110027', '26110029', ...Array.from(CANONICAL_DEMO_REEL_NOS)]);
     const raw = localStorage.getItem(KEYS.REELS);
     if (raw) {
       const parsed: Reel[] = JSON.parse(raw);
-      if (parsed.some(r => ghostNos.has((r.reelNo || '').trim().toLowerCase()))) {
-        const cleaned = parsed.filter(r => !ghostNos.has((r.reelNo || '').trim().toLowerCase()));
+      const cleaned = parsed.filter(r => {
+        if (!r || !r.reelNo) return false;
+        const cleanNo = (r.reelNo || '').trim().toLowerCase();
+        if (ghostNos.has(cleanNo)) return false;
+        if (r.productionDate && r.productionDate < '2026-11-19') return false;
+        return true;
+      });
+      if (cleaned.length !== parsed.length) {
         localStorage.setItem(KEYS.REELS, JSON.stringify(cleaned));
       }
     }
@@ -465,6 +484,29 @@ export function initializeStorage() {
     });
     if (delChanged) {
       localStorage.setItem(KEYS.DELETED_REELS, JSON.stringify(delList));
+    }
+
+    // Purge pre-Nov-19 transaction logs
+    const rawLogs = localStorage.getItem(KEYS.LOGS);
+    if (rawLogs) {
+      const parsedLogs: TransactionLog[] = JSON.parse(rawLogs);
+      const cleanedLogs = parsedLogs.filter(l => !l.timestamp || l.timestamp >= '2026-11-19');
+      if (cleanedLogs.length !== parsedLogs.length) {
+        localStorage.setItem(KEYS.LOGS, JSON.stringify(cleanedLogs));
+      }
+    }
+
+    // Purge pre-Nov-19 packing slips
+    const rawSlips = localStorage.getItem(KEYS.PACKING_SLIPS);
+    if (rawSlips) {
+      const parsedSlips: PackingSlip[] = JSON.parse(rawSlips);
+      const cleanedSlips = parsedSlips.filter(s => {
+        const d = s.date || s.dispatchDate;
+        return !d || d >= '2026-11-19';
+      });
+      if (cleanedSlips.length !== parsedSlips.length) {
+        localStorage.setItem(KEYS.PACKING_SLIPS, JSON.stringify(cleanedSlips));
+      }
     }
   } catch (_) { }
 
@@ -690,7 +732,8 @@ export function deleteCustomRole(roleKeyOrLabel: string, operator: string = 'Adm
 
 // --- AUDIT LOGS ---
 export function getLogs(): TransactionLog[] {
-  return getJSON<TransactionLog[]>(KEYS.LOGS, []);
+  const allLogs = getJSON<TransactionLog[]>(KEYS.LOGS, []);
+  return allLogs.filter(l => !l.timestamp || l.timestamp >= '2026-11-19');
 }
 
 export function addLog(module: string, action: string, details: string, user: string = 'System'): TransactionLog {
@@ -2017,11 +2060,13 @@ export function getReels(): Reel[] {
     return existing;
   }
 
-  // Filter out any deleted reels or old canonical demo reels
+  // Filter out any deleted reels, old canonical demo reels, or pre-go-live legacy reels
   const cleanedReels = existing.filter(r => {
     if (!r || !r.reelNo) return false;
     const cleanNo = r.reelNo.trim().toLowerCase();
-    return !deletedSet.has(cleanNo) && !CANONICAL_DEMO_REEL_NOS.has(cleanNo);
+    if (deletedSet.has(cleanNo) || CANONICAL_DEMO_REEL_NOS.has(cleanNo)) return false;
+    if (r.productionDate && r.productionDate < '2026-11-19') return false;
+    return true;
   });
 
   if (cleanedReels.length !== existing.length) {
@@ -3024,6 +3069,16 @@ export function getPackingSlips(): PackingSlip[] {
     existing = [];
     setJSON(KEYS.PACKING_SLIPS, existing, false);
     return existing;
+  }
+
+  // Filter out any legacy pre-go-live packing slips (e.g. before 2026-11-19)
+  const cleaned = existing.filter(s => {
+    const d = s.date || s.dispatchDate;
+    return !d || d >= '2026-11-19';
+  });
+  if (cleaned.length !== existing.length) {
+    existing = cleaned;
+    setJSON(KEYS.PACKING_SLIPS, existing, false);
   }
 
   let modified = false;

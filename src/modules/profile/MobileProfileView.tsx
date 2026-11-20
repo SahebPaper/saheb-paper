@@ -28,6 +28,7 @@ import {
   Moon,
   Info,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { getCompanyConfig } from '../../config/company';
 import { APP_VERSION } from '../../config/version';
@@ -114,6 +115,26 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
     setFeedbackMsg(msg);
     setFeedbackType(type);
     setTimeout(() => setFeedbackMsg(''), 3500);
+  };
+
+  const handleClearLocalStorage = () => {
+    if (window.confirm('Clear all local app storage and reload fresh data from cloud database?')) {
+      const currentUser = localStorage.getItem('saheb_user');
+      const authUser = localStorage.getItem('saheb_auth_user');
+      const theme = localStorage.getItem('saheb_theme');
+
+      localStorage.clear();
+
+      if (currentUser) localStorage.setItem('saheb_user', currentUser);
+      if (authUser) localStorage.setItem('saheb_auth_user', authUser);
+      if (theme) localStorage.setItem('saheb_theme', theme);
+      localStorage.setItem('saheb_purge_pre_nov19_v1', 'true');
+
+      showToast('Storage wiped! Reloading fresh data...', 'success');
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -577,6 +598,28 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
                 </span>
                 <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-0.5 leading-snug block">
                   Version history &amp; changelogs
+                </span>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-[#4A5270] dark:text-slate-400 shrink-0 stroke-[2.2]" />
+          </button>
+
+          {/* Row 4: Clear Local Storage & Resync */}
+          <button
+            type="button"
+            onClick={handleClearLocalStorage}
+            className="w-full min-h-[64px] p-4 flex items-center justify-between text-left hover:bg-red-50/50 dark:hover:bg-red-950/20 active:scale-[0.99] transition cursor-pointer"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-[12px] bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <span className="text-[14px] font-[800] text-[#B3261E] dark:text-red-400 leading-tight block">
+                  Clear Local Storage
+                </span>
+                <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-0.5 leading-snug block">
+                  Wipe old phone cache &amp; reload fresh data from cloud
                 </span>
               </div>
             </div>

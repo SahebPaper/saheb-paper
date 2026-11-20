@@ -499,11 +499,41 @@ export function initializeStorage() {
       }
     }
 
-    // Purge pre-Nov-19 packing slips
+    // Purge tombstoned deleted packing slips and pre-Nov-19 packing slips
+    const rawDelSlips = localStorage.getItem(KEYS.DELETED_PACKING_SLIPS);
+    const delSlipsList: string[] = rawDelSlips ? JSON.parse(rawDelSlips) : [];
+    const delSlipsSet = new Set(delSlipsList.map(s => (s || '').trim().toUpperCase()));
+
+    // Also scan logs for deleted challans to recover tombstones
+    const rawLogsForSlips = localStorage.getItem(KEYS.LOGS);
+    if (rawLogsForSlips) {
+      const parsedLogs: TransactionLog[] = JSON.parse(rawLogsForSlips);
+      let logsAdded = false;
+      parsedLogs.forEach(l => {
+        if (l.details) {
+          const m = l.details.match(/Delivery Challan #([A-Za-z0-9\-_]+)/i) || l.details.match(/Challan #?([A-Za-z0-9\-_]+)/i);
+          if (m && (l.action === 'Challan Deleted' || l.action === 'Delete Challan' || (l.action && l.action.includes('Deleted')))) {
+            const cNo = m[1].trim().toUpperCase();
+            if (!delSlipsSet.has(cNo)) {
+              delSlipsSet.add(cNo);
+              delSlipsList.push(cNo);
+              logsAdded = true;
+            }
+          }
+        }
+      });
+      if (logsAdded) {
+        localStorage.setItem(KEYS.DELETED_PACKING_SLIPS, JSON.stringify(delSlipsList));
+      }
+    }
+
     const rawSlips = localStorage.getItem(KEYS.PACKING_SLIPS);
     if (rawSlips) {
       const parsedSlips: PackingSlip[] = JSON.parse(rawSlips);
       const cleanedSlips = parsedSlips.filter(s => {
+        const sId = (s.id || '').trim().toUpperCase();
+        const sNo = (s.slipNo || '').trim().toUpperCase();
+        if (delSlipsSet.has(sId) || delSlipsSet.has(sNo)) return false;
         const d = s.date || s.dispatchDate;
         return !d || d >= '2026-11-19';
       });

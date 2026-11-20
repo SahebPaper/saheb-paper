@@ -35,7 +35,7 @@ import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 import { useDataSync } from '../../hooks/useDataSync';
 import { MobileToast, type ToastMessage } from '../../components/MobileToast';
-import { playNotificationSound, playErrorBeepSound } from '../../utils/notificationSound';
+import { playNotificationSound, playErrorBeepSound, playDeepDeleteSound } from '../../utils/notificationSound';
 import {
   Download,
   Truck,
@@ -245,9 +245,18 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
   const [openMenuSlipId, setOpenMenuSlipId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
 
+  // 7. Reel Conflict Alert Pop-up Modal State
+  const [reelConflictAlert, setReelConflictAlert] = useState<{
+    title: string;
+    message: string;
+    reelNo?: string;
+    challanNo?: string;
+  } | null>(null);
+
   // Hook Android back button for DispatchView modals
   useMobileBackHandler(!!editingSlip, () => setEditingSlip(null), 'dispatchEditSlip');
   useMobileBackHandler(isEditStockPickerOpen, () => setIsEditStockPickerOpen(false), 'dispatchEditPicker');
+  useMobileBackHandler(!!reelConflictAlert, () => setReelConflictAlert(null), 'dispatchReelConflictAlert');
 
   useEffect(() => {
     setReels(getReels());
@@ -530,7 +539,14 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
     const code = mobileManualReelInput.trim().toUpperCase();
     if (!code) return;
     if (selectedReelNos.map(s => s.trim().toUpperCase()).includes(code)) {
-      setErrorMsg(`Reel #${code} is already in this challan`);
+      const msg = `Reel #${code} is already added in this challan.`;
+      setErrorMsg(msg);
+      playDeepDeleteSound();
+      setReelConflictAlert({
+        title: 'Duplicate Reel In Challan',
+        message: msg,
+        reelNo: code,
+      });
       setTimeout(() => setErrorMsg(''), 2500);
       return;
     }
@@ -538,13 +554,30 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
     setReels(latestReels);
     const found = latestReels.find(r => r.reelNo.trim().toUpperCase() === code);
     if (!found) {
-      setErrorMsg(`Error: Reel #${code} does not exist in rewinder stock!`);
+      const msg = `Reel #${code} does not exist in active stock!`;
+      setErrorMsg(msg);
+      playDeepDeleteSound();
+      setReelConflictAlert({
+        title: 'Reel Not Found',
+        message: msg,
+        reelNo: code,
+      });
       setTimeout(() => setErrorMsg(''), 3000);
       return;
     }
-    if (found.status === 'DISPATCHED' || found.challanNo) {
-      setErrorMsg(`Reel #${code} is already dispatched in Challan #${found.challanNo || 'N/A'}`);
-      setTimeout(() => setErrorMsg(''), 3000);
+    const inOtherSlip = slips.find(s => (s.reelNos || []).some(n => n.trim().toUpperCase() === code));
+    if (found.status === 'DISPATCHED' || found.challanNo || inOtherSlip) {
+      const challan = inOtherSlip?.slipNo || found.dispatchDetails?.packingSlipNo || found.challanNo || 'N/A';
+      const msg = `Reel #${code} is already dispatched in Challan #${challan}! A reel cannot be added to multiple challans.`;
+      setErrorMsg(msg);
+      playDeepDeleteSound();
+      setReelConflictAlert({
+        title: 'Reel Already Dispatched!',
+        message: msg,
+        reelNo: code,
+        challanNo: challan,
+      });
+      setTimeout(() => setErrorMsg(''), 3500);
       return;
     }
     playBeep();
@@ -894,10 +927,20 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
     return raw;
   }, [slipNo, defaultReceiptNo]);
 
-  // Filter available reels in stock for Packing Slip selection (strictly in-stock warehouse reels)
+  // Filter available reels in stock for Packing Slip selection (strictly in-stock warehouse reels not linked to any challan)
   const availableReels = useMemo(() => {
-    return reels.filter(r => (r.status === 'IN_STOCK' || r.status === 'IN_STOCK_B' || r.status === 'QC_PASSED') && !r.challanNo);
-  }, [reels]);
+    const slipReelSet = new Set<string>();
+    slips.forEach(s => {
+      (s.reelNos || []).forEach(no => {
+        if (no) slipReelSet.add(no.trim().toUpperCase());
+      });
+    });
+    return reels.filter(r => 
+      (r.status === 'IN_STOCK' || r.status === 'IN_STOCK_B' || r.status === 'QC_PASSED') && 
+      !r.challanNo &&
+      !slipReelSet.has(r.reelNo.trim().toUpperCase())
+    );
+  }, [reels, slips]);
 
   // Unique Products present in available reels for quick filter pills
   const uniqueProducts = useMemo(() => {
@@ -1086,7 +1129,28 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
       setBarcodeGunInput('');
       setSuccessMsg(`Added ${validCodesToAdd.length} reel(s): ${validCodesToAdd.join(', ')}`);
     } else {
-      setErrorMsg(`Reel '${raw}' not found in active warehouse stock.`);
+      // Check if it exists in another challan
+      const inOtherSlip = slips.find(s => (s.reelNos || []).some(n => n.trim().toUpperCase() === raw.toUpperCase()));
+      if (inOtherSlip) {
+        const msg = `Reel #${raw} is already dispatched in Delivery Challan #${inOtherSlip.slipNo}! A reel cannot be added to multiple challans.`;
+        setErrorMsg(msg);
+        playDeepDeleteSound();
+        setReelConflictAlert({
+          title: 'Reel Already Dispatched!',
+          message: msg,
+          reelNo: raw,
+          challanNo: inOtherSlip.slipNo,
+        });
+      } else {
+        const msg = `Reel '${raw}' not found in active warehouse stock.`;
+        setErrorMsg(msg);
+        playDeepDeleteSound();
+        setReelConflictAlert({
+          title: 'Reel Not Found In Stock',
+          message: msg,
+          reelNo: raw,
+        });
+      }
     }
   };
 
@@ -1498,14 +1562,28 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
 
     // 1. Check if already added in current challan edit list
     if (editReelNos.some(no => no.trim().toUpperCase() === cleanNo.toUpperCase())) {
-      setEditModalError(`Reel #${cleanNo} is already added in this challan.`);
+      const msg = `Reel #${cleanNo} is already added in this challan.`;
+      setEditModalError(msg);
+      playDeepDeleteSound();
+      setReelConflictAlert({
+        title: 'Duplicate Reel In Challan',
+        message: msg,
+        reelNo: cleanNo,
+      });
       return;
     }
 
     // 2. Check if reel exists in inventory
     const found = reels.find(r => r.reelNo.trim().toUpperCase() === cleanNo.toUpperCase());
     if (!found) {
-      setEditModalError(`Reel #${cleanNo} not found in inventory.`);
+      const msg = `Reel #${cleanNo} was not found in active mill inventory.`;
+      setEditModalError(msg);
+      playDeepDeleteSound();
+      setReelConflictAlert({
+        title: 'Reel Not Found',
+        message: msg,
+        reelNo: cleanNo,
+      });
       return;
     }
 
@@ -1516,7 +1594,15 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
       (s.reelNos || []).some(no => no.trim().toUpperCase() === cleanNo.toUpperCase())
     );
     if (otherSlip) {
-      setEditModalError(`Reel #${cleanNo} is already dispatched in Challan #${otherSlip.slipNo}! A reel cannot be added to multiple challans.`);
+      const msg = `Reel #${cleanNo} is already dispatched in Delivery Challan #${otherSlip.slipNo}! A reel cannot be added to multiple challans.`;
+      setEditModalError(msg);
+      playDeepDeleteSound();
+      setReelConflictAlert({
+        title: 'Reel Already Dispatched!',
+        message: msg,
+        reelNo: cleanNo,
+        challanNo: otherSlip.slipNo,
+      });
       return;
     }
 
@@ -1524,14 +1610,29 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
     if ((found.status === 'DISPATCHED' || found.status === 'DELIVERED') &&
         found.dispatchDetails?.packingSlipNo &&
         found.dispatchDetails.packingSlipNo !== editingSlip?.slipNo) {
-      setEditModalError(`Reel #${cleanNo} is already dispatched in Challan #${found.dispatchDetails.packingSlipNo}!`);
+      const msg = `Reel #${cleanNo} is already dispatched in Delivery Challan #${found.dispatchDetails.packingSlipNo}!`;
+      setEditModalError(msg);
+      playDeepDeleteSound();
+      setReelConflictAlert({
+        title: 'Reel Already Dispatched!',
+        message: msg,
+        reelNo: cleanNo,
+        challanNo: found.dispatchDetails.packingSlipNo,
+      });
       return;
     }
 
     // 5. Check if reel failed QC
     const wasInThisSlip = (editingSlip?.reelNos || []).some(no => no.trim().toUpperCase() === cleanNo.toUpperCase());
     if (!wasInThisSlip && found.status === 'QC_FAILED') {
-      setEditModalError(`Reel #${cleanNo} has failed QC inspection. Cannot be dispatched.`);
+      const msg = `Reel #${cleanNo} has failed QC inspection. Cannot be dispatched.`;
+      setEditModalError(msg);
+      playDeepDeleteSound();
+      setReelConflictAlert({
+        title: 'QC Failed Reel',
+        message: msg,
+        reelNo: cleanNo,
+      });
       return;
     }
 
@@ -1567,7 +1668,15 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
         (s.reelNos || []).some(no => no.trim().toUpperCase() === rNo.trim().toUpperCase())
       );
       if (otherSlip) {
-        setEditModalError(`Reel #${rNo} is already dispatched in Challan #${otherSlip.slipNo}. Please remove it before saving.`);
+        const msg = `Reel #${rNo} is already dispatched in Challan #${otherSlip.slipNo}. Please remove it before saving.`;
+        setEditModalError(msg);
+        playDeepDeleteSound();
+        setReelConflictAlert({
+          title: 'Conflict Detected in Challan',
+          message: msg,
+          reelNo: rNo,
+          challanNo: otherSlip.slipNo,
+        });
         return;
       }
     }
@@ -6916,6 +7025,60 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
           </div>,
           document.body
         )}
+
+      {/* REEL CONFLICT / ALREADY DISPATCHED POPUP MODAL */}
+      {reelConflictAlert && createPortal(
+        <div 
+          className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150 select-none font-sans"
+          onClick={() => setReelConflictAlert(null)}
+        >
+          <div 
+            className="w-full max-w-md bg-white dark:bg-[#131d38] border-2 border-red-500/50 dark:border-red-500/40 rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150 relative text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-16 h-16 rounded-2xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 mx-auto flex items-center justify-center shadow-inner">
+              <AlertTriangle className="w-8 h-8 stroke-[2.5]" />
+            </div>
+            
+            <div className="text-center space-y-1.5">
+              <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
+                {reelConflictAlert.title}
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 font-semibold leading-relaxed">
+                {reelConflictAlert.message}
+              </p>
+            </div>
+
+            {reelConflictAlert.reelNo && (
+              <div className="p-3 bg-red-50/80 dark:bg-red-950/30 rounded-2xl border border-red-200 dark:border-red-900/60 flex items-center justify-around text-xs font-mono font-black">
+                <div className="text-center">
+                  <span className="text-[10px] text-slate-400 block font-sans uppercase font-bold">Reel Number</span>
+                  <span className="text-red-600 dark:text-red-400 text-sm">#{reelConflictAlert.reelNo}</span>
+                </div>
+                {reelConflictAlert.challanNo && (
+                  <>
+                    <div className="h-7 w-px bg-red-200 dark:bg-red-800" />
+                    <div className="text-center">
+                      <span className="text-[10px] text-slate-400 block font-sans uppercase font-bold">Already in Challan</span>
+                      <span className="text-blue-600 dark:text-blue-400 text-sm">#{reelConflictAlert.challanNo}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              autoFocus
+              onClick={() => setReelConflictAlert(null)}
+              className="w-full h-12 bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white font-extrabold text-sm uppercase tracking-wider rounded-2xl shadow-lg shadow-red-600/30 transition cursor-pointer flex items-center justify-center"
+            >
+              OK, Got It
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Floating Mobile Toast Notification */}
       <MobileToast toast={toast} onClose={() => setToast(null)} />

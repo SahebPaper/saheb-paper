@@ -432,7 +432,7 @@ export const CompanySettingsView: React.FC = () => {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                    Main Factory Database (Production)
+                    Saheb-Paper-ERP (Production)
                   </span>
                   {activeDbConfig.target === 'prod' && (
                     <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded-full">
@@ -464,7 +464,7 @@ export const CompanySettingsView: React.FC = () => {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                    Demo Sandbox Database (Testing)
+                    Saheb-Paper-DEMO (Testing)
                   </span>
                   {activeDbConfig.target === 'demo' && (
                     <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded-full">

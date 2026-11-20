@@ -5,7 +5,7 @@ export const PROD_SUPABASE_CONFIG = {
   url: 'https://scyiwfqkknuphzhvklok.supabase.co',
   anonKey:
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjeWl3ZnFra251cGh6aHZrbG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2OTI1NjgsImV4cCI6MjEwNDI2ODU2OH0.uSIcsebYEW2uIgn_E6__Y2jg9te2NSHLMl3liZp3qmw',
-  name: 'Main Factory Database (Live Production)',
+  name: 'Saheb-Paper-ERP',
   target: 'prod' as const,
 };
 
@@ -14,7 +14,7 @@ export const DEMO_SUPABASE_CONFIG = {
   url: 'https://znyvmlwggwckjxxsxiwq.supabase.co',
   anonKey:
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpueXZtbHdnZ3dja2p4eHN4aXdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0OTE0NjUsImV4cCI6MjEwNTA2NzQ2NX0._NNVeLFW1OvXnTGYZbCcEmd4eYSF2J8g5Zxi6T4kdqY',
-  name: 'Demo Sandbox Database (Testing)',
+  name: 'Saheb-Paper-DEMO',
   target: 'demo' as const,
 };
 

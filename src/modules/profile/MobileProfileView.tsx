@@ -12,7 +12,6 @@ import {
   HelpCircle,
   LogOut,
   ChevronRight,
-  ChevronLeft,
   ShieldCheck,
   Users,
   Globe,
@@ -199,10 +198,8 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
         .toUpperCase()
     : 'U';
 
-  const todayFormatted = new Date().toLocaleDateString('en-GB');
-
   return (
-    <div className="w-full min-h-screen bg-[#F3F4FA] dark:bg-slate-900 px-4 pt-3 pb-10 font-sans select-none max-w-[480px] mx-auto">
+    <div className="w-full min-h-screen bg-[#F3F4FA] dark:bg-slate-900 px-4 pt-2 pb-10 font-sans select-none max-w-[480px] mx-auto">
       {/* Scoped CSS for Uiverse.io JkHuger Sun/Moon Theme Toggle */}
       <style>{`
         .theme {
@@ -322,26 +319,6 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
           <span className="flex-1">{feedbackMsg}</span>
         </div>
       )}
-
-      {/* 1. TOP HEADER */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="w-11 h-11 rounded-[14px] bg-white dark:bg-slate-800 border border-[#E8EBF5] dark:border-slate-700 flex items-center justify-center text-[#4B32C3] dark:text-indigo-400 shadow-xs active:scale-95 transition cursor-pointer shrink-0"
-            aria-label="Go back"
-          >
-            <ChevronLeft className="w-5 h-5 stroke-[2.5]" />
-          </button>
-          <h1 className="text-[19px] font-[800] text-[#1B1F3B] dark:text-white tracking-tight leading-none">
-            My Profile
-          </h1>
-        </div>
-        <span className="text-[13px] font-[600] text-[#4A5270] dark:text-slate-400 tracking-wide">
-          {todayFormatted}
-        </span>
-      </div>
 
       {/* 2. HERO CARD */}
       <div className="rounded-[24px] bg-gradient-to-br from-[#3B27B0] to-[#6B4DF0] p-5 text-white shadow-[0_12px_28px_rgba(75,50,195,0.28)] relative overflow-hidden mb-5">

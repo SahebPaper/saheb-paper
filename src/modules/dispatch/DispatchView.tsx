@@ -1494,10 +1494,50 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
   const handleAddReelToEdit = (rNo: string) => {
     const cleanNo = rNo.trim();
     if (!cleanNo) return;
-    if (!editReelNos.includes(cleanNo)) {
-      setEditReelNos(prev => [...prev, cleanNo]);
-      setEditReelInput('');
+    setEditModalError('');
+
+    // 1. Check if already added in current challan edit list
+    if (editReelNos.some(no => no.trim().toUpperCase() === cleanNo.toUpperCase())) {
+      setEditModalError(`Reel #${cleanNo} is already added in this challan.`);
+      return;
     }
+
+    // 2. Check if reel exists in inventory
+    const found = reels.find(r => r.reelNo.trim().toUpperCase() === cleanNo.toUpperCase());
+    if (!found) {
+      setEditModalError(`Reel #${cleanNo} not found in inventory.`);
+      return;
+    }
+
+    // 3. Check if reel is already dispatched/linked to another challan
+    const otherSlip = slips.find(s => 
+      s.id !== editingSlip?.id && 
+      s.slipNo !== editingSlip?.slipNo && 
+      (s.reelNos || []).some(no => no.trim().toUpperCase() === cleanNo.toUpperCase())
+    );
+    if (otherSlip) {
+      setEditModalError(`Reel #${cleanNo} is already dispatched in Challan #${otherSlip.slipNo}! A reel cannot be added to multiple challans.`);
+      return;
+    }
+
+    // 4. Check if reel's own dispatch details point to another challan
+    if ((found.status === 'DISPATCHED' || found.status === 'DELIVERED') &&
+        found.dispatchDetails?.packingSlipNo &&
+        found.dispatchDetails.packingSlipNo !== editingSlip?.slipNo) {
+      setEditModalError(`Reel #${cleanNo} is already dispatched in Challan #${found.dispatchDetails.packingSlipNo}!`);
+      return;
+    }
+
+    // 5. Check if reel failed QC
+    const wasInThisSlip = (editingSlip?.reelNos || []).some(no => no.trim().toUpperCase() === cleanNo.toUpperCase());
+    if (!wasInThisSlip && found.status === 'QC_FAILED') {
+      setEditModalError(`Reel #${cleanNo} has failed QC inspection. Cannot be dispatched.`);
+      return;
+    }
+
+    setEditModalError('');
+    setEditReelNos(prev => [...prev, found.reelNo]);
+    setEditReelInput('');
   };
 
   // Handle Save Edit Slip
@@ -1517,6 +1557,19 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
     if (editReelNos.length === 0) {
       setEditModalError('Delivery Challan must have at least 1 linked reel.');
       return;
+    }
+
+    // Validate that no linked reel is dispatched in another challan
+    for (const rNo of editReelNos) {
+      const otherSlip = slips.find(s => 
+        s.id !== editingSlip.id && 
+        s.slipNo !== editingSlip.slipNo && 
+        (s.reelNos || []).some(no => no.trim().toUpperCase() === rNo.trim().toUpperCase())
+      );
+      if (otherSlip) {
+        setEditModalError(`Reel #${rNo} is already dispatched in Challan #${otherSlip.slipNo}. Please remove it before saving.`);
+        return;
+      }
     }
 
     const updatedSlip: PackingSlip = {
@@ -1604,9 +1657,14 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
     return reels.filter(r => {
       const isNotDispatched = r.status !== 'DISPATCHED' && r.status !== 'DELIVERED';
       const isNotAlreadyInChallan = !editReelNos.includes(r.reelNo);
-      return isNotDispatched && isNotAlreadyInChallan;
+      const isNotInOtherSlip = !slips.some(s => 
+        s.id !== editingSlip?.id && 
+        s.slipNo !== editingSlip?.slipNo && 
+        (s.reelNos || []).some(no => no.trim().toUpperCase() === r.reelNo.trim().toUpperCase())
+      );
+      return isNotDispatched && isNotAlreadyInChallan && isNotInOtherSlip;
     });
-  }, [reels, editReelNos]);
+  }, [reels, editReelNos, slips, editingSlip]);
 
   // Unique products for edit picker
   const editPickerUniqueProducts = useMemo(() => {
@@ -4344,48 +4402,9 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                           top: `${menuPos.top}px`,
                           right: `${menuPos.right}px`,
                         }}
-                        className="w-38 bg-white dark:bg-[#131d38] border border-slate-200 dark:border-[#203058] rounded-2xl shadow-2xl z-[9999] p-1.5 space-y-1 animate-in fade-in zoom-in-95 text-left select-none font-sans"
+                        className="w-44 bg-white dark:bg-[#131d38] border border-slate-200 dark:border-[#203058] rounded-2xl shadow-2xl z-[9999] p-1.5 space-y-1 animate-in fade-in zoom-in-95 text-left select-none font-sans"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <button
-                          type="button"
-                          disabled={isViewer}
-                          onClick={() => {
-                            if (isViewer) return;
-                            setOpenMenuSlipId(null);
-                            setMenuPos(null);
-                            handleDownloadPdf(currentSlip);
-                          }}
-                          className={`w-full px-3 py-2 text-left text-xs font-bold rounded-xl transition flex items-center gap-2 ${
-                            isViewer
-                              ? 'opacity-50 cursor-not-allowed text-slate-400'
-                              : 'text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer'
-                          }`}
-                        >
-                          <Download className="w-4 h-4 text-blue-600" />
-                          <span>Download Challan (PDF)</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={isViewer}
-                          onClick={() => {
-                            if (isViewer) return;
-                            setOpenMenuSlipId(null);
-                            setMenuPos(null);
-                            handlePrintSlip(currentSlip);
-                          }}
-                          className={`w-full px-3 py-2 text-left text-xs font-bold rounded-xl transition flex items-center gap-2 ${
-                            isViewer
-                              ? 'opacity-50 cursor-not-allowed text-slate-400'
-                              : 'text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer'
-                          }`}
-                          title={isViewer ? "Printing locked for Viewer (Read-Only)" : undefined}
-                        >
-                          {isViewer ? <Lock className="h-3.5 w-3.5 text-amber-500" /> : <Printer className="h-3.5 w-3.5 text-blue-500" />}
-                          <span>{isViewer ? 'Print Receipt (Locked)' : 'Print Receipt & Gate Pass'}</span>
-                        </button>
-
                         <button
                           type="button"
                           onClick={() => {
@@ -4393,9 +4412,9 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                             setMenuPos(null);
                             handleOpenEditSlip(currentSlip);
                           }}
-                          className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-700 dark:hover:text-amber-300 rounded-xl transition cursor-pointer flex items-center gap-2"
+                          className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-700 dark:hover:text-amber-300 rounded-xl transition cursor-pointer flex items-center gap-2.5"
                         >
-                          <Pencil className="h-3.5 w-3.5 text-amber-500" />
+                          <Pencil className="h-4 w-4 text-amber-500 shrink-0" />
                           <span>Edit Challan</span>
                         </button>
 
@@ -4406,9 +4425,9 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                             setMenuPos(null);
                             handleDeleteSlip(currentSlip);
                           }}
-                          className="w-full px-3 py-2 text-left text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition cursor-pointer flex items-center gap-2"
+                          className="w-full px-3.5 py-2.5 text-left text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition cursor-pointer flex items-center gap-2.5"
                         >
-                          <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                          <Trash2 className="h-4 w-4 text-red-500 shrink-0" />
                           <span>Delete Challan</span>
                         </button>
                       </div>
@@ -4560,12 +4579,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                             handleOpenEditStockPicker();
                             return;
                           }
-                          const found = reels.find(r => r.reelNo.toLowerCase() === val.toLowerCase());
-                          if (found) {
-                            handleAddReelToEdit(found.reelNo);
-                          } else {
-                            handleOpenEditStockPicker();
-                          }
+                          handleAddReelToEdit(val);
                         }
                       }}
                       placeholder="Type or scan reel number (e.g. 260500586)..."
@@ -4578,11 +4592,8 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                     onClick={() => {
                       const val = editReelInput.trim();
                       if (val) {
-                        const found = reels.find(r => r.reelNo.toLowerCase() === val.toLowerCase());
-                        if (found) {
-                          handleAddReelToEdit(found.reelNo);
-                          return;
-                        }
+                        handleAddReelToEdit(val);
+                        return;
                       }
                       handleOpenEditStockPicker();
                     }}

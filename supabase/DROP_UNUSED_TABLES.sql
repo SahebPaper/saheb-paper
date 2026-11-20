@@ -1,4 +1,4 @@
-﻿-- ==============================================================================
+-- ==============================================================================
 -- SAHEB PAPER ERP - DROP UNUSED MODULE TABLES (DEMO DATABASE: scyiwfqkknuphzhvklok)
 -- 
 -- Modules Removed:

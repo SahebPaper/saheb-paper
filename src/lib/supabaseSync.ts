@@ -335,7 +335,6 @@ export const reelToDb = (reel: Reel) => ({
   size: reel.size,
   ply: reel.ply,
   weight: reel.weight,
-  dia: reel.dia || 0,
   joint: reel.joint || 0,
   status: reel.status,
   qc_grade: reel.qcGrade,

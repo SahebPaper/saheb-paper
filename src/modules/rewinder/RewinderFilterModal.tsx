@@ -185,7 +185,7 @@ export const RewinderFilterModal: React.FC<RewinderFilterModalProps> = ({
             <h3 className="text-[11px] font-[800] text-[#1B1F3B] dark:text-slate-300 uppercase tracking-wider mb-2.5">
               QC STATUS
             </h3>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               {/* All */}
               <button
                 type="button"
@@ -196,7 +196,35 @@ export const RewinderFilterModal: React.FC<RewinderFilterModalProps> = ({
                     : 'bg-white dark:bg-slate-800/80 text-[#1B1F3B] dark:text-slate-200 border-[#DDE0EE] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750'
                 }`}
               >
-                <span>All</span>
+                <span>All Statuses</span>
+              </button>
+
+              {/* In Stock */}
+              <button
+                type="button"
+                onClick={() => setStatusFilter('IN_STOCK')}
+                className={`min-h-[44px] px-3 py-2 rounded-[16px] text-xs font-[800] text-center transition cursor-pointer border flex items-center justify-center gap-1.5 ${
+                  statusFilter === 'IN_STOCK'
+                    ? 'bg-[#4B32C3] text-white border-[#4B32C3] shadow-xs'
+                    : 'bg-white dark:bg-slate-800/80 text-[#1B1F3B] dark:text-slate-200 border-[#DDE0EE] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                <span>In Stock Only</span>
+              </button>
+
+              {/* Dispatched */}
+              <button
+                type="button"
+                onClick={() => setStatusFilter('DISPATCHED')}
+                className={`min-h-[44px] px-3 py-2 rounded-[16px] text-xs font-[800] text-center transition cursor-pointer border flex items-center justify-center gap-1.5 ${
+                  statusFilter === 'DISPATCHED'
+                    ? 'bg-[#4B32C3] text-white border-[#4B32C3] shadow-xs'
+                    : 'bg-white dark:bg-slate-800/80 text-[#1B1F3B] dark:text-slate-200 border-[#DDE0EE] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
+                <span>Dispatched</span>
               </button>
 
               {/* Grade A */}

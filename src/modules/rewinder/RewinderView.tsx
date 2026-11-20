@@ -816,8 +816,9 @@ export const RewinderView: React.FC = () => {
     return reels.filter(r => {
       const cleanProd = cleanProductName(r.product);
 
-      // Exclude dispatched reels completely
-      if (r.status === 'DISPATCHED') return false;
+      // Status & Dispatch Filters
+      if (statusFilter === 'IN_STOCK' && r.status === 'DISPATCHED') return false;
+      if (statusFilter === 'DISPATCHED' && r.status !== 'DISPATCHED') return false;
 
       // 1. Cascading Filters
       if (filterProduct !== 'ALL' && cleanProd !== cleanProductName(filterProduct)) return false;
@@ -829,7 +830,7 @@ export const RewinderView: React.FC = () => {
       if (selectedProductFilter !== 'all' && cleanProd !== cleanProductName(selectedProductFilter)) return false;
 
       // 3. QC Status Filter
-      if (statusFilter !== 'all') {
+      if (statusFilter !== 'all' && statusFilter !== 'IN_STOCK' && statusFilter !== 'DISPATCHED') {
         const isB = r.qcGrade === 'B' || r.status === 'IN_STOCK_B' || detectProductGrade(r.product) === 'B';
         if (statusFilter === 'QC_PENDING' && (r.status !== 'QC_PENDING' || isB)) return false;
         if (statusFilter === 'GRADE_A' && isB) return false;
@@ -1759,7 +1760,7 @@ export const RewinderView: React.FC = () => {
 
             {/* Total / Count Badge */}
             <div className="hidden sm:flex items-center px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black text-slate-700 dark:text-slate-200 shrink-0 shadow-2xs">
-              <span>{filteredReels.length} / {reels.filter(r => r.status !== 'DISPATCHED').length} Reels</span>
+              <span>{filteredReels.length} / {reels.length} Reels</span>
             </div>
 
             {/* Filter Pop-up Trigger Button */}
@@ -1824,7 +1825,7 @@ export const RewinderView: React.FC = () => {
               {statusFilter !== 'all' && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold">
                   <span>
-                    Status: {statusFilter === 'QC_PENDING' ? 'QC Pending' : statusFilter === 'GRADE_A' ? 'Grade A' : 'Grade B'}
+                    Status: {statusFilter === 'IN_STOCK' ? 'In Stock Only' : statusFilter === 'DISPATCHED' ? 'Dispatched' : statusFilter === 'QC_PENDING' ? 'QC Pending' : statusFilter === 'GRADE_A' ? 'Grade A' : 'Grade B'}
                   </span>
                   <button
                     type="button"
@@ -2069,6 +2070,11 @@ export const RewinderView: React.FC = () => {
                                     <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                                       Grade A
                                     </span>
+                                    {reel.status === 'DISPATCHED' && (
+                                      <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
+                                        Dispatched {reel.challanNo ? `(#${reel.challanNo})` : ''}
+                                      </span>
+                                    )}
                                   </div>
                                 </td>
                                 <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
@@ -2145,6 +2151,11 @@ export const RewinderView: React.FC = () => {
                                     <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                                       Grade B
                                     </span>
+                                    {reel.status === 'DISPATCHED' && (
+                                      <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
+                                        Dispatched {reel.challanNo ? `(#${reel.challanNo})` : ''}
+                                      </span>
+                                    )}
                                   </div>
                                 </td>
                                 <td className="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-bold">
@@ -2329,7 +2340,7 @@ export const RewinderView: React.FC = () => {
 
             {statusFilter !== 'all' && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold">
-                <span>{statusFilter === 'QC_PENDING' ? 'QC Pending' : statusFilter === 'GRADE_A' ? 'Grade A' : 'Grade B'}</span>
+                <span>{statusFilter === 'IN_STOCK' ? 'In Stock Only' : statusFilter === 'DISPATCHED' ? 'Dispatched' : statusFilter === 'QC_PENDING' ? 'QC Pending' : statusFilter === 'GRADE_A' ? 'Grade A' : 'Grade B'}</span>
                 <button
                   type="button"
                   onClick={() => setStatusFilter('all')}

@@ -1,11 +1,14 @@
 import { jsPDF } from 'jspdf';
 import { downloadBlobFile } from './fileDownloader';
+import { formatSizeInCm } from '../components/ReelPrintLabel';
 
 export interface LabelStickerData {
   id?: string;
   reelNo: string;
   gsm?: string | number;
   weight?: string | number;
+  size?: string | number;
+  width?: string | number;
   dia?: string | number;
   ply?: string | number;
   product?: string;
@@ -228,16 +231,16 @@ export async function generateLabelStickersPdfDoc(
     const weightDisplay = String(label.weight || '1,450').replace(/kg/i, '').trim();
     doc.text(`${weightDisplay} KG`, 55, 52);
 
-    // ───── 3. GRID 2: DIA & PLY (Y = 57 to 74 mm) ─────
-    // Left Box: DIA
+    // ───── 3. GRID 2: SIZE & PLY (Y = 57 to 74 mm) ─────
+    // Left Box: SIZE
     doc.roundedRect(6, 57, 42, 17, 1.5, 1.5, 'FD');
 
     doc.setFontSize(8);
-    doc.text('DIA', 9, 63);
+    doc.text('SIZE', 9, 63);
 
     doc.setFontSize(16);
-    const diaDisplay = String(label.dia || '115 CM');
-    doc.text(diaDisplay, 9, 71);
+    const sizeDisplay = formatSizeInCm(label.size || label.width || label.dia || '32 CM');
+    doc.text(sizeDisplay, 9, 71);
 
     // Right Box: PLY
     doc.roundedRect(52, 57, 42, 17, 1.5, 1.5, 'FD');

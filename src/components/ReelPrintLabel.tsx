@@ -6,6 +6,8 @@ export interface ReelPrintLabelProps {
   gsm?: string | number;
   /** Width with unit - e.g. '23 CM' */
   width?: string;
+  /** Reel Size with unit - e.g. '32 CM' */
+  size?: string | number;
   /** Weight with unit - e.g. '51 KG' */
   weight?: string;
   /** Diameter with unit - e.g. '91 CM' */
@@ -95,6 +97,49 @@ export const formatDiaInCm = (rawDia?: string | number): string => {
 };
 
 /**
+ * Formats any raw reel size strictly in Centimeters (CM).
+ * Handles numbers like 32 -> "32 CM", 37 -> "37 CM",
+ * or strings like "32", "32 cm", "320 mm", "3200 mm" -> "32 CM".
+ */
+export const formatSizeInCm = (rawSize?: string | number): string => {
+  if (rawSize === undefined || rawSize === null) return '---';
+  const str = String(rawSize).trim();
+  if (!str || str === '---') return '---';
+
+  // If already formatted with CM (e.g. "32 CM" or "32 cm")
+  if (/^\s*([0-9]+(?:\.[0-9]+)?)\s*cm\s*$/i.test(str)) {
+    const match = str.match(/([0-9]+(?:\.[0-9]+)?)/);
+    if (match) {
+      const val = parseFloat(match[1]);
+      if (!isNaN(val) && val > 0) {
+        const numStr = Number.isInteger(val) ? val.toString() : val.toFixed(1).replace(/\.0$/, '');
+        return `${numStr} CM`;
+      }
+    }
+  }
+
+  // Extract number
+  const match = str.match(/([0-9]+(?:\.[0-9]+)?)/);
+  if (!match) return str;
+
+  let val = parseFloat(match[1]);
+  if (isNaN(val) || val <= 0) return '---';
+
+  const isExplicitMm = /mm/i.test(str);
+  if (isExplicitMm) {
+    if (val >= 1000) val = val / 100;
+    else if (val >= 100) val = val / 10;
+  } else if (val >= 1000) {
+    val = val / 100;
+  } else if (val >= 100) {
+    val = val / 10;
+  }
+
+  const numStr = Number.isInteger(val) ? val.toString() : val.toFixed(1).replace(/\.0$/, '');
+  return `${numStr} CM`;
+};
+
+/**
  * 100% Pure Black & White Thermal / Industrial Reel Label
  * Specifically engineered for TSC TTP-244 Pro & 203 DPI thermal barcode printers.
  * - STRICT Monochrome: Only Pure Black (#000000) on Pure White (#ffffff).
@@ -103,7 +148,8 @@ export const formatDiaInCm = (rawDia?: string | number): string => {
  */
 export const ReelPrintLabel: React.FC<ReelPrintLabelProps> = ({
   gsm = '',
-  width: _width = '', // Deprecated / removed from visual label layout
+  width: _width = '', // Deprecated / fallback
+  size = '',
   weight = '',
   dia = '',
   core = '',
@@ -266,7 +312,7 @@ export const ReelPrintLabel: React.FC<ReelPrintLabelProps> = ({
           </div>
         </div>
 
-        {/* Row 2: DIA (in CM), PLY */}
+        {/* Row 2: SIZE (in CM), PLY */}
         <div
           style={{
             display: 'grid',
@@ -274,13 +320,13 @@ export const ReelPrintLabel: React.FC<ReelPrintLabelProps> = ({
             gap: '8px',
           }}
         >
-          {/* DIA BOX */}
+          {/* SIZE BOX */}
           <div className="spec-box" style={specBoxStyle}>
             <div style={{ fontSize: '10px', fontWeight: 800, color: '#000000', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '2px' }}>
-              DIA
+              SIZE
             </div>
             <div style={{ fontSize: '18px', fontWeight: 900, color: '#000000', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {formatDiaInCm(dia)}
+              {formatSizeInCm(size || _width || dia)}
             </div>
           </div>
 

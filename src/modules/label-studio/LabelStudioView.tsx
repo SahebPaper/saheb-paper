@@ -37,7 +37,7 @@ import {
   Sparkles,
   RotateCcw,
 } from 'lucide-react';
-import { ReelPrintLabel, formatDiaInCm } from '../../components/ReelPrintLabel';
+import { ReelPrintLabel, formatDiaInCm, formatSizeInCm } from '../../components/ReelPrintLabel';
 import { useAuth } from '../auth/AuthContext';
 import { MobileToast, type ToastMessage } from '../../components/MobileToast';
 import { downloadLabelStickersPdf, type LabelStickerData } from '../../utils/labelStickerPdf';
@@ -49,6 +49,7 @@ export interface LabelItemData {
   barcodeNo: string;
   qrCodeEmbedValue: string;
   gsm: string;
+  size: string;
   sizeWidth: string;
   netWeightKg: string;
   rollNo: string;
@@ -67,6 +68,7 @@ export interface StoredReelItem {
   reelNo: string;
   productName: string;
   gsm: string;
+  size: string;
   width: string;
   netWeightKg: string;
   rollNo: string;
@@ -84,8 +86,7 @@ export interface StoredReelItem {
 
 // Convert a database Reel or item into standard LabelItemData
 const reelToLabelItem = (reel: StoredReelItem, copies = 1, overrides?: Partial<LabelItemData>): LabelItemData => {
-  const rSize = Number(reel.width);
-  const mmWidth = rSize ? (rSize <= 100 ? String(rSize * 100) : String(rSize)) : '3000';
+  const reelSize = reel.size || reel.width || '32';
   return {
     id: `lbl-${reel.reelNo}-${Date.now()}`,
     productTitle: overrides?.productTitle ?? (reel.productName || 'Tissue Paper Reel'),
@@ -93,7 +94,8 @@ const reelToLabelItem = (reel: StoredReelItem, copies = 1, overrides?: Partial<L
     barcodeNo: overrides?.barcodeNo ?? reel.reelNo,
     qrCodeEmbedValue: overrides?.qrCodeEmbedValue ?? reel.qrValue ?? reel.reelNo,
     gsm: overrides?.gsm ?? (reel.gsm ? String(reel.gsm) : '16'),
-    sizeWidth: overrides?.sizeWidth ?? mmWidth,
+    size: overrides?.size ?? reelSize,
+    sizeWidth: overrides?.sizeWidth ?? reelSize,
     netWeightKg: overrides?.netWeightKg ?? reel.netWeightKg ?? '',
     rollNo: overrides?.rollNo ?? reel.rollNo ?? '',
     shade: overrides?.shade ?? reel.shade ?? 'Standard',
@@ -150,13 +152,13 @@ export const LabelStudioView: React.FC = () => {
       return liveReels
         .filter(r => r && r.reelNo)
         .map(r => {
-          const rSize = Number(r.size);
-          const mmWidth = rSize ? (rSize <= 100 ? String(rSize * 100) : String(rSize)) : '3000';
+          const rawSize = r.size !== undefined && r.size !== null ? String(r.size) : '';
           return {
             reelNo: r.reelNo,
             productName: r.product || 'Tissue Paper Reel',
             gsm: r.gsm ? String(r.gsm) : '16',
-            width: mmWidth,
+            size: rawSize || '32',
+            width: rawSize || '32',
             netWeightKg: r.weight ? r.weight.toLocaleString('en-IN') : '',
             rollNo: r.parentRollNo ? r.parentRollNo.replace(/\D/g, '') || r.parentRollNo : '',
             shade: r.shade || 'Standard',
@@ -256,7 +258,7 @@ export const LabelStudioView: React.FC = () => {
     reelNo: '',
     productName: 'Napkin Tissue',
     gsm: '16.0',
-    width: '3000',
+    width: '32',
     netWeightKg: '1,200',
     ply: '2 Ply',
     rollNo: '',
@@ -398,6 +400,7 @@ export const LabelStudioView: React.FC = () => {
         reelNo: item.barcodeNo,
         gsm: item.gsm,
         weight: item.netWeightKg,
+        size: item.size,
         dia: item.dia,
         ply: item.ply,
         product: item.productTitle,
@@ -444,6 +447,7 @@ export const LabelStudioView: React.FC = () => {
         reelNo: activePreviewReel.reelNo,
         gsm: activePreviewReel.gsm,
         weight: activePreviewReel.netWeightKg,
+        size: activePreviewReel.size,
         dia: activePreviewReel.dia,
         ply: activePreviewReel.ply,
         product: activePreviewReel.productName,
@@ -600,7 +604,8 @@ export const LabelStudioView: React.FC = () => {
       reelNo: manualForm.reelNo.trim(),
       productName: manualForm.productName,
       gsm: manualForm.gsm,
-      width: manualForm.width,
+      size: manualForm.width || '32',
+      width: manualForm.width || '32',
       netWeightKg: manualForm.netWeightKg,
       rollNo: manualForm.rollNo,
       shade: manualForm.shade,
@@ -882,7 +887,7 @@ export const LabelStudioView: React.FC = () => {
                           <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium flex-wrap">
                             <span>GSM: <strong className="text-slate-800 dark:text-slate-200 font-mono">{reel.gsm}</strong></span>
                             <span>·</span>
-                            <span>Decal: <strong className="text-slate-800 dark:text-slate-200 font-mono">{reel.width} mm</strong></span>
+                            <span>Size: <strong className="text-slate-800 dark:text-slate-200 font-mono">{formatSizeInCm(reel.size || reel.width).toLowerCase()}</strong></span>
                             <span>·</span>
                             <span>Weight: <strong className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">{reel.netWeightKg} KG</strong></span>
                             <span>·</span>
@@ -1099,6 +1104,7 @@ export const LabelStudioView: React.FC = () => {
                 <div id="printable-label-card" className="w-full h-full flex justify-center print:hidden">
                   <ReelPrintLabel
                     gsm={activePreviewReel.gsm}
+                    size={activePreviewReel.size}
                     width={activePreviewReel.width}
                     dia={activePreviewReel.dia}
                     core={activePreviewReel.core}
@@ -1282,12 +1288,13 @@ export const LabelStudioView: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-[10px] font-black uppercase text-slate-500 mb-1">
-                    Decal (mm)
+                    Size (cm)
                   </label>
                   <input
                     type="text"
                     value={manualForm.width}
                     onChange={e => setManualForm({ ...manualForm, width: e.target.value })}
+                    placeholder="e.g. 32"
                     className="w-full p-2 bg-slate-50 dark:bg-[#0f2828] border border-slate-200 dark:border-[#2c4a4a] rounded-xl text-xs font-mono font-bold dark:text-white"
                   />
                 </div>
@@ -1458,6 +1465,7 @@ export const LabelStudioView: React.FC = () => {
                   >
                     <ReelPrintLabel
                       gsm={labelItem.gsm}
+                      size={labelItem.size}
                       width={labelItem.sizeWidth}
                       dia={labelItem.dia}
                       core={labelItem.core}

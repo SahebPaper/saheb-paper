@@ -23,7 +23,7 @@ import type { Reel } from '../data/types';
 import { COMPANY_CONFIG } from '../config/company';
 import { CustomSearchableSelect } from './CustomSearchableSelect';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
-import { ReelPrintLabel, formatDiaInCm } from './ReelPrintLabel';
+import { ReelPrintLabel, formatDiaInCm, formatSizeInCm } from './ReelPrintLabel';
 import { downloadLabelStickersPdf } from '../utils/labelStickerPdf';
 
 interface PrintLabelModalProps {
@@ -66,8 +66,7 @@ export const PrintLabelModal: React.FC<PrintLabelModalProps> = ({
 
   const buildInitialData = (reel?: Reel | null, code?: string) => {
     if (reel) {
-      const rSize = Number(reel.size);
-      const mmSize = rSize ? (rSize <= 100 ? String(rSize * 100) : String(rSize)) : '3000';
+      const rSize = reel.size !== undefined && reel.size !== null ? String(reel.size) : '32';
       return {
         title: COMPANY_CONFIG.name,
         subtitle: 'Plant: Chandisar, Palanpur',
@@ -75,7 +74,7 @@ export const PrintLabelModal: React.FC<PrintLabelModalProps> = ({
         qrValue: reel.reelNo,
         product: reel.product || 'Tissue Paper Reel',
         gsm: String(reel.gsm || '16.0'),
-        size: mmSize,
+        size: rSize,
         ply: `${reel.ply || 2} Ply`,
         joint: `${reel.joint ?? 0} Joints`,
         weight: String(reel.weight || '1,200'),
@@ -140,15 +139,14 @@ export const PrintLabelModal: React.FC<PrintLabelModalProps> = ({
   const handleSelectReel = (reelNo: string) => {
     const found = stockReels.find(r => r.reelNo === reelNo);
     if (found) {
-      const rSize = Number(found.size);
-      const mmSize = rSize ? (rSize <= 100 ? String(rSize * 100) : String(rSize)) : '3000';
+      const rSize = found.size !== undefined && found.size !== null ? String(found.size) : '32';
       setFormData({
         ...formData,
         code: found.reelNo,
         qrValue: found.reelNo,
         product: found.product,
         gsm: String(found.gsm),
-        size: mmSize,
+        size: rSize,
         ply: `${found.ply || 2} Ply`,
         joint: `${found.joint ?? 0} Joints`,
         weight: String(found.weight),
@@ -166,6 +164,7 @@ export const PrintLabelModal: React.FC<PrintLabelModalProps> = ({
         reelNo: formData.code || 'RL-1001',
         gsm: formData.gsm,
         weight: formData.weight,
+        size: formData.size,
         dia: formData.dia,
         ply: formData.ply,
         product: formData.product,
@@ -430,11 +429,12 @@ export const PrintLabelModal: React.FC<PrintLabelModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-extrabold text-slate-500 uppercase mb-1">Decal (mm)</label>
+                <label className="block text-[10px] font-extrabold text-slate-500 uppercase mb-1">Size (cm)</label>
                 <input
                   type="text"
                   value={formData.size}
                   onChange={e => setFormData({ ...formData, size: e.target.value })}
+                  placeholder="e.g. 32"
                   className="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white font-mono"
                 />
               </div>
@@ -565,6 +565,7 @@ export const PrintLabelModal: React.FC<PrintLabelModalProps> = ({
             >
               <ReelPrintLabel
                 gsm={formData.gsm}
+                size={formData.size}
                 dia={formData.dia}
                 core={formData.core}
                 ply={formData.ply}

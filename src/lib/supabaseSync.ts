@@ -378,7 +378,7 @@ export const logToDb = (l: TransactionLog) => ({
   module: l.module,
   action: l.action,
   details: l.details,
-  user_name: l.user,
+  user: l.user || 'System',
 });
 
 export const logFromDb = (r: any): TransactionLog => ({

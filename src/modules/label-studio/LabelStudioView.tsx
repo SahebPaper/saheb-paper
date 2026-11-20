@@ -182,21 +182,24 @@ export const LabelStudioView: React.FC = () => {
   // Filter States
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedProductFilter, setSelectedProductFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'in_stock'>('in_stock');
+  const [statusFilter, setStatusFilter] = useState<'in_stock' | 'dispatched' | 'all'>('in_stock');
 
-  // Filtered Reels based on user criteria
-  const filteredReels = useMemo(() => {
-    let list = allStoredReels;
-
-    // Filter by stock status if in_stock is selected (and there are in-stock reels)
+  // Base list of reels according to active status filter
+  const baseStatusReels = useMemo(() => {
     if (statusFilter === 'in_stock') {
-      const inStock = list.filter(
+      return allStoredReels.filter(
         r => r.status === 'IN_STOCK' || r.status === 'IN_STOCK_B' || r.status === 'QC_PASSED'
       );
-      if (inStock.length > 0) {
-        list = inStock;
-      }
     }
+    if (statusFilter === 'dispatched') {
+      return allStoredReels.filter(r => r.status === 'DISPATCHED');
+    }
+    return allStoredReels;
+  }, [allStoredReels, statusFilter]);
+
+  // Filtered Reels based on user criteria (status, product, search query)
+  const filteredReels = useMemo(() => {
+    let list = baseStatusReels;
 
     // Filter by Product
     if (selectedProductFilter !== 'all') {
@@ -219,7 +222,7 @@ export const LabelStudioView: React.FC = () => {
     }
 
     return list;
-  }, [allStoredReels, statusFilter, selectedProductFilter, searchQuery]);
+  }, [baseStatusReels, selectedProductFilter, searchQuery]);
 
   // Multi-Selection State (Set of selected reel numbers - starts empty)
   const [selectedReelNos, setSelectedReelNos] = useState<string[]>([]);
@@ -730,6 +733,17 @@ export const LabelStudioView: React.FC = () => {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setStatusFilter('dispatched')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    statusFilter === 'dispatched'
+                      ? 'bg-white dark:bg-[#1a3535] text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Dispatched
+                </button>
+                <button
+                  type="button"
                   onClick={() => setStatusFilter('all')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                     statusFilter === 'all'
@@ -753,10 +767,10 @@ export const LabelStudioView: React.FC = () => {
                     : 'bg-slate-100 dark:bg-[#0f2828] text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
                 }`}
               >
-                All Products ({allStoredReels.length})
+                All Products ({baseStatusReels.length})
               </button>
               {catalogProducts.map(p => {
-                const count = allStoredReels.filter(r => (r.productName || '').toLowerCase().includes(p.name.toLowerCase())).length;
+                const count = baseStatusReels.filter(r => (r.productName || '').toLowerCase().includes(p.name.toLowerCase())).length;
                 return (
                   <button
                     key={p.id}
@@ -822,18 +836,30 @@ export const LabelStudioView: React.FC = () => {
               <div className="bg-white dark:bg-[#1a3535] border border-slate-200/90 dark:border-[#2c4a4a] rounded-3xl p-8 text-center space-y-3">
                 <Package className="h-10 w-10 text-slate-300 dark:text-slate-600 mx-auto" />
                 <h4 className="text-sm font-black text-slate-700 dark:text-slate-200">
-                  No Reels Found
+                  {statusFilter === 'in_stock' ? 'No In-Stock Reels (All Dispatched)' : 'No Reels Found'}
                 </h4>
                 <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  No inventory reels match your current search or product filter. You can add a manual reel or change the filter.
+                  {statusFilter === 'in_stock'
+                    ? 'Saari reels dispatch ho chuki hain, isiliye active warehouse stock me 0 reels bachi hain. Dispatched reels ke barcode print karne ke liye upar "Dispatched" ya "All Reels" select karein.'
+                    : 'No inventory reels match your current search or product filter.'}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setIsManualModalOpen(true)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-[#6C4FE0] text-white hover:bg-[#5a3ec8] transition cursor-pointer"
-                >
-                  + Add Custom / Manual Reel
-                </button>
+                {statusFilter === 'in_stock' ? (
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('all')}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[#6C4FE0] text-white hover:bg-[#5a3ec8] transition cursor-pointer"
+                  >
+                    View All / Dispatched Reels
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsManualModalOpen(true)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[#6C4FE0] text-white hover:bg-[#5a3ec8] transition cursor-pointer"
+                  >
+                    + Add Custom / Manual Reel
+                  </button>
+                )}
               </div>
             ) : (
               filteredReels.map(reel => {
@@ -876,6 +902,15 @@ export const LabelStudioView: React.FC = () => {
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#0f2828] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#2c4a4a] truncate max-w-[140px]">
                               {reel.productName}
                             </span>
+                            {reel.status === 'DISPATCHED' ? (
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                Dispatched
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                In Stock
+                              </span>
+                            )}
                             {isPreviewing && (
                               <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300">
                                 In Preview

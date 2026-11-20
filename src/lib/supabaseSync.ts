@@ -1340,7 +1340,6 @@ export async function syncAllTables(force = false): Promise<void> {
     'parties',
     'vendors',
     'vehicles',
-    'machine_rolls',
     'reels',
     'transaction_logs',
     'packing_slips',

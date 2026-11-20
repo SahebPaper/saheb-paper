@@ -986,7 +986,7 @@ VITE_ENABLE_SMS_OTP=false
 ### Contact
 
 - **Developer**: Dhruvkumar Niteshkumar Thakor
-- **Email**: thakordhruv097@gmail.com
+- **Email**: info@sahebpaper.com
 - **GitHub**: [@thakordhruv097-spec](https://github.com/thakordhruv097-spec)
 
 ### Contributing

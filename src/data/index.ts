@@ -106,7 +106,10 @@ export const KEYS = {
   DELETED_PARTIES: 'saheb_deleted_parties',
   DELETED_VENDORS: 'saheb_deleted_vendors',
   DELETED_VEHICLES: 'saheb_deleted_vehicles',
+  DELETED_PACKING_SLIPS: 'saheb_deleted_packing_slips',
 };
+
+export const getDeletedPackingSlips = (): string[] => getJSON<string[]>(KEYS.DELETED_PACKING_SLIPS, []);
 
 /**
  * Verifies whether a user has a valid, non-default security recovery answer configured.
@@ -457,7 +460,7 @@ export function initializeStorage() {
 
   // Instant purge of unwanted ghost reels, old demo canonical reels, and pre-Nov-19 legacy reels
   try {
-    const ghostNos = new Set(['26110026', '26110027', '26110029', ...Array.from(CANONICAL_DEMO_REEL_NOS)]);
+    const ghostNos = new Set(['260803043', '260803083', '26110001', '26110026', '26110027', '26110029', ...Array.from(CANONICAL_DEMO_REEL_NOS)]);
     const raw = localStorage.getItem(KEYS.REELS);
     if (raw) {
       const parsed: Reel[] = JSON.parse(raw);
@@ -3064,6 +3067,22 @@ export function getPackingSlips(): PackingSlip[] {
     return existing;
   }
 
+  // Filter out any tombstoned deleted slips
+  const deletedSlips = new Set(
+    getJSON<string[]>(KEYS.DELETED_PACKING_SLIPS, []).map(s => (s || '').trim().toUpperCase())
+  );
+  if (deletedSlips.size > 0) {
+    const withoutDeleted = existing.filter(s => {
+      const sId = (s.id || '').trim().toUpperCase();
+      const sNo = (s.slipNo || '').trim().toUpperCase();
+      return !deletedSlips.has(sId) && !deletedSlips.has(sNo);
+    });
+    if (withoutDeleted.length !== existing.length) {
+      existing = withoutDeleted;
+      setJSON(KEYS.PACKING_SLIPS, existing, false);
+    }
+  }
+
   // Filter out any legacy pre-go-live packing slips (e.g. before 2026-11-19)
   const cleaned = existing.filter(s => {
     const d = s.date || s.dispatchDate;
@@ -3284,14 +3303,22 @@ export function savePackingSlip(slip: PackingSlip, user: string): PackingSlip {
 export function deletePackingSlip(slipId: string, user: string): boolean {
   const slips = getPackingSlips();
   const isMatch = (a: string, b: string) => (a || '').trim().toUpperCase() === (b || '').trim().toUpperCase();
-  const slipIndex = slips.findIndex(s => s.id === slipId || isMatch(s.slipNo, slipId));
+  const slipIndex = slips.findIndex(s => (s.id && s.id === slipId) || isMatch(s.slipNo, slipId) || (s.id && isMatch(s.id, slipId)));
   if (slipIndex === -1) return false;
 
   const slip = slips[slipIndex];
   const reels = getReels();
   let reelsChanged = false;
 
-  // If the slip had linked reels, restore their status back to in-stock
+  // 1. Add both ID and slipNo to tombstone list to prevent any resurrection
+  const deletedSlips = getJSON<string[]>(KEYS.DELETED_PACKING_SLIPS, []);
+  const deletedSet = new Set(deletedSlips.map(s => (s || '').trim().toUpperCase()));
+  if (slip.id) deletedSet.add(slip.id.trim().toUpperCase());
+  if (slip.slipNo) deletedSet.add(slip.slipNo.trim().toUpperCase());
+  if (slipId) deletedSet.add(slipId.trim().toUpperCase());
+  setJSON(KEYS.DELETED_PACKING_SLIPS, Array.from(deletedSet));
+
+  // 2. If the slip had linked reels, restore their status back to in-stock and clear challanNo
   if (slip.reelNos && slip.reelNos.length > 0) {
     slip.reelNos.forEach(rNo => {
       const reel = reels.find(r => isMatch(r.reelNo, rNo));
@@ -3299,6 +3326,8 @@ export function deletePackingSlip(slipId: string, user: string): boolean {
         const grade = (reel.qcGrade || 'A').toUpperCase();
         reel.status = grade === 'B' ? 'IN_STOCK_B' : 'IN_STOCK';
         delete reel.dispatchDetails;
+        reel.challanNo = undefined;
+        (reel as any).challan_no = null;
         reelsChanged = true;
       }
     });
@@ -3310,19 +3339,30 @@ export function deletePackingSlip(slipId: string, user: string): boolean {
     }
   }
 
-  slips.splice(slipIndex, 1);
-  setJSON(KEYS.PACKING_SLIPS, slips);
-  pushDeleteToCloud('packing_slips', 'id', slip.id);
+  // 3. Remove slip from local packing slips
+  const remainingSlips = slips.filter(s => s.id !== slip.id && !isMatch(s.slipNo, slip.slipNo));
+  setJSON(KEYS.PACKING_SLIPS, remainingSlips);
 
-  // Recalculate pending orders
+  // 4. Push delete to cloud database (by ID and by slip_no)
+  if (slip.id) {
+    pushDeleteToCloud('packing_slips', 'id', slip.id);
+  }
+  if (slip.slipNo) {
+    pushDeleteToCloud('packing_slips', 'slip_no', slip.slipNo);
+  }
+
+  // 5. Recalculate pending orders
   syncOrdersWithDispatches();
 
   addLog(
     'Dispatch',
     'Challan Deleted',
-    `Delivery Challan #${slip.slipNo} was deleted. Associated ${slip.reelNos.length} reels restored to stock.`,
+    `Delivery Challan #${slip.slipNo} (ID: ${slip.id}) was deleted. Associated ${slip.reelNos.length} reels restored to stock.`,
     user
   );
+
+  notifyDataUpdated('packing_slips');
+  notifyDataUpdated('reels');
   return true;
 }
 
@@ -3333,6 +3373,16 @@ export function clearAllPackingSlips(user: string = 'Admin'): void {
 
   const isMatch = (a: string, b: string) => (a || '').trim().toUpperCase() === (b || '').trim().toUpperCase();
 
+  // 1. Add all existing slips to tombstone list
+  const deletedSlips = getJSON<string[]>(KEYS.DELETED_PACKING_SLIPS, []);
+  const deletedSet = new Set(deletedSlips.map(s => (s || '').trim().toUpperCase()));
+  slips.forEach(s => {
+    if (s.id) deletedSet.add(s.id.trim().toUpperCase());
+    if (s.slipNo) deletedSet.add(s.slipNo.trim().toUpperCase());
+  });
+  setJSON(KEYS.DELETED_PACKING_SLIPS, Array.from(deletedSet));
+
+  // 2. Restore all linked reels back to stock
   slips.forEach(slip => {
     if (slip.reelNos && slip.reelNos.length > 0) {
       slip.reelNos.forEach(rNo => {
@@ -3341,6 +3391,8 @@ export function clearAllPackingSlips(user: string = 'Admin'): void {
           const grade = (reel.qcGrade || 'A').toUpperCase();
           reel.status = grade === 'B' ? 'IN_STOCK_B' : 'IN_STOCK';
           delete reel.dispatchDetails;
+          reel.challanNo = undefined;
+          (reel as any).challan_no = null;
           reelsChanged = true;
         }
       });
@@ -3357,7 +3409,8 @@ export function clearAllPackingSlips(user: string = 'Admin'): void {
 
   setJSON(KEYS.PACKING_SLIPS, []);
   pushClearTableToCloud('packing_slips');
-  notifyDataUpdated();
+  notifyDataUpdated('packing_slips');
+  notifyDataUpdated('reels');
 
   addLog(
     'Dispatch',

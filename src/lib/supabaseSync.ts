@@ -50,6 +50,7 @@ const KEYS = {
   DELETED_PARTIES: 'saheb_deleted_parties',
   DELETED_VENDORS: 'saheb_deleted_vendors',
   DELETED_VEHICLES: 'saheb_deleted_vehicles',
+  DELETED_PACKING_SLIPS: 'saheb_deleted_packing_slips',
 };
 
 const getLocal = <T>(key: string, def: T): T => {
@@ -811,7 +812,7 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
         }
         case 'reels': {
           const cloud: Reel[] = data.map(reelFromDb);
-          const ghostReels = new Set(['26110026', '26110027', '26110029', ...Array.from(CANONICAL_DEMO_REEL_NOS || [])]);
+          const ghostReels = new Set(['260803043', '260803083', '26110001', '26110026', '26110027', '26110029', ...Array.from(CANONICAL_DEMO_REEL_NOS || [])]);
           const deletedList = getLocal<string[]>(KEYS.DELETED_REELS, []);
           const deletedNos = new Set([...deletedList.map(d => (d || '').trim().toLowerCase()), ...ghostReels]);
           const logs = getLocal<TransactionLog[]>(KEYS.LOGS, []);
@@ -913,20 +914,57 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
           break;
         }
         case 'packing_slips': {
-          const cloud = data.map(packingSlipFromDb).filter((s: PackingSlip) => {
+          const deletedList = getLocal<string[]>(KEYS.DELETED_PACKING_SLIPS, []);
+          const deletedSet = new Set(deletedList.map(d => (d || '').trim().toUpperCase()));
+
+          // Also check transaction logs for deleted challans to recover tombstones
+          const logs = getLocal<TransactionLog[]>(KEYS.LOGS, []);
+          let addedDeleted = false;
+          logs.forEach(l => {
+            if (l.details) {
+              const m = l.details.match(/Delivery Challan #([A-Za-z0-9\-_]+)/i) || l.details.match(/Challan #?([A-Za-z0-9\-_]+)/i);
+              if (m && (l.action === 'Challan Deleted' || l.action === 'Delete Challan' || l.action.includes('Deleted'))) {
+                const cNo = m[1].trim().toUpperCase();
+                if (!deletedSet.has(cNo)) {
+                  deletedSet.add(cNo);
+                  deletedList.push(cNo);
+                  addedDeleted = true;
+                }
+              }
+            }
+          });
+          if (addedDeleted) {
+            setLocal(KEYS.DELETED_PACKING_SLIPS, deletedList);
+          }
+
+          const filteredCloud = data.map(packingSlipFromDb).filter((s: PackingSlip) => {
+            const sKeyId = (s.id || '').trim().toUpperCase();
+            const sKeyNo = (s.slipNo || '').trim().toUpperCase();
+            if (deletedSet.has(sKeyId) || deletedSet.has(sKeyNo)) {
+              pushDeleteToCloud('packing_slips', 'id', s.id);
+              if (s.slipNo) pushDeleteToCloud('packing_slips', 'slip_no', s.slipNo);
+              return false;
+            }
             const d = s.date || s.dispatchDate;
             return !d || d >= '2026-11-19';
           });
-          const local = getLocal<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
-          const merged = mergeByUniqueKey(local, cloud, s => (s.slipNo || s.id || '').trim().toUpperCase());
+
+          const local = getLocal<PackingSlip[]>(KEYS.PACKING_SLIPS, []).filter((s: PackingSlip) => {
+            const sKeyId = (s.id || '').trim().toUpperCase();
+            const sKeyNo = (s.slipNo || '').trim().toUpperCase();
+            return !deletedSet.has(sKeyId) && !deletedSet.has(sKeyNo);
+          });
+
+          const merged = mergeByUniqueKey(local, filteredCloud, s => (s.slipNo || s.id || '').trim().toUpperCase());
           setLocal(KEYS.PACKING_SLIPS, merged);
 
-          // Push any local packing slips missing from cloud
-          const cloudSlipKeys = new Set(cloud.map((s: PackingSlip) => (s.slipNo || s.id || '').trim().toUpperCase()));
+          // Push any local packing slips missing from cloud (ignoring deleted ones)
+          const cloudSlipKeys = new Set(filteredCloud.map((s: PackingSlip) => (s.slipNo || s.id || '').trim().toUpperCase()));
           const missingSlips = local.filter((s: PackingSlip) => {
             const sKey = (s.slipNo || s.id || '').trim().toUpperCase();
+            const sKeyId = (s.id || '').trim().toUpperCase();
             const d = s.date || s.dispatchDate;
-            return sKey && !cloudSlipKeys.has(sKey) && (!d || d >= '2026-11-19');
+            return sKey && !deletedSet.has(sKey) && !deletedSet.has(sKeyId) && !cloudSlipKeys.has(sKey) && (!d || d >= '2026-11-19');
           });
           if (missingSlips.length > 0) {
             pushUpsertToCloud('packing_slips', missingSlips.map(packingSlipToDb));
@@ -1037,8 +1075,13 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             notifyChange(tableName);
             break;
           case 'packing_slips': {
+            const deletedList = getLocal<string[]>(KEYS.DELETED_PACKING_SLIPS, []);
+            const deletedSet = new Set(deletedList.map(d => (d || '').trim().toUpperCase()));
             const local = getLocal<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
             const valid = local.filter(s => {
+              const sKey = (s.slipNo || s.id || '').trim().toUpperCase();
+              const sKeyId = (s.id || '').trim().toUpperCase();
+              if (deletedSet.has(sKey) || deletedSet.has(sKeyId)) return false;
               const d = s.date || s.dispatchDate;
               return !d || d >= '2026-11-19';
             });
@@ -1284,9 +1327,13 @@ const FULL_SYNC_THROTTLE_MS = 15000;
 export async function syncLocalInventoryToCloud(): Promise<void> {
   if (!isSupabaseConfigured || !supabase) return;
   try {
+    const deletedList = new Set((getLocal<string[]>(KEYS.DELETED_REELS, []) || []).map(d => (d || '').trim().toUpperCase()));
+    const ghostReels = new Set(['260803043', '260803083', '26110001', '26110026', '26110027', '26110029']);
     const localReels = getLocal<Reel[]>(KEYS.REELS, []);
     const validLocalReels = localReels.filter(r => {
       if (!r || !r.reelNo) return false;
+      const cleanNo = (r.reelNo || '').trim().toUpperCase();
+      if (deletedList.has(cleanNo) || ghostReels.has(cleanNo)) return false;
       if (r.productionDate && r.productionDate < '2026-11-19') return false;
       return true;
     });

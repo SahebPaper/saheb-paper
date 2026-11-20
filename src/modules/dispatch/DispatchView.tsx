@@ -1871,12 +1871,17 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
       return;
     }
     if (window.confirm(`Are you sure you want to delete Delivery Challan #${slip.slipNo}? Any reels linked to this challan will be restored to warehouse finished stock.`)) {
-      deletePackingSlip(slip.id, user?.displayName || 'Admin');
-      setSlips(getPackingSlips());
-      setReels(getReels());
-      setOrders(getPendingOrders());
-      playBeep();
-      setSuccessMsg(`Delivery Challan #${slip.slipNo} deleted successfully. Linked reels restored to finished stock.`);
+      const ok = deletePackingSlip(slip.id || slip.slipNo, user?.displayName || 'Admin');
+      if (ok) {
+        // Optimistically update slips state immediately
+        setSlips(prev => prev.filter(s => s.id !== slip.id && s.slipNo !== slip.slipNo));
+        setReels(getReels());
+        setOrders(getPendingOrders());
+        playBeep();
+        setSuccessMsg(`Delivery Challan #${slip.slipNo} deleted successfully. Linked reels restored to finished stock.`);
+      } else {
+        setErrorMsg(`Failed to delete Delivery Challan #${slip.slipNo}. Challan not found.`);
+      }
     }
   };
 

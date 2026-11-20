@@ -1683,7 +1683,7 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
 
     const updatedSlip: PackingSlip = {
       ...editingSlip,
-      orderNo: editOrderNo.trim() || undefined,
+      orderNo: editingSlip.orderNo,
       date: editDate,
       partyId: editPartyId,
       vehicleId: editVehicleId,
@@ -4551,216 +4551,220 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
       );
     })()}
 
-      {/* 5. EDIT DELIVERY CHALLAN MODAL */}
-      {editingSlip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-800 rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-5 text-left max-h-[90vh] overflow-y-auto animate-in zoom-in-95">
+      {/* 5. EDIT DELIVERY CHALLAN MODAL (BOTTOM SHEET PATTERN MATCHING FILTER MODAL) */}
+      {editingSlip && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150 font-sans"
+          onClick={e => {
+            if (e.target === e.currentTarget) setEditingSlip(null);
+          }}
+        >
+          <div className="w-full max-h-[92vh] md:max-h-[85vh] md:max-w-[760px] bg-white dark:bg-[#11192e] rounded-t-[28px] md:rounded-[28px] shadow-2xl border border-[#DDE0EE] dark:border-slate-800 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 md:zoom-in-95 duration-150">
+            {/* Mobile Drag Indicator */}
+            <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700 mx-auto mt-3 mb-1 md:hidden shrink-0" />
+
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
-                  <Pencil className="h-5 w-5" />
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#DDE0EE] dark:border-slate-800 bg-white dark:bg-[#11192e] shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-inner">
+                  <Pencil className="w-5 h-5 stroke-[2.5]" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                    Edit Delivery Challan
-                  </h3>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="font-mono font-bold text-xs text-blue-600 dark:text-blue-400">
-                      {editingSlip.slipNo}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[#1B1F3B] dark:text-white font-[800] text-[16px] sm:text-[17px] tracking-tight">
+                      Edit Delivery Challan
+                    </h3>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                       editingSlip.status === 'DRAFT'
                         ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
                         : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
                     }`}>
-                      {editingSlip.status === 'DRAFT' ? 'Draft Gate Pass' : 'Dispatched'}
+                      {editingSlip.status === 'DRAFT' ? 'Draft' : 'Dispatched'}
                     </span>
                   </div>
+                  <span className="font-mono font-bold text-xs text-[#4B32C3] dark:text-indigo-400 block mt-0.5">
+                    #{editingSlip.slipNo}
+                  </span>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setEditingSlip(null)}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="w-9 h-9 rounded-full bg-[#F3F4FA] dark:bg-slate-800 text-[#4A5270] dark:text-slate-300 hover:text-[#1B1F3B] hover:bg-[#E8EBF5] dark:hover:bg-slate-700 flex items-center justify-center transition cursor-pointer shrink-0"
+                aria-label="Close modal"
               >
-                <X className="h-5 w-5" />
+                <X className="w-4 h-4 stroke-[2.5]" />
               </button>
             </div>
 
-            {editModalError && (
-              <div className="p-3 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs rounded-xl border border-red-200 dark:border-red-800 font-bold flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                <span>{editModalError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSaveEditSlip} className="space-y-4">
-              {/* Form Fields: Date, Customer, Vehicle, Order No */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                    Challan Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={editDate}
-                    onChange={e => setEditDate(e.target.value)}
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                    Party / Customer
-                  </label>
-                  <select
-                    required
-                    value={editPartyId}
-                    onChange={e => setEditPartyId(e.target.value)}
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
-                  >
-                    <option value="">Select Customer...</option>
-                    {parties.filter(p => p.active !== false || p.id === editPartyId).map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                    Order No (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={editOrderNo}
-                    onChange={e => setEditOrderNo(e.target.value.toUpperCase())}
-                    placeholder="e.g. ORD-2609-001"
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold dark:text-white focus:outline-none focus:ring-2 focus:ring-primary uppercase placeholder:normal-case placeholder:font-sans"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                    Vehicle Number
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={editVehicleId}
-                    onChange={e => setEditVehicleId(e.target.value.toUpperCase())}
-                    placeholder="e.g. MH-04-ZZ-9012"
-                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold dark:text-white focus:outline-none focus:ring-2 focus:ring-primary uppercase"
-                  />
-                </div>
-              </div>
-
-              {/* Linked Reels Section */}
-              <div className="space-y-2.5 border-t border-slate-100 dark:border-slate-800 pt-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                      Linked Reels in Challan
-                    </h4>
-                    <p className="text-[11px] text-slate-500">
-                      Total: <strong className="text-slate-900 dark:text-white">{editReelNos.length} reels</strong> ({reels.filter(r => editReelNos.includes(r.reelNo)).reduce((sum, r) => sum + (r.weight || 0), 0).toLocaleString()} kg)
-                    </p>
+            <form onSubmit={handleSaveEditSlip} className="flex flex-col flex-1 overflow-hidden">
+              {/* Scrollable Modal Body */}
+              <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1 text-left">
+                {editModalError && (
+                  <div className="p-3.5 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs rounded-[16px] border border-red-200 dark:border-red-900/60 font-bold flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 stroke-[2.5]" />
+                    <span>{editModalError}</span>
                   </div>
-                </div>
+                )}
 
-                {/* Add Reel Input & Stock Picker trigger inside Modal */}
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <div className="relative flex-1">
+                {/* Form Fields: Date, Customer, Vehicle Number (Order No removed as requested) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  <div>
+                    <label className="block text-[11px] font-[800] text-[#1B1F3B] dark:text-slate-300 uppercase tracking-wider mb-2">
+                      Challan Date
+                    </label>
                     <input
-                      type="text"
-                      value={editReelInput}
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      onChange={e => setEditReelInput(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const val = editReelInput.trim();
-                          if (!val) {
-                            handleOpenEditStockPicker();
-                            return;
-                          }
-                          handleAddReelToEdit(val);
-                        }
-                      }}
-                      placeholder="Type or scan reel number (e.g. 260500586)..."
-                      className="w-full py-2.5 px-3.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold dark:text-white focus:outline-none focus:ring-2 focus:ring-[#008163]"
+                      type="date"
+                      required
+                      value={editDate}
+                      onChange={e => setEditDate(e.target.value)}
+                      className="w-full min-h-[44px] px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-[#DDE0EE] dark:border-slate-700 rounded-[16px] text-[13px] font-mono font-[700] text-[#1B1F3B] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4B32C3]"
                     />
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const val = editReelInput.trim();
-                      if (val) {
-                        handleAddReelToEdit(val);
-                        return;
-                      }
-                      handleOpenEditStockPicker();
-                    }}
-                    className="px-4 py-2.5 bg-[#008163] hover:bg-[#006e54] text-white rounded-xl text-xs font-black uppercase tracking-wider shrink-0 cursor-pointer shadow-md shadow-[#008163]/25 flex items-center justify-center gap-1.5 transition"
-                  >
-                    <PackageCheck className="h-4 w-4" />
-                    <span>+ Add Reel (From Stock)</span>
-                  </button>
+                  <div>
+                    <label className="block text-[11px] font-[800] text-[#1B1F3B] dark:text-slate-300 uppercase tracking-wider mb-2">
+                      Party / Customer
+                    </label>
+                    <select
+                      required
+                      value={editPartyId}
+                      onChange={e => setEditPartyId(e.target.value)}
+                      className="w-full min-h-[44px] px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-[#DDE0EE] dark:border-slate-700 rounded-[16px] text-[13px] font-[700] text-[#1B1F3B] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4B32C3] cursor-pointer"
+                    >
+                      <option value="">Select Customer...</option>
+                      {parties.filter(p => p.active !== false || p.id === editPartyId).map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-[800] text-[#1B1F3B] dark:text-slate-300 uppercase tracking-wider mb-2">
+                      Vehicle Number
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editVehicleId}
+                      onChange={e => setEditVehicleId(e.target.value.toUpperCase())}
+                      placeholder="e.g. RJ-09-GE-9310"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-[#DDE0EE] dark:border-slate-700 rounded-[16px] text-[13px] font-mono font-[700] text-[#1B1F3B] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4B32C3] uppercase placeholder:font-sans placeholder:font-normal"
+                    />
+                  </div>
                 </div>
 
-                {/* List of currently linked reels */}
-                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                  {editReelNos.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-slate-400 font-medium space-y-2">
-                      <p>No reels currently linked to this challan.</p>
-                      <button
-                        type="button"
-                        onClick={handleOpenEditStockPicker}
-                        className="px-3 py-1.5 bg-[#008163]/10 hover:bg-[#008163]/20 text-[#008163] dark:text-emerald-400 rounded-lg text-xs font-bold cursor-pointer transition inline-flex items-center gap-1"
-                      >
-                        <PackageCheck className="h-3.5 w-3.5" />
-                        <span>Open In-Stock Reels Picker</span>
-                      </button>
+                {/* Linked Reels Section */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between pb-1">
+                    <h3 className="text-[11px] font-[800] text-[#1B1F3B] dark:text-slate-300 uppercase tracking-wider">
+                      Linked Reels in Challan
+                    </h3>
+                    <span className="text-[12px] font-[800] px-3 py-1 rounded-full bg-[#EDE9FD] dark:bg-indigo-950/60 text-[#4B32C3] dark:text-indigo-300">
+                      Total: {editReelNos.length} reels ({reels.filter(r => editReelNos.includes(r.reelNo)).reduce((sum, r) => sum + (r.weight || 0), 0).toLocaleString()} kg)
+                    </span>
+                  </div>
+
+                  {/* Add Reel Input & Stock Picker trigger */}
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={editReelInput}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        onChange={e => setEditReelInput(e.target.value.replace(/\D/g, ''))}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const val = editReelInput.trim();
+                            if (!val) {
+                              handleOpenEditStockPicker();
+                              return;
+                            }
+                            handleAddReelToEdit(val);
+                          }
+                        }}
+                        placeholder="Type or scan reel number (e.g. 260500586)..."
+                        className="w-full min-h-[46px] px-4 bg-white dark:bg-slate-900 border border-[#DDE0EE] dark:border-slate-700 rounded-[16px] text-[13px] font-mono font-[700] text-[#1B1F3B] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#008163]"
+                      />
                     </div>
-                  ) : (
-                    editReelNos.map(rNo => {
-                      const reelObj = reels.find(r => r.reelNo === rNo);
-                      return (
-                        <div key={rNo} className="p-2.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-900/50 transition text-xs">
-                          <div className="flex items-center gap-3">
-                            <span className="font-mono font-black text-slate-900 dark:text-white">{rNo}</span>
-                            {reelObj && (
-                              <span className="text-[11px] text-slate-500 font-semibold">
-                                {reelObj.product} &bull; {reelObj.gsm} GSM &bull; {reelObj.size} cm &bull; <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{reelObj.weight} kg</strong>
-                              </span>
-                            )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = editReelInput.trim();
+                        if (val) {
+                          handleAddReelToEdit(val);
+                          return;
+                        }
+                        handleOpenEditStockPicker();
+                      }}
+                      className="min-h-[46px] px-5 py-2.5 bg-[#008163] hover:bg-[#006e54] active:scale-95 text-white rounded-[16px] text-xs font-[800] uppercase tracking-wider shrink-0 cursor-pointer shadow-md shadow-[#008163]/25 flex items-center justify-center gap-2 transition"
+                    >
+                      <PackageCheck className="h-4 w-4 stroke-[2.5]" />
+                      <span>+ Add Reel (From Stock)</span>
+                    </button>
+                  </div>
+
+                  {/* List of currently linked reels */}
+                  <div className="border border-[#DDE0EE] dark:border-slate-800 rounded-[20px] max-h-60 overflow-y-auto divide-y divide-[#DDE0EE] dark:divide-slate-800/80 bg-[#FAFAFC] dark:bg-slate-900/40">
+                    {editReelNos.length === 0 ? (
+                      <div className="py-8 px-4 text-center text-xs text-slate-400 font-medium space-y-2">
+                        <Package className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto stroke-1" />
+                        <p className="font-semibold">No reels currently linked to this challan.</p>
+                        <button
+                          type="button"
+                          onClick={handleOpenEditStockPicker}
+                          className="px-4 py-2 bg-[#008163]/10 hover:bg-[#008163]/20 text-[#008163] dark:text-emerald-400 rounded-[12px] text-xs font-bold cursor-pointer transition inline-flex items-center gap-1.5"
+                        >
+                          <PackageCheck className="h-4 w-4" />
+                          <span>Open In-Stock Reels Picker</span>
+                        </button>
+                      </div>
+                    ) : (
+                      editReelNos.map(rNo => {
+                        const reelObj = reels.find(r => r.reelNo === rNo);
+                        return (
+                          <div key={rNo} className="p-3 flex items-center justify-between hover:bg-white dark:hover:bg-slate-800/60 transition text-xs">
+                            <div className="flex items-center gap-3 min-w-0 flex-1 mr-2">
+                              <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                              <div className="min-w-0">
+                                <span className="font-mono font-[900] text-[13px] text-[#1B1F3B] dark:text-white block">
+                                  #{rNo}
+                                </span>
+                                {reelObj && (
+                                  <span className="text-[11px] text-[#4A5270] dark:text-slate-400 font-medium truncate block">
+                                    {reelObj.product} &bull; {reelObj.gsm} GSM &bull; {reelObj.size} cm &bull; <strong className="text-emerald-600 dark:text-emerald-400 font-mono font-[800]">{reelObj.weight} kg</strong>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveReelFromEdit(rNo)}
+                              className="w-8 h-8 rounded-full text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center justify-center transition cursor-pointer shrink-0"
+                              title="Remove reel from challan"
+                              aria-label={`Remove reel ${rNo}`}
+                            >
+                              <Trash2 className="h-4 w-4 stroke-[2]" />
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveReelFromEdit(rNo)}
-                            className="p-1.5 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer"
-                            title="Remove reel from challan"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      );
-                    })
-                  )}
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+              {/* Action Buttons Footer */}
+              <div className="flex items-center justify-between px-6 py-4 border-t border-[#DDE0EE] dark:border-slate-800 bg-white dark:bg-[#11192e] shrink-0 gap-3">
                 <button
                   type="button"
                   onClick={() => setEditingSlip(null)}
-                  className="px-5 py-2.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition cursor-pointer"
+                  className="px-5 py-3 rounded-[16px] border border-[#DDE0EE] dark:border-slate-700 hover:bg-[#F3F4FA] dark:hover:bg-slate-800 text-[#4A5270] dark:text-slate-300 font-[800] text-[13px] tracking-wide transition cursor-pointer min-h-[44px] flex items-center justify-center"
                 >
                   Cancel
                 </button>
@@ -4768,19 +4772,20 @@ export const DispatchView: React.FC<DispatchViewProps> = ({ initialTab = 'orders
                   type="submit"
                   disabled={isViewer}
                   title={isViewer ? 'Viewer Mode: Saving challan changes is locked (Read-Only)' : 'Save Challan Changes'}
-                  className={`px-6 py-2.5 font-black rounded-xl text-xs uppercase tracking-wider transition flex items-center gap-1.5 ${
+                  className={`px-7 py-3 rounded-[16px] font-[800] text-[13px] uppercase tracking-wider transition min-h-[44px] flex items-center justify-center gap-2 ${
                     isViewer
                       ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700 shadow-none'
-                      : 'bg-[#008163] hover:bg-[#006e54] text-white shadow-md shadow-[#008163]/25 cursor-pointer'
+                      : 'bg-[#008163] hover:bg-[#006e54] active:scale-95 text-white shadow-md shadow-[#008163]/25 cursor-pointer'
                   }`}
                 >
-                  {isViewer ? <Lock className="h-4 w-4 text-amber-500" /> : <Check className="h-4 w-4" />}
-                  <span>{isViewer ? 'Save Challan Changes (Locked)' : 'Save Challan Changes'}</span>
+                  {isViewer ? <Lock className="h-4 w-4 text-amber-500" /> : <Check className="h-4 w-4 stroke-[3]" />}
+                  <span>{isViewer ? 'Save Changes (Locked)' : 'Save Challan Changes'}</span>
                 </button>
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 6. IN-STOCK REELS SELECTION MODAL (POPUP WINDOW - EXACT IMAGE 2 RICH CHIP / PILL FILTERS) */}

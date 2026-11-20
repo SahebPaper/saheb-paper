@@ -2086,11 +2086,16 @@ export function getReels(): Reel[] {
     return existing;
   }
 
+  const GHOST_REELS_SET = new Set([
+    '260803043', '260803083', '26110001',
+    '26110026', '26110027', '26110029',
+  ]);
+
   // Filter out any deleted reels, old canonical demo reels, or pre-go-live legacy reels
   const cleanedReels = existing.filter(r => {
     if (!r || !r.reelNo) return false;
     const cleanNo = r.reelNo.trim().toLowerCase();
-    if (deletedSet.has(cleanNo) || CANONICAL_DEMO_REEL_NOS.has(cleanNo)) return false;
+    if (deletedSet.has(cleanNo) || CANONICAL_DEMO_REEL_NOS.has(cleanNo) || GHOST_REELS_SET.has(r.reelNo.trim())) return false;
     if (r.productionDate && r.productionDate < '2026-11-19') return false;
     return true;
   });
@@ -2098,6 +2103,12 @@ export function getReels(): Reel[] {
   if (cleanedReels.length !== existing.length) {
     existing = cleanedReels;
     setJSON(KEYS.REELS, existing, false);
+    const delList = getJSON<string[]>(KEYS.DELETED_REELS, []);
+    GHOST_REELS_SET.forEach(g => {
+      if (!delList.some(d => d.toLowerCase() === g.toLowerCase())) delList.push(g.toLowerCase());
+      pushDeleteToCloud('reels', 'reel_no', g);
+    });
+    setJSON(KEYS.DELETED_REELS, delList, false);
   }
 
   if (!existing || existing.length === 0) {

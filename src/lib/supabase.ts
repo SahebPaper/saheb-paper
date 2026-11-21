@@ -58,15 +58,18 @@ export function getActiveDatabaseConfig(): SupabaseDatabaseConfig {
   }
 
   // Auto-detect based on host / build environment:
+  // - Localhost / Development: Saheb-Paper-ERP (Production Database)
+  // - GitHub Pages / Live Demo Web: Saheb-Paper-DEMO (Demo Sandbox Database)
   const isLocalDev = Boolean(
     import.meta.env?.DEV ||
     (typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' ||
         window.location.hostname === '127.0.0.1' ||
-        window.location.hostname.startsWith('192.168.')))
+        window.location.hostname.startsWith('192.168.') ||
+        window.location.hostname.startsWith('10.')))
   );
 
-  return isLocalDev ? DEMO_SUPABASE_CONFIG : PROD_SUPABASE_CONFIG;
+  return isLocalDev ? PROD_SUPABASE_CONFIG : DEMO_SUPABASE_CONFIG;
 }
 
 /**

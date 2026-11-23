@@ -52,9 +52,11 @@ import {
   customRoleToDb,
   initSupabaseSync,
   notifyDataUpdated,
+  exportDatabaseBackup,
+  restoreDatabaseFromBackup,
 } from '../lib/supabaseSync';
 
-export { initSupabaseSync, notifyDataUpdated };
+export { initSupabaseSync, notifyDataUpdated, exportDatabaseBackup, restoreDatabaseFromBackup };
 
 // Simple JSON storage helper
 export const getJSON = <T>(key: string, fallback: T): T => {

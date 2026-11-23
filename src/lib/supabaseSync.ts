@@ -638,6 +638,60 @@ export const customRoleFromDb = (r: any): CustomRole => ({
   createdAt: r.created_at || r.createdAt || new Date().toISOString(),
 });
 
+// ==================== BACKUP & RESTORE (CLOUD DIRECT) ====================
+
+export async function exportDatabaseBackup(): Promise<string> {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase not configured');
+  const backup: Record<string, any> = {};
+  const tables = Object.keys(TABLE_ALIASES);
+
+  for (const table of tables) {
+    const { data, error } = await supabase.from(table).select('*');
+    if (error) {
+      console.error(`Error backing up table ${table}:`, error.message);
+      backup[table] = []; // fallback to empty array to keep structure
+    } else {
+      backup[table] = data;
+    }
+  }
+  return JSON.stringify(backup, null, 2);
+}
+
+export async function restoreDatabaseFromBackup(backupJson: string, operator: string): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase not configured');
+
+  let data;
+  try {
+    data = JSON.parse(backupJson);
+  } catch (e) {
+    throw new Error('Invalid backup JSON format');
+  }
+
+  for (const [table, records] of Object.entries(data)) {
+    if (!Array.isArray(records)) continue;
+    if (records.length === 0) continue;
+
+    const canonical = getCanonicalTableName(table);
+    const pk = getTablePrimaryKey(canonical);
+
+    const { error } = await supabase.from(canonical).upsert(records, { onConflict: pk });
+    if (error) {
+      throw new Error(`Failed to restore table ${table}: ${error.message}`);
+    }
+  }
+
+  // Log the restore operation to the cloud directly
+  await supabase.from('transaction_logs').insert({
+    timestamp: new Date().toISOString(),
+    module: 'Admin',
+    action: 'Backup Restored',
+    details: `Full database restored from backup file by ${operator}`,
+    user: operator,
+  });
+
+  broadcastDataChange(['all']);
+}
+
 // ==================== ASYNC CLOUD SYNC OPERATIONS ====================
 
 // Generic safe merge helper: keeps local items and updates with cloud items by unique key

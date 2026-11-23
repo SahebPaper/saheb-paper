@@ -13,8 +13,8 @@ import {
   saveVehicle,
   getLogs,
   addLog,
-  exportBackup,
-  restoreBackup,
+  exportDatabaseBackup,
+  restoreDatabaseFromBackup,
   getUsers,
   saveUser,
   performFactoryReset,
@@ -141,6 +141,8 @@ export const AdminMasters: React.FC = () => {
   const [isFactoryResetModalOpen, setIsFactoryResetModalOpen] = useState(false);
   const [resetConfirmationInput, setResetConfirmationInput] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   const filteredProducts = useMemo(() => {
     let list = products.filter(p => p.active !== false);
@@ -674,15 +676,20 @@ export const AdminMasters: React.FC = () => {
   };
 
   // --- BACKUP & RESTORE ACTIONS ---
-  const handleExportBackup = () => {
+  const handleExportBackup = async () => {
+    setSuccessMsg('');
+    setErrorMsg('');
+    setIsExporting(true);
     try {
-      const dataStr = exportBackup();
+      const dataStr = await exportDatabaseBackup();
       exportJsonData(dataStr, `saheb_paper_backup_${new Date().toISOString().substring(0, 10)}.json`);
-      addLog('Admin', 'Backup Exported', 'System database backup file downloaded', user?.displayName || user?.username || 'Admin');
+      addLog('Admin', 'Backup Exported', 'Cloud database backup file downloaded', user?.displayName || user?.username || 'Admin');
       setLogs(getLogs());
-      setSuccessMsg('System database backup file generated and downloaded successfully.');
+      setSuccessMsg('Cloud database backup file generated and downloaded successfully.');
     } catch (err: any) {
       setErrorMsg('Backup export failed: ' + err.message);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -722,7 +729,7 @@ export const AdminMasters: React.FC = () => {
     reader.readAsText(file);
   };
 
-  const handleRestoreBackup = (e: React.FormEvent) => {
+  const handleRestoreBackup = async (e: React.FormEvent) => {
     e.preventDefault();
     setSuccessMsg('');
     setErrorMsg('');
@@ -732,9 +739,10 @@ export const AdminMasters: React.FC = () => {
       return;
     }
 
+    setIsRestoring(true);
     try {
-      restoreBackup(backupFileText, user?.displayName || 'Admin');
-      setSuccessMsg('Database backup restored successfully! Reloading listings...');
+      await restoreDatabaseFromBackup(backupFileText, user?.displayName || 'Admin');
+      setSuccessMsg('Cloud database backup restored successfully! Reloading listings...');
 
       // Reload states
       setProducts(getProducts());
@@ -751,6 +759,8 @@ export const AdminMasters: React.FC = () => {
       setTimeout(() => window.location.reload(), 1000);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to restore backup');
+    } finally {
+      setIsRestoring(false);
     }
   };
 
@@ -1904,10 +1914,15 @@ export const AdminMasters: React.FC = () => {
                   </div>
                   <button
                     onClick={handleExportBackup}
-                    className="btn-primary-gradient px-5 py-3 text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                    disabled={isExporting}
+                    className="btn-primary-gradient px-5 py-3 text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
                   >
-                    <Download className="h-4 w-4" />
-                    <span>Download Database Backup (JSON)</span>
+                    {isExporting ? (
+                      <RotateCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    <span>{isExporting ? 'Exporting...' : 'Download Database Backup (JSON)'}</span>
                   </button>
                 </div>
 
@@ -1941,14 +1956,18 @@ export const AdminMasters: React.FC = () => {
                       />
                       <button
                         type="submit"
-                        disabled={!backupFileText}
-                        className={`px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider shadow-lg flex items-center justify-center gap-2 transition-all shrink-0 cursor-pointer ${backupFileText
+                        disabled={!backupFileText || isRestoring}
+                        className={`px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider shadow-lg flex items-center justify-center gap-2 transition-all shrink-0 cursor-pointer ${backupFileText && !isRestoring
                             ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-emerald-500/25 hover:scale-[1.01]'
                             : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                           }`}
                       >
-                        <Upload className="h-4 w-4" />
-                        <span>Upload & Restore</span>
+                        {isRestoring ? (
+                          <RotateCw className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Upload className="h-4 w-4" />
+                        )}
+                        <span>{isRestoring ? 'Restoring...' : 'Upload & Restore'}</span>
                       </button>
                     </div>
 

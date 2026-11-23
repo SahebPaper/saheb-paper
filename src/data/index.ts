@@ -30,6 +30,7 @@ import {
   pushUpsertToCloud,
   pushDeleteToCloud,
   pushClearTableToCloud,
+  setSystemWiping,
   userToDb,
   rawMaterialToDb,
   rawMaterialLotToDb,
@@ -3804,7 +3805,27 @@ export function restoreBackup(backupJson: string, user: string): void {
 }
 
 export async function performFactoryReset(): Promise<void> {
-  // 1. Wipe cloud operational/transactional data directly in Supabase
+  // 1. Engage global system wipe lock (stops all auto-push, sync listeners, and realtime triggers)
+  setSystemWiping(true);
+
+  // 2. Pre-wipe all local operational/transactional datasets in memory/storage FIRST
+  // This guarantees that any concurrent local reader sees 0 rows and cannot re-upload ghost data!
+  setJSON(KEYS.REELS, [], false);
+  setJSON(KEYS.ROLLS, [], false);
+  setJSON(KEYS.PACKING_SLIPS, [], false);
+  setJSON(KEYS.LOGS, [], false);
+  setJSON(KEYS.BOILER_LOGS, [], false);
+  setJSON(KEYS.ETP_LOGS, [], false);
+  setJSON(KEYS.ELECTRICITY_LOGS, [], false);
+  setJSON(KEYS.PENDING_ORDERS, [], false);
+  setJSON(KEYS.STORE_ITEMS, [], false);
+  setJSON(KEYS.RAW_MATERIAL_LOTS, [], false);
+  setJSON(KEYS.RAW_MATERIALS, [], false);
+  setJSON(KEYS.FORMULAS, [], false);
+  setJSON(KEYS.LAB_REPORTS, [], false);
+  setJSON(KEYS.DELETED_REELS, Array.from(CANONICAL_DEMO_REEL_NOS), false);
+
+  // 3. Wipe cloud operational/transactional data directly in Supabase
   const cloudTables = [
     'raw_materials', 'raw_material_lots', 'pulp_formulas', 'machine_rolls', 'reels', 'transaction_logs',
     'boiler_logs', 'etp_logs', 'electricity_logs', 'pending_orders',
@@ -3812,10 +3833,10 @@ export async function performFactoryReset(): Promise<void> {
   ];
   await Promise.allSettled(cloudTables.map(tbl => pushClearTableToCloud(tbl)));
 
-  // 2. Wipe all localStorage items completely
+  // 4. Wipe all localStorage items completely
   localStorage.clear();
 
-  // 3. Set default Admin user with plain 4-digit PIN
+  // 5. Set default Admin user with plain 4-digit PIN
   const adminUser: User = {
     username: 'admin',
     role: 'Admin',
@@ -3860,7 +3881,7 @@ export async function performFactoryReset(): Promise<void> {
   setJSON(KEYS.DELETED_VEHICLES, [], false);
   setJSON(KEYS.DELETED_ROLES, [], false);
 
-  // 4. Keep active session as Admin and establish production baseline (lean session, no secrets)
+  // 6. Keep active session as Admin and establish production baseline (lean session, no secrets)
   const adminSession = {
     token: `token_${Date.now()}_admin`,
     username: adminUser.username,
@@ -3874,6 +3895,10 @@ export async function performFactoryReset(): Promise<void> {
   localStorage.setItem('saheb_clean_production_zero_v4', 'true');
   localStorage.setItem('saheb_installed_version_code', '16');
   localStorage.setItem('saheb_installed_version_name', 'Beta 1.10');
+
+  // Small delay to let network transactions settle
+  await new Promise(resolve => setTimeout(resolve, 300));
+  setSystemWiping(false);
 }
 
 export function clearAllOperationalData(): void {

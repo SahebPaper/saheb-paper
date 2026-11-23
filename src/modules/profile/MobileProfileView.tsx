@@ -38,6 +38,7 @@ import { getStoredTheme, applyTheme } from '../../utils/themeHelper';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { useMobileBackHandler } from '../../hooks/useMobileBackHandler';
 import { ROLE_LABELS } from '../../data/types';
+import { performFactoryReset } from '../../data';
 
 interface MobileProfileViewProps {}
 
@@ -48,6 +49,9 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
   const companyConfig = getCompanyConfig();
 
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [isFactoryResetModalOpen, setIsFactoryResetModalOpen] = useState(false);
+  const [resetConfirmationInput, setResetConfirmationInput] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   // Modals & Bottom Sheets
   const [activeModal, setActiveModal] = useState<
@@ -56,12 +60,13 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   // Lock background page scroll completely whenever any modal is open
-  useBodyScrollLock(!!activeModal || logoutConfirmOpen || isUpdateModalOpen);
+  useBodyScrollLock(!!activeModal || logoutConfirmOpen || isUpdateModalOpen || isFactoryResetModalOpen);
 
   // Intercept Android hardware Back and browser Back to close open modal first
   useMobileBackHandler(!!activeModal, () => setActiveModal(null), 'mobileProfileActiveModal');
   useMobileBackHandler(logoutConfirmOpen, () => setLogoutConfirmOpen(false), 'mobileProfileLogoutModal');
   useMobileBackHandler(isUpdateModalOpen, () => setIsUpdateModalOpen(false), 'mobileProfileUpdateModal');
+  useMobileBackHandler(isFactoryResetModalOpen, () => setIsFactoryResetModalOpen(false), 'mobileProfileResetModal');
 
   // Edit Profile Form State
   const [displayName, setDisplayName] = useState(user?.displayName || '');
@@ -118,7 +123,7 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
   };
 
   const handleClearLocalStorage = () => {
-    if (window.confirm('Clear all local app storage and reload fresh data from cloud database?')) {
+    if (window.confirm('Clear temporary phone cache and re-download fresh data from cloud database?')) {
       const currentUser = localStorage.getItem('saheb_user');
       const authUser = localStorage.getItem('saheb_auth_user');
       const theme = localStorage.getItem('saheb_theme');
@@ -130,10 +135,28 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
       if (theme) localStorage.setItem('saheb_theme', theme);
       localStorage.setItem('saheb_purge_pre_nov19_v1', 'true');
 
-      showToast('Storage wiped! Reloading fresh data...', 'success');
+      showToast('Cache cleared! Re-downloading fresh data from cloud...', 'success');
       setTimeout(() => {
         window.location.reload();
       }, 500);
+    }
+  };
+
+  const handleExecuteFactoryReset = async () => {
+    if (resetConfirmationInput.trim() !== 'RESET') {
+      return;
+    }
+    setIsResetting(true);
+    try {
+      await performFactoryReset();
+      showToast('Factory Reset complete! All plant data wiped clean.', 'success');
+      setIsFactoryResetModalOpen(false);
+      setTimeout(() => {
+        window.location.reload();
+      }, 1200);
+    } catch (err: any) {
+      showToast('Failed to reset: ' + err.message, 'error');
+      setIsResetting(false);
     }
   };
 
@@ -207,7 +230,7 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
     setActiveModal('security');
   };
 
-  const isAdmin = user.role === 'Admin';
+  const isAdmin = user?.role === 'Admin' || (Array.isArray(user?.roles) && user.roles.includes('Admin'));
 
   // Compute User Initials
   const initials = user.displayName
@@ -604,27 +627,54 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
             <ChevronRight className="w-5 h-5 text-[#4A5270] dark:text-slate-400 shrink-0 stroke-[2.2]" />
           </button>
 
-          {/* Row 4: Clear Local Storage & Resync */}
+          {/* Row 4: Reload Fresh Data (Clear App Cache) */}
           <button
             type="button"
             onClick={handleClearLocalStorage}
-            className="w-full min-h-[64px] p-4 flex items-center justify-between text-left hover:bg-red-50/50 dark:hover:bg-red-950/20 active:scale-[0.99] transition cursor-pointer"
+            className="w-full min-h-[64px] p-4 flex items-center justify-between text-left hover:bg-slate-50 dark:hover:bg-slate-800/50 active:scale-[0.99] transition cursor-pointer"
           >
             <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-[12px] bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
-                <Trash2 className="w-5 h-5 stroke-[2.2]" />
+              <div className="w-10 h-10 rounded-[12px] bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                <RefreshCw className="w-5 h-5 stroke-[2.2]" />
               </div>
               <div>
-                <span className="text-[14px] font-[800] text-[#B3261E] dark:text-red-400 leading-tight block">
-                  Clear Local Storage
+                <span className="text-[14px] font-[800] text-slate-800 dark:text-slate-100 leading-tight block">
+                  Reload Fresh Data (Clear App Cache)
                 </span>
                 <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-0.5 leading-snug block">
-                  Wipe old phone cache &amp; reload fresh data from cloud
+                  Clears phone cache &amp; re-downloads all latest data from cloud
                 </span>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-[#4A5270] dark:text-slate-400 shrink-0 stroke-[2.2]" />
           </button>
+
+          {/* Row 5: Factory Reset (Admin Only) */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                setResetConfirmationInput('');
+                setIsFactoryResetModalOpen(true);
+              }}
+              className="w-full min-h-[64px] p-4 flex items-center justify-between text-left hover:bg-rose-50/50 dark:hover:bg-rose-950/20 active:scale-[0.99] transition cursor-pointer border-t border-slate-100 dark:border-slate-800"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-[12px] bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5 stroke-[2.2]" />
+                </div>
+                <div>
+                  <span className="text-[14px] font-[800] text-rose-600 dark:text-rose-400 leading-tight block">
+                    Factory Reset (Wipe All Plant Data)
+                  </span>
+                  <span className="text-[11px] font-[500] text-[#4A5270] dark:text-slate-400 mt-0.5 leading-snug block">
+                    Permanently wipes all reels, rolls, challans &amp; logs from cloud and phone
+                  </span>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-[#4A5270] dark:text-slate-400 shrink-0 stroke-[2.2]" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -1225,6 +1275,92 @@ export const MobileProfileView: React.FC<MobileProfileViewProps> = () => {
                 className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl text-xs shadow-md cursor-pointer"
               >
                 Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Factory Reset Modal (Admin Mobile) */}
+      {isFactoryResetModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => setIsFactoryResetModalOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-lg w-full border border-rose-200 dark:border-rose-900 shadow-2xl p-6 space-y-4 max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400">
+                  <ShieldAlert className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                    Confirm Factory Reset
+                  </h3>
+                  <span className="text-xs text-rose-600 dark:text-rose-400 font-bold">
+                    Destructive Action — Zero Data State
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFactoryResetModalOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 flex-1 overflow-y-auto overscroll-contain text-xs text-slate-600 dark:text-slate-300">
+              <div className="space-y-2 bg-rose-50/60 dark:bg-rose-950/20 p-3.5 rounded-2xl border border-rose-100 dark:border-rose-900/30">
+                <p className="font-bold text-rose-900 dark:text-rose-200">
+                  Are you absolutely sure you want to perform a Factory Reset?
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-slate-600 dark:text-slate-400">
+                  <li>Permanently deletes all reels and production rolls from cloud &amp; phone.</li>
+                  <li>Clears all delivery challans, customer orders, and logs.</li>
+                  <li>Resets raw material stock, lots, formulas, and store spares.</li>
+                </ul>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  To confirm, type <span className="font-mono text-rose-600 font-black">RESET</span> below:
+                </label>
+                <input
+                  type="text"
+                  value={resetConfirmationInput}
+                  onChange={e => setResetConfirmationInput(e.target.value)}
+                  placeholder="Type RESET to confirm"
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500/30"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 shrink-0">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setIsFactoryResetModalOpen(false)}
+                className="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={resetConfirmationInput.trim() !== 'RESET' || isResetting}
+                onClick={handleExecuteFactoryReset}
+                className={`px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition cursor-pointer ${
+                  resetConfirmationInput.trim() === 'RESET' && !isResetting
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/30 active:scale-98'
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
+                }`}
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>{isResetting ? 'Wiping System...' : 'Wipe & Reset Everything'}</span>
               </button>
             </div>
           </div>

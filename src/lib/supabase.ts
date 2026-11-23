@@ -13,7 +13,7 @@ export const PROD_SUPABASE_CONFIG = {
 export const DEMO_SUPABASE_CONFIG = {
   url: 'https://znyvmlwggwckjxxsxiwq.supabase.co',
   anonKey:
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpueXZtbHdnZ3dja2p4eHN4aXdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0OTE0NjUsImV4cCI6MjEwNTA2NzQ2NX0._NNVeLFW1OvXnTGYZbCcEmd4eYSF2J8g5Zxi6T4kdqY',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpueXZtbHdnZ3dja2p4eHN4aXdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0OTE0NjUsImV4cCI6MjEwNTA2NzQ2NX0._NNVeLFW1OvXnTGYZbCcEmd4eYSF2J8g5Zxi6T4kdqY',
   name: 'Saheb-Paper-DEMO',
   target: 'demo' as const,
 };
@@ -101,9 +101,19 @@ if (typeof window !== 'undefined' && import.meta.env?.DEV) {
 
 const activeConfig = getActiveDatabaseConfig();
 
-// Respect explicit custom URL/Key if provided in environment, otherwise use resolved active config
-const supabaseUrl = (import.meta.env?.VITE_SUPABASE_URL && !import.meta.env?.VITE_DATABASE_TARGET ? import.meta.env.VITE_SUPABASE_URL : activeConfig.url).trim();
-const supabaseAnonKey = (import.meta.env?.VITE_SUPABASE_ANON_KEY && !import.meta.env?.VITE_DATABASE_TARGET ? import.meta.env.VITE_SUPABASE_ANON_KEY : activeConfig.anonKey).trim();
+// In development mode (localhost) or when VITE_DATABASE_TARGET is defined, use activeConfig.
+// In production builds (GitHub Pages / APK), default to PROD unless explicitly overridden.
+const supabaseUrl = (
+  import.meta.env?.DEV || import.meta.env?.VITE_DATABASE_TARGET
+    ? activeConfig.url
+    : (import.meta.env?.VITE_SUPABASE_URL || activeConfig.url)
+).trim();
+
+const supabaseAnonKey = (
+  import.meta.env?.DEV || import.meta.env?.VITE_DATABASE_TARGET
+    ? activeConfig.anonKey
+    : (import.meta.env?.VITE_SUPABASE_ANON_KEY || activeConfig.anonKey)
+).trim();
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&

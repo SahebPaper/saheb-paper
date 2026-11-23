@@ -53,16 +53,6 @@ const KEYS = {
   DELETED_PACKING_SLIPS: 'saheb_deleted_packing_slips',
 };
 
-let isSystemWipingActive = false;
-
-export function isSystemWiping(): boolean {
-  return isSystemWipingActive;
-}
-
-export function setSystemWiping(val: boolean): void {
-  isSystemWipingActive = val;
-}
-
 const getLocal = <T>(key: string, def: T): T => {
   try {
     const v = localStorage.getItem(key);
@@ -82,6 +72,11 @@ const setLocal = <T>(key: string, val: T): void => {
 
 let notifyTimer: any = null;
 const pendingTables = new Set<string>();
+let systemWiping = false;
+
+export function setSystemWiping(val: boolean) {
+  systemWiping = val;
+}
 
 const TABLE_ALIASES: Record<string, string[]> = {
   users: ['users', 'saheb_users'],
@@ -662,7 +657,7 @@ function mergeByUniqueKey<T>(localList: T[], cloudList: T[], getKey: (item: T) =
 }
 
 export async function syncTableFromCloud(inputTableName: string): Promise<void> {
-  if (isSystemWipingActive) return;
+  if (systemWiping) return;
   if (!isSupabaseConfigured || !supabase) return;
   const tableName = getCanonicalTableName(inputTableName);
   try {
@@ -842,6 +837,7 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             if (r.productionDate && r.productionDate < '2026-11-19') return false;
             return true;
           });
+          const local = getLocal<Reel[]>(KEYS.REELS, []);
           // Database is single source of truth for reels.
           // Directly set cloud reels to local cache. No merging with stale local reels, no auto-push.
           setLocal(KEYS.REELS, filteredCloud);
@@ -1101,7 +1097,7 @@ export async function pushLocalTableToCloud(tableName: string): Promise<void> {
 
 // Background push to Supabase (non-blocking, fast asynchronous execution)
 export function pushUpsertToCloud(tableName: string, recordOrArray: any): Promise<void> {
-  if (isSystemWipingActive) return Promise.resolve();
+  if (systemWiping) return Promise.resolve();
   const client = supabase;
   if (!isSupabaseConfigured || !client) return Promise.resolve();
   const canonical = getCanonicalTableName(tableName);
@@ -1156,7 +1152,6 @@ export function pushUpsertToCloud(tableName: string, recordOrArray: any): Promis
 }
 
 export async function pushDeleteToCloud(tableName: string, matchColumn: string, matchValue: any): Promise<void> {
-  if (isSystemWipingActive) return;
   const client = supabase;
   if (!isSupabaseConfigured || !client) return;
   const canonical = getCanonicalTableName(tableName);
@@ -1240,28 +1235,6 @@ const TABLE_PK_MAP: Record<string, string> = {
   saheb_raw_material_lots: 'lot_no',
   reels: 'reel_no',
   saheb_reels: 'reel_no',
-  packing_slips: 'id',
-  saheb_packing_slips: 'id',
-  machine_rolls: 'id',
-  saheb_machine_rolls: 'id',
-  raw_materials: 'id',
-  saheb_raw_materials: 'id',
-  pulp_formulas: 'id',
-  saheb_pulp_formulas: 'id',
-  transaction_logs: 'id',
-  saheb_transaction_logs: 'id',
-  boiler_logs: 'id',
-  saheb_boiler_logs: 'id',
-  etp_logs: 'id',
-  saheb_etp_logs: 'id',
-  electricity_logs: 'id',
-  saheb_electricity_logs: 'id',
-  pending_orders: 'id',
-  saheb_pending_orders: 'id',
-  store_items: 'id',
-  saheb_store_items: 'id',
-  paper_test_reports: 'id',
-  saheb_paper_test_reports: 'id',
 };
 
 export function getTablePrimaryKey(tableName: string): string {
@@ -1275,17 +1248,14 @@ export async function pushClearTableToCloud(tableName: string): Promise<void> {
   const canonical = getCanonicalTableName(tableName);
   const pk = getTablePrimaryKey(canonical);
   try {
-    // Bullet-proof PostgREST wipe: neq with impossible dummy value reliably deletes 100% of rows
-    const { error: neqError } = await client.from(canonical).delete().neq(pk, '___IMPOSSIBLE_KEY_VALUE___');
-    if (neqError) {
-      console.warn(`Supabase clear neq warning for ${canonical}:`, neqError.message);
+    const { error } = await client.from(canonical).delete().not(pk, 'is', null);
+    if (error) {
+      console.warn(`Supabase clear not(is null) warning for ${canonical}:`, error.message);
       // Fallback
-      await client.from(canonical).delete().not(pk, 'is', null);
+      await client.from(canonical).delete().neq(pk, '___IMPOSSIBLE_KEY_VALUE___');
     }
     notifyChange(canonical);
-    if (!isSystemWipingActive) {
-      broadcastDataChange([canonical]);
-    }
+    broadcastDataChange([canonical]);
   } catch (err) {
     console.warn(`Supabase network clear failed for ${canonical}:`, err);
   }
@@ -1303,7 +1273,7 @@ export async function syncLocalInventoryToCloud(): Promise<void> {
 }
 
 export async function syncAllTables(force = false): Promise<void> {
-  if (isSystemWipingActive) return;
+  if (systemWiping) return;
   if (!isSupabaseConfigured || !supabase || isSyncingAll) return;
   const now = Date.now();
   if (!force && now - lastFullSyncTime < FULL_SYNC_THROTTLE_MS) {
@@ -1335,7 +1305,6 @@ export async function syncAllTables(force = false): Promise<void> {
 
 // Instant cross-device broadcast trigger via Supabase Realtime channel
 export function broadcastDataChange(tables: string[]): void {
-  if (isSystemWipingActive) return;
   if (!isSupabaseConfigured || !supabase) return;
   try {
     const channel = supabase.channel('saheb_cloud_realtime_stream');
@@ -1368,12 +1337,10 @@ export async function initSupabaseSync(): Promise<void> {
     const streamChannel = supabase.channel('saheb_cloud_realtime_stream');
     streamChannel
       .on('broadcast', { event: 'saheb_sync_event' }, payload => {
-        if (isSystemWipingActive) return;
         const tables: string[] = payload?.payload?.tables || ['all'];
         tables.forEach(t => syncTableFromCloud(t));
       })
       .on('postgres_changes', { event: '*', schema: 'public' }, payload => {
-        if (isSystemWipingActive) return;
         const table = payload.table;
         if (table) {
           syncTableFromCloud(table);
@@ -1419,6 +1386,7 @@ export async function initSupabaseSync(): Promise<void> {
         sysBc.onmessage = (event) => {
           if (event.data?.type === 'FACTORY_RESET') {
             console.warn('[SupabaseSync] Cross-tab FACTORY_RESET received. Wiping local caches immediately.');
+            setSystemWiping(true);
             setLocal(KEYS.REELS, []);
             setLocal(KEYS.PACKING_SLIPS, []);
             setLocal(KEYS.LOGS, []);

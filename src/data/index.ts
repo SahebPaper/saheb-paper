@@ -3805,6 +3805,17 @@ export function restoreBackup(backupJson: string, user: string): void {
 }
 
 export async function performFactoryReset(): Promise<void> {
+  // Broadcast cross-tab factory reset signal so any other open tab wipes local storage immediately
+  try {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const bc = new BroadcastChannel('saheb_system_channel');
+      bc.postMessage({ type: 'FACTORY_RESET', timestamp: Date.now() });
+      bc.close();
+    }
+  } catch {
+    // ignore
+  }
+
   // 1. Engage global system wipe lock (stops all auto-push, sync listeners, and realtime triggers)
   setSystemWiping(true);
 

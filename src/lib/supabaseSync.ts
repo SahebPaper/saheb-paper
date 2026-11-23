@@ -842,31 +842,9 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             if (r.productionDate && r.productionDate < '2026-11-19') return false;
             return true;
           });
-          const local = getLocal<Reel[]>(KEYS.REELS, []);
-          const rawBase = (local && local.length > 0) ? local : [];
-          const base = rawBase.filter(r => {
-            if (!r || !r.reelNo) return false;
-            const rNo = (r.reelNo || '').trim().toLowerCase();
-            if (deletedNos.has(rNo)) return false;
-            if (r.productionDate && r.productionDate < '2026-11-19') return false;
-            return true;
-          });
-          const merged = mergeByUniqueKey(base, filteredCloud, r => (r.reelNo || '').trim().toUpperCase());
-          setLocal(KEYS.REELS, merged);
-
-          // BIDIRECTIONAL SYNC: Push any valid local reels (productionDate >= 2026-11-19)
-          // that are present in local storage but missing in cloud, so that all devices stay synchronized!
-          const cloudNos = new Set(filteredCloud.map(c => (c.reelNo || '').trim().toUpperCase()));
-          const missingInCloud = base.filter(r => {
-            if (!r || !r.reelNo) return false;
-            const rNo = (r.reelNo || '').trim().toUpperCase();
-            return !cloudNos.has(rNo) && !deletedNos.has(rNo.toLowerCase()) && (!r.productionDate || r.productionDate >= '2026-11-19');
-          });
-          if (missingInCloud.length > 0) {
-            console.log(`[SupabaseSync] Auto-pushing ${missingInCloud.length} local reels to cloud:`, missingInCloud.map(r => r.reelNo));
-            pushUpsertToCloud('reels', missingInCloud.map(reelToDb));
-          }
-
+          // Database is single source of truth for reels.
+          // Directly set cloud reels to local cache. No merging with stale local reels, no auto-push.
+          setLocal(KEYS.REELS, filteredCloud);
           notifyChange(tableName);
           break;
         }
@@ -960,27 +938,8 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             return !d || d >= '2026-11-19';
           });
 
-          const local = getLocal<PackingSlip[]>(KEYS.PACKING_SLIPS, []).filter((s: PackingSlip) => {
-            const sKeyId = (s.id || '').trim().toUpperCase();
-            const sKeyNo = (s.slipNo || '').trim().toUpperCase();
-            return !deletedSet.has(sKeyId) && !deletedSet.has(sKeyNo);
-          });
-
-          const merged = mergeByUniqueKey(local, filteredCloud, s => (s.slipNo || s.id || '').trim().toUpperCase());
-          setLocal(KEYS.PACKING_SLIPS, merged);
-
-          // Push any local packing slips missing from cloud (ignoring deleted ones)
-          const cloudSlipKeys = new Set(filteredCloud.map((s: PackingSlip) => (s.slipNo || s.id || '').trim().toUpperCase()));
-          const missingSlips = local.filter((s: PackingSlip) => {
-            const sKey = (s.slipNo || s.id || '').trim().toUpperCase();
-            const sKeyId = (s.id || '').trim().toUpperCase();
-            const d = s.date || s.dispatchDate;
-            return sKey && !deletedSet.has(sKey) && !deletedSet.has(sKeyId) && !cloudSlipKeys.has(sKey) && (!d || d >= '2026-11-19');
-          });
-          if (missingSlips.length > 0) {
-            pushUpsertToCloud('packing_slips', missingSlips.map(packingSlipToDb));
-          }
-
+          // Database is single source of truth for packing slips.
+          setLocal(KEYS.PACKING_SLIPS, filteredCloud);
           notifyChange(tableName);
           break;
         }
@@ -1017,8 +976,8 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
 
       }
     } else if (data && data.length === 0) {
-      // If master tables in cloud are completely uninitialized, seed them from local/defaults!
-      if (['users', 'saheb_users', 'pending_orders', 'saheb_pending_orders'].includes(tableName)) {
+      // If master user table in cloud is completely uninitialized, seed admin user!
+      if (['users', 'saheb_users'].includes(tableName)) {
         pushLocalTableToCloud(tableName);
       } else {
         // Operational tables, store items, raw materials, etc.
@@ -1071,13 +1030,7 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             notifyChange(tableName);
             break;
           case 'reels': {
-            const local = getLocal<Reel[]>(KEYS.REELS, []);
-            const valid = local.filter(r => r && r.reelNo && (!r.productionDate || r.productionDate >= '2026-11-19'));
-            if (valid.length > 0) {
-              pushUpsertToCloud('reels', valid.map(reelToDb));
-            } else {
-              setLocal(KEYS.REELS, []);
-            }
+            setLocal(KEYS.REELS, []);
             notifyChange(tableName);
             break;
           }
@@ -1086,21 +1039,7 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             notifyChange(tableName);
             break;
           case 'packing_slips': {
-            const deletedList = getLocal<string[]>(KEYS.DELETED_PACKING_SLIPS, []);
-            const deletedSet = new Set(deletedList.map(d => (d || '').trim().toUpperCase()));
-            const local = getLocal<PackingSlip[]>(KEYS.PACKING_SLIPS, []);
-            const valid = local.filter(s => {
-              const sKey = (s.slipNo || s.id || '').trim().toUpperCase();
-              const sKeyId = (s.id || '').trim().toUpperCase();
-              if (deletedSet.has(sKey) || deletedSet.has(sKeyId)) return false;
-              const d = s.date || s.dispatchDate;
-              return !d || d >= '2026-11-19';
-            });
-            if (valid.length > 0) {
-              pushUpsertToCloud('packing_slips', valid.map(packingSlipToDb));
-            } else {
-              setLocal(KEYS.PACKING_SLIPS, []);
-            }
+            setLocal(KEYS.PACKING_SLIPS, []);
             notifyChange(tableName);
             break;
           }
@@ -1121,12 +1060,7 @@ export async function syncTableFromCloud(inputTableName: string): Promise<void> 
             notifyChange(tableName);
             break;
           case 'pending_orders': {
-            const local = getLocal<PendingOrder[]>(KEYS.PENDING_ORDERS, []);
-            if (local.length > 0) {
-              pushUpsertToCloud('pending_orders', local.map(pendingOrderToDb));
-            } else {
-              setLocal(KEYS.PENDING_ORDERS, []);
-            }
+            setLocal(KEYS.PENDING_ORDERS, []);
             notifyChange(tableName);
             break;
           }
@@ -1363,32 +1297,9 @@ let isSyncingAll = false;
 const FULL_SYNC_THROTTLE_MS = 15000;
 
 export async function syncLocalInventoryToCloud(): Promise<void> {
-  if (isSystemWipingActive) return;
-  if (!isSupabaseConfigured || !supabase) return;
-  try {
-    const deletedList = new Set((getLocal<string[]>(KEYS.DELETED_REELS, []) || []).map(d => (d || '').trim().toUpperCase()));
-    const ghostReels = new Set(['260803043', '260803083', '26110001', '26110026', '26110027', '26110029']);
-    const localReels = getLocal<Reel[]>(KEYS.REELS, []);
-    const validLocalReels = localReels.filter(r => {
-      if (!r || !r.reelNo) return false;
-      const cleanNo = (r.reelNo || '').trim().toUpperCase();
-      if (deletedList.has(cleanNo) || ghostReels.has(cleanNo)) return false;
-      if (r.productionDate && r.productionDate < '2026-11-19') return false;
-      return true;
-    });
-
-    if (validLocalReels.length > 0) {
-      const { data: cloudReels } = await supabase.from('reels').select('reel_no');
-      const cloudNos = new Set((cloudReels || []).map((c: any) => (c.reel_no || '').trim().toUpperCase()));
-      const missing = validLocalReels.filter(r => !cloudNos.has((r.reelNo || '').trim().toUpperCase()));
-      if (missing.length > 0) {
-        console.log(`[SupabaseSync] Auto-uploading ${missing.length} missing local reels to cloud:`, missing.map(r => r.reelNo));
-        await pushUpsertToCloud('reels', missing.map(reelToDb));
-      }
-    }
-  } catch (err) {
-    console.warn('[SupabaseSync] syncLocalInventoryToCloud failed:', err);
-  }
+  // Disabled permanently: Local storage is only a read-cache mirror.
+  // Database is the single source of truth. Data is only written to cloud via explicit user UI actions.
+  return;
 }
 
 export async function syncAllTables(force = false): Promise<void> {
@@ -1400,9 +1311,6 @@ export async function syncAllTables(force = false): Promise<void> {
   }
   lastFullSyncTime = now;
   isSyncingAll = true;
-
-  // First sync any unsynced local inventory up to cloud
-  syncLocalInventoryToCloud().catch(() => { });
 
   const tables = [
     'users',
@@ -1503,5 +1411,34 @@ export async function initSupabaseSync(): Promise<void> {
     }
     window.addEventListener('focus', () => syncAllTables(true));
     window.addEventListener('online', () => syncAllTables(true));
+
+    // 5. Cross-tab & multi-device factory reset listener
+    if ('BroadcastChannel' in window) {
+      try {
+        const sysBc = new BroadcastChannel('saheb_system_channel');
+        sysBc.onmessage = (event) => {
+          if (event.data?.type === 'FACTORY_RESET') {
+            console.warn('[SupabaseSync] Cross-tab FACTORY_RESET received. Wiping local caches immediately.');
+            setLocal(KEYS.REELS, []);
+            setLocal(KEYS.PACKING_SLIPS, []);
+            setLocal(KEYS.LOGS, []);
+            setLocal(KEYS.PENDING_ORDERS, []);
+            setLocal(KEYS.FORMULAS, []);
+            setLocal(KEYS.ROLLS, []);
+            setLocal(KEYS.BOILER_LOGS, []);
+            setLocal(KEYS.ETP_LOGS, []);
+            setLocal(KEYS.ELECTRICITY_LOGS, []);
+            setLocal(KEYS.RAW_MATERIAL_LOTS, []);
+            setLocal(KEYS.LAB_REPORTS, []);
+            setLocal(KEYS.STORE_ITEMS, []);
+            notifyChange('reels');
+            notifyChange('packing_slips');
+            notifyChange('transaction_logs');
+          }
+        };
+      } catch {
+        // BroadcastChannel unsupported/blocked
+      }
+    }
   }
 }
